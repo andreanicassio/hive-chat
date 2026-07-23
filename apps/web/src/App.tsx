@@ -6,6 +6,7 @@ import { AuthPage } from './pages/Auth.js';
 import { Sidebar } from './components/Sidebar.js';
 import { Chat, AgentStatusBar } from './components/Chat.js';
 import { AgentPanel, AgentList } from './components/AgentPanel.js';
+import { Settings } from './components/Settings.js';
 import { api } from './lib/api.js';
 
 /* ==========================================================================
@@ -116,6 +117,7 @@ function WorkspaceShell() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [showAgents, setShowAgents] = useState(false);
   const [showNewAgent, setShowNewAgent] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     const first = workspaces[0];
@@ -153,7 +155,13 @@ function WorkspaceShell() {
     <div className="flex h-full flex-col">
       {noModels && (
         <div className="shrink-0 px-3 pt-2 text-center text-[12.5px] text-[var(--color-ink-soft)]">
-          Nessuna credenziale per i modelli: gli agenti non possono ancora rispondere.
+          Nessuna credenziale per i modelli: gli agenti non possono ancora rispondere.{' '}
+          <button
+            onClick={() => setShowSettings(true)}
+            className="font-medium text-[var(--color-terracotta)] underline underline-offset-2"
+          >
+            Configurala
+          </button>
         </div>
       )}
 
@@ -162,6 +170,7 @@ function WorkspaceShell() {
           onOpenAgents={() => setShowAgents(true)}
           onNewChannel={() => {}}
           onSearch={() => {}}
+          onOpenSettings={() => setShowSettings(true)}
         />
         <Chat />
       </div>
@@ -181,6 +190,7 @@ function WorkspaceShell() {
         />
       )}
       {showNewAgent && <AgentPanel onClose={() => setShowNewAgent(false)} />}
+      {showSettings && <Settings onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

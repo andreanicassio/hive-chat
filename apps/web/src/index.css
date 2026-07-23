@@ -10,10 +10,10 @@
 
 @theme {
   /* --- Superfici --- */
-  --color-shell: #eae5cf; /* fondo finestra, il crema */
+  --color-shell: #d9dec7; /* valore medio del gradiente, usato come fallback */
   --color-shell-deep: #ded8bf; /* bordo e zone in ombra */
   --color-rail: transparent; /* la sidebar sta a filo sul crema */
-  --color-panel: #fffef9; /* pannello conversazione */
+  --color-panel: #ffffff; /* pannello conversazione: bianco puro, come nella reference */
   --color-panel-alt: #faf8ef; /* righe alternate, blocchi citati */
   --color-sunken: #f2eee0; /* campi, pillole, stati premuti */
 
@@ -91,15 +91,20 @@
   }
 
   body {
-    /* Il crema non è piatto: schiarisce verso l'alto a sinistra, come
-       nella reference. Dà profondità senza disegnare nulla. */
-    background:
-      radial-gradient(
-        120% 90% at 8% 0%,
-        color-mix(in oklab, var(--color-shell) 82%, #ffffff) 0%,
-        var(--color-shell) 58%
-      ),
-      var(--color-shell);
+    /* Gradiente campionato dalla reference: parte da un giallo-verde caldo
+       in alto e scende verso un azzurro-grigio freddo. Non è un crema
+       piatto, ed è quella transizione a dare l'aria della finestra. */
+    background: linear-gradient(
+      180deg,
+      #e5e5bd 0%,
+      #e2e3c0 12%,
+      #dee0c3 25%,
+      #dadec7 38%,
+      #d6dbca 50%,
+      #d3d9cf 65%,
+      #ced5d3 80%,
+      #c8d1d7 100%
+    );
     background-attachment: fixed;
     color: var(--color-ink);
     font-family: var(--font-sans);

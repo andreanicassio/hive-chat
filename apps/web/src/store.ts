@@ -54,7 +54,12 @@ interface State {
   agents: Agent[];
   members: Member[];
   joinedChannelIds: Set<string>;
-  capabilities: { anthropicConfigured: boolean; openrouterConfigured: boolean };
+  capabilities: {
+    anthropicConfigured: boolean;
+    openrouterConfigured: boolean;
+    /** Come si sta autenticando davvero, già in italiano. */
+    claudeAuthLabel: string;
+  };
 
   /* --- conversazione --- */
   activeChannelId: string | null;
@@ -123,7 +128,7 @@ export const useStore = create<State>((set, get) => ({
   agents: [],
   members: [],
   joinedChannelIds: new Set(),
-  capabilities: { anthropicConfigured: false, openrouterConfigured: false },
+  capabilities: { anthropicConfigured: false, openrouterConfigured: false, claudeAuthLabel: '' },
 
   activeChannelId: null,
   messagesByChannel: new Map(),

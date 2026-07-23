@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import clsx from 'clsx';
-import { Hash, Lock, Plus, Search, Inbox, Bot, ChevronDown } from 'lucide-react';
+import { Hash, Lock, Plus, Search, Inbox, Bot, ChevronDown, Settings2 } from 'lucide-react';
 import { useStore } from '../store.js';
 import { Avatar } from './Avatar.js';
 import type { Channel } from '@hive/shared';
@@ -16,10 +16,12 @@ export function Sidebar({
   onOpenAgents,
   onNewChannel,
   onSearch,
+  onOpenSettings,
 }: {
   onOpenAgents: () => void;
   onNewChannel: () => void;
   onSearch: () => void;
+  onOpenSettings: () => void;
 }) {
   const workspace = useStore((s) => s.workspace);
   const groups = useStore((s) => s.groups);
@@ -199,6 +201,13 @@ export function Sidebar({
             title="Riconnessione in corso"
           />
         )}
+        <button
+          onClick={onOpenSettings}
+          className="shrink-0 rounded-lg p-1.5 text-[var(--color-ink-faint)] transition-colors hover:bg-[color-mix(in_oklab,var(--color-ink)_7%,transparent)] hover:text-[var(--color-ink)]"
+          title="Impostazioni del progetto"
+        >
+          <Settings2 size={15} strokeWidth={2.1} />
+        </button>
       </div>
     </aside>
   );

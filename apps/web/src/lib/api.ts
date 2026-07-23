@@ -90,7 +90,11 @@ export interface BootstrapPayload {
     }
   >;
   joinedChannelIds: string[];
-  capabilities: { anthropicConfigured: boolean; openrouterConfigured: boolean };
+  capabilities: {
+    anthropicConfigured: boolean;
+    openrouterConfigured: boolean;
+    claudeAuthLabel: string;
+  };
 }
 
 export const api = {
@@ -195,7 +199,11 @@ export const api = {
     const qs = q.toString();
     return get<{
       models: CatalogModel[];
-      capabilities: { anthropicConfigured: boolean; openrouterConfigured: boolean };
+      capabilities: {
+        anthropicConfigured: boolean;
+        openrouterConfigured: boolean;
+        claudeAuthLabel: string;
+      };
       defaultModel: string;
     }>(`/api/models${qs ? `?${qs}` : ''}`);
   },
