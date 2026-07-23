@@ -157,7 +157,7 @@ function WorkspaceShell() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 pt-2 pr-2 pb-1 pl-1">
+      <div className="flex min-h-0 flex-1 gap-1 py-2.5 pr-2.5 pl-1">
         <Sidebar
           onOpenAgents={() => setShowAgents(true)}
           onNewChannel={() => {}}
@@ -167,7 +167,7 @@ function WorkspaceShell() {
       </div>
 
       {/* Barra di stato sotto il foglio, sul crema. */}
-      <div className="h-7 shrink-0 pl-[248px]">
+      <div className="h-6 shrink-0 pl-[244px]">
         <AgentStatusBar />
       </div>
 
