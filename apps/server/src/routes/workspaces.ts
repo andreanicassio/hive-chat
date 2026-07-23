@@ -15,6 +15,7 @@ import {
 } from '@hive/shared';
 import { env } from '../env.js';
 import { computeCapabilities } from '../services/capabilities.js';
+import { usageReport } from '../services/usage.js';
 
 /** Canali creati con ogni nuovo progetto, per non partire da una schermata vuota. */
 const STARTER_CHANNELS = [
@@ -498,6 +499,17 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
         manualUpdatedAt: row?.manualUpdatedAt?.toISOString() ?? null,
       },
     };
+  });
+
+  /* --------------------------------------------------- utilizzo e costi */
+  app.get('/api/workspaces/:workspaceId/usage', async (request) => {
+    const { workspaceId } = z.object({ workspaceId: z.uuid() }).parse(request.params);
+    // Solo admin/owner vedono i costi del progetto.
+    await requireMembership(request, workspaceId, 'admin');
+    const { days } = z
+      .object({ days: z.coerce.number().int().min(1).max(365).default(30) })
+      .parse(request.query);
+    return usageReport(workspaceId, days);
   });
 
   app.put('/api/workspaces/:workspaceId/context', async (request) => {

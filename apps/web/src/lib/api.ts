@@ -294,4 +294,19 @@ export const api = {
 
   saveContext: (workspaceId: string, manualNotes: string | null) =>
     put<{ ok: true }>(`/api/workspaces/${workspaceId}/context`, { manualNotes }),
+
+  /* --- utilizzo e costi --- */
+  usage: (workspaceId: string, days: number) =>
+    get<UsageReport>(`/api/workspaces/${workspaceId}/usage?days=${days}`),
 };
+
+export interface UsageReport {
+  periodDays: number;
+  total: { costUsd: number; runs: number; inputTokens: number; outputTokens: number; errorRuns: number };
+  subscriptionCostUsd: number;
+  payPerUseCostUsd: number;
+  byAgent: Array<{ agentId: string; name: string; emoji: string; color: string; model: string; runtime: string; costUsd: number; runs: number; inputTokens: number; outputTokens: number }>;
+  byChannel: Array<{ channelId: string; name: string; costUsd: number; runs: number }>;
+  byModel: Array<{ model: string; runtime: string; costUsd: number; runs: number; tokens: number }>;
+  daily: Array<{ date: string; costUsd: number; runs: number }>;
+}

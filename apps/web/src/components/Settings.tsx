@@ -12,8 +12,10 @@ import {
   TriangleAlert,
   UserPlus,
   X,
+  BarChart3,
 } from 'lucide-react';
 import { useStore } from '../store.js';
+import { Usage } from './Usage.js';
 import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
 
@@ -26,7 +28,7 @@ import { Avatar } from './Avatar.js';
  * server — si vede solo un troncone per riconoscerlo.
  */
 
-type Tab = 'credenziali' | 'contesto' | 'persone';
+type Tab = 'credenziali' | 'contesto' | 'persone' | 'utilizzo';
 
 interface SecretRow {
   key: string;
@@ -235,6 +237,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               ['credenziali', 'Credenziali', KeyRound],
               ['contesto', 'Contesto condiviso', Brain],
               ['persone', 'Persone', UserPlus],
+              ['utilizzo', 'Utilizzo', BarChart3],
             ] as const
           ).map(([id, label, Icon]) => (
             <button
@@ -377,6 +380,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 )}
               </div>
             </div>
+          ) : tab === 'utilizzo' ? (
+            <Usage />
           ) : (
             <div>
               <div className="mb-4">
