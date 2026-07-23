@@ -5,7 +5,7 @@ import { schema } from '@hive/db';
 import { db } from '../db.js';
 import { decryptSecret } from '../crypto.js';
 import type { RunEmitter } from '../emitter.js';
-import { toolById, type AgentToolGrant } from '@hive/shared';
+import { grantedHiveToolNames, toolById, type AgentToolGrant } from '@hive/shared';
 
 /**
  * Tool custom di Hive, esposti all'agente come server MCP in-process.
@@ -66,6 +66,8 @@ async function workspaceSecret(workspaceId: string, key: string): Promise<string
  * una volta sola e funziona su entrambi gli harness.
  */
 export function buildHiveTools(ctx: HiveToolContext) {
+  // Nomi dei tool hive effettivamente concessi a questo agente.
+  const granted = grantedHiveToolNames(ctx.grants);
   const tools = [];
 
   /* ------------------------------------------------ cerca nei messaggi */
@@ -406,7 +408,9 @@ export function buildHiveTools(ctx: HiveToolContext) {
     );
   }
 
-  return tools;
+  // Teniamo solo i tool che l'agente ha davvero ricevuto: così il modello
+  // non vede (e non prova) quelli che gli sono negati.
+  return tools.filter((t) => granted.has(t.name));
 }
 
 /** Impacchetta i tool come server MCP in-process per il Claude Agent SDK. */

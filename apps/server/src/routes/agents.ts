@@ -263,6 +263,17 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       .returning();
 
     const row = updated[0]!;
+
+    // Se cambiano tool, tipo o modello, la sessione SDK ripresa avrebbe un
+    // contesto ormai sbagliato (es. "questo tool non ce l'ho"): la
+    // invalidiamo, così il prossimo turno riparte pulito con la nuova config.
+    if (input.tools !== undefined || input.kind !== undefined || input.model !== undefined) {
+      await db
+        .update(schema.agentRuns)
+        .set({ sdkSessionId: null })
+        .where(eq(schema.agentRuns.agentId, agentId));
+    }
+
     const channels = await agentChannelMap([agentId]);
     const agent = serializeAgent(row, { channelIds: channels.get(agentId) ?? [] });
     await hub.publish(existing.workspaceId, { packet: { t: 'agent.upserted', agent } });

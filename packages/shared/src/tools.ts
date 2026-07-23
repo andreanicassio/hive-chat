@@ -236,6 +236,8 @@ export const defaultToolIds: Record<AgentKind, string[]> = {
     'code.write',
     'code.shell',
     'code.subagents',
+    'web.search',
+    'web.fetch',
     'hive.search_messages',
     'hive.memory',
   ],
@@ -254,6 +256,33 @@ export function resolveAllowedTools(
     for (const t of def.sdkTools) out.add(t);
   }
   return [...out];
+}
+
+/**
+ * Tool SDK built-in da NON esporre al modello perché non concessi.
+ *
+ * L'Agent SDK mostra al modello tutti i suoi tool nativi (Read, Bash,
+ * WebSearch...) a meno che non siano in `disallowedTools`. Senza questo,
+ * un agente prova tool che non ha e li vede negati uno per uno — brutto da
+ * vedere e uno spreco di turni. Qui blocchiamo a monte tutti i tool built-in
+ * del catalogo che l'agente non ha ricevuto.
+ *
+ * I tool MCP (`mcp__hive__*`) non passano di qui: quelli non concessi non
+ * vengono proprio registrati nel server MCP.
+ */
+export function resolveDisallowedTools(
+  grants: Array<{ toolId: string }>,
+  kind: AgentKind,
+): string[] {
+  const allowed = new Set(resolveAllowedTools(grants, kind));
+  const disallowed = new Set<string>();
+  for (const def of toolCatalog) {
+    for (const t of def.sdkTools) {
+      if (t.startsWith('mcp__')) continue;
+      if (!allowed.has(t)) disallowed.add(t);
+    }
+  }
+  return [...disallowed];
 }
 
 /**
@@ -285,4 +314,20 @@ export function dangerousToolNames(grants: Array<{ toolId: string; requireApprov
     }
   }
   return out;
+}
+
+/**
+ * Per ogni tool `hive.*` del catalogo, i nomi dei tool MCP che espone.
+ * Serve al runtime per registrare nel server MCP solo i tool concessi.
+ */
+export function grantedHiveToolNames(grants: Array<{ toolId: string }>): Set<string> {
+  const names = new Set<string>();
+  for (const g of grants) {
+    const def = toolById.get(g.toolId);
+    if (!def) continue;
+    for (const t of def.sdkTools) {
+      if (t.startsWith('mcp__hive__')) names.add(t.slice('mcp__hive__'.length));
+    }
+  }
+  return names;
 }

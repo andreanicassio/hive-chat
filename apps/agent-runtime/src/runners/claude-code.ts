@@ -16,6 +16,7 @@ import {
   dangerousToolNames,
   mentionedHandles,
   resolveAllowedTools,
+  resolveDisallowedTools,
   type AgentToolGrant,
   type EffortLevel,
 } from '@hive/shared';
@@ -133,9 +134,16 @@ export class ClaudeCodeRunner implements Runner {
     const allowedTools = resolveAllowedTools(grants, kind);
     const dangerous = dangerousToolNames(grants);
 
-    // Un assistente non deve toccare filesystem né shell: lo neghiamo
-    // esplicitamente, non ci affidiamo solo all'assenza dalla allowlist.
-    const disallowedTools = kind === 'assistant' ? assistantDeniedTools : [];
+    // Neghiamo esplicitamente ogni tool built-in NON concesso, così l'SDK non
+    // lo espone nemmeno al modello: senza questo l'agente prova tool che non
+    // ha e li vede negati uno per uno. Per gli assistenti aggiungiamo anche
+    // il blocco duro di filesystem e shell.
+    const disallowedTools = [
+      ...new Set([
+        ...resolveDisallowedTools(grants, kind),
+        ...(kind === 'assistant' ? assistantDeniedTools : []),
+      ]),
+    ];
 
     const hiveServer = buildHiveMcpServer({
       workspaceId: input.workspaceId,
