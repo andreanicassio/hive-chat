@@ -156,7 +156,7 @@ export const api = {
 
   postMessage: (
     channelId: string,
-    input: { body: string; threadRootId?: string | null; clientNonce?: string },
+    input: { body: string; threadRootId?: string | null; replyToId?: string | null; clientNonce?: string },
   ) =>
     post<{ message: Message; triggeredRuns: string[] }>(
       `/api/channels/${channelId}/messages`,

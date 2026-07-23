@@ -15,6 +15,13 @@
       "when": 1784824891684,
       "tag": "0001_regular_grey_gargoyle",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784830111642,
+      "tag": "0002_lumpy_reavers",
+      "breakpoints": true
     }
   ]
 }

@@ -63,6 +63,8 @@ interface State {
 
   /* --- conversazione --- */
   activeChannelId: string | null;
+  /** Messaggio a cui si sta rispondendo nel canale attivo. */
+  replyingTo: Message | null;
   messagesByChannel: Map<string, Message[]>;
   loadingChannel: boolean;
   hasMoreByChannel: Map<string, boolean>;
@@ -82,6 +84,7 @@ interface State {
   openChannel: (channelId: string) => Promise<void>;
   loadOlder: (channelId: string) => Promise<void>;
   sendMessage: (channelId: string, body: string) => Promise<void>;
+  setReplyingTo: (message: Message | null) => void;
   handlePacket: (packet: unknown) => void;
   reset: () => void;
 }
@@ -131,6 +134,7 @@ export const useStore = create<State>((set, get) => ({
   capabilities: { anthropicConfigured: false, openrouterConfigured: false, claudeAuthLabel: '' },
 
   activeChannelId: null,
+  replyingTo: null,
   messagesByChannel: new Map(),
   loadingChannel: false,
   hasMoreByChannel: new Map(),
@@ -176,7 +180,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openChannel(channelId) {
-    set({ activeChannelId: channelId, loadingChannel: true });
+    set({ activeChannelId: channelId, loadingChannel: true, replyingTo: null });
     realtime.subscribe([channelId]);
 
     // Se abbiamo già la cronologia mostriamola subito e aggiorniamo dietro.
@@ -229,9 +233,15 @@ export const useStore = create<State>((set, get) => ({
     // Nonce di idempotenza: se la rete inciampa e il client ritenta,
     // il server non crea un doppione.
     const clientNonce = randomId();
-    await api.postMessage(channelId, { body, clientNonce });
+    const replyToId = get().replyingTo?.id ?? null;
+    set({ replyingTo: null });
+    await api.postMessage(channelId, { body, clientNonce, replyToId });
     // Il messaggio arriva dal websocket: non lo inseriamo qui per evitare
     // di vederlo comparire due volte.
+  },
+
+  setReplyingTo(message) {
+    set({ replyingTo: message });
   },
 
   handlePacket(raw) {
@@ -240,10 +250,23 @@ export const useStore = create<State>((set, get) => ({
     switch (packet.t) {
       case 'message.new':
       case 'message.updated': {
-        const message = packet.message as Message;
+        let message = packet.message as Message;
         set((s) => {
           const next = new Map(s.messagesByChannel);
           const list = next.get(message.channelId);
+          // Aggiornamento robusto: un message.updated parziale (es. quello
+          // finale di un run) non deve cancellare campi che il mittente non
+          // conosce. Preserviamo la citazione già presente sul messaggio.
+          if (packet.t === 'message.updated' && list) {
+            const prev = list.find((m) => m.id === message.id);
+            if (prev) {
+              message = {
+                ...message,
+                replyTo: message.replyTo ?? prev.replyTo,
+                reactions: message.reactions.length ? message.reactions : prev.reactions,
+              };
+            }
+          }
           // Se non abbiamo il canale in memoria non lo popoliamo adesso:
           // verrà caricato all'apertura.
           if (list) next.set(message.channelId, upsertMessage(list, message));

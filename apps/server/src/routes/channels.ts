@@ -180,6 +180,7 @@ export async function channelRoutes(app: FastifyInstance): Promise<void> {
       author: { type: 'user', id: user.id },
       body: input.body,
       threadRootId: input.threadRootId ?? null,
+      replyToId: input.replyToId ?? null,
       clientNonce: input.clientNonce ?? null,
     });
 

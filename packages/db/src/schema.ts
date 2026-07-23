@@ -212,6 +212,8 @@ export const messages = pgTable(
       .notNull()
       .references(() => channels.id, { onDelete: 'cascade' }),
     threadRootId: uuid('thread_root_id'),
+    /** Messaggio a cui questo risponde: mostrato come citazione sopra il corpo. */
+    replyToId: uuid('reply_to_id'),
     authorType: varchar('author_type', { length: 8 }).notNull(), // user | agent | system
     authorId: uuid('author_id'),
     body: text('body').notNull().default(''),

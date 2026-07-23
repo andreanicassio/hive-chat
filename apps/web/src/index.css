@@ -452,6 +452,15 @@
     animation: typing-dot 1.3s infinite;
   }
 
+  /* Lampo di evidenziazione quando si salta a un messaggio citato. */
+  .flash-highlight {
+    animation: flash 1.2s ease-out;
+  }
+  @keyframes flash {
+    0%, 30% { background: color-mix(in oklab, var(--color-honey) 18%, transparent); }
+    100% { background: transparent; }
+  }
+
   @keyframes fade-up {
     from { opacity: 0; transform: translateY(4px); }
     to { opacity: 1; transform: none; }

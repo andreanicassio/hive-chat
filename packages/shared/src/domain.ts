@@ -173,10 +173,22 @@ export interface Attachment {
   url: string;
 }
 
+/** Anteprima compatta del messaggio a cui si sta rispondendo. */
+export interface ReplyPreview {
+  id: string;
+  authorName: string;
+  authorType: ActorType;
+  /** Prime parole del corpo, già senza markup di menzioni. */
+  excerpt: string;
+  deleted: boolean;
+}
+
 export interface Message {
   id: string;
   channelId: string;
   threadRootId: string | null;
+  /** Presente se il messaggio risponde a un altro. */
+  replyTo: ReplyPreview | null;
   author: ActorRef;
   /** Markdown. Le menzioni sono nella forma `<@handle>` / `<#canale>`. */
   body: string;
@@ -195,6 +207,8 @@ export interface Message {
 export const postMessageSchema = z.object({
   body: z.string().min(1).max(16000),
   threadRootId: uuid.nullable().optional(),
+  /** Id del messaggio a cui si risponde. */
+  replyToId: uuid.nullable().optional(),
   /** Idempotenza lato client per evitare doppi invii. */
   clientNonce: z.string().max(64).optional(),
 });

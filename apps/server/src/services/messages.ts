@@ -120,6 +120,7 @@ export interface PostMessageArgs {
   author: { type: 'user' | 'agent' | 'system'; id: string | null };
   body: string;
   threadRootId?: string | null;
+  replyToId?: string | null;
   clientNonce?: string | null;
   runId?: string | null;
   /** Non far partire agenti (usato per i messaggi generati dagli agenti stessi). */
@@ -134,6 +135,7 @@ export async function postMessage(args: PostMessageArgs) {
   const values = {
     channelId: args.channelId,
     threadRootId: args.threadRootId ?? null,
+    replyToId: args.replyToId ?? null,
     authorType: args.author.type,
     authorId: args.author.id,
     body: args.body,
@@ -293,6 +295,12 @@ export interface EnqueueRunArgs {
 }
 
 /**
+ * La bolla di risposta dell'agente cita il messaggio che l'ha attivato.
+ * Così il suo lavoro (e lo stato "sta ragionando") resta ancorato alla
+ * domanda, invece di comparire staccato in fondo alla conversazione.
+ */
+
+/**
  * Mette in coda un turno di agente.
  *
  * Crea subito la bolla del messaggio vuota così l'utente vede comparire
@@ -309,6 +317,7 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
       authorId: args.agentId,
       body: '',
       mentions: [],
+      replyToId: args.triggerMessageId,
       runId,
     })
     .returning();

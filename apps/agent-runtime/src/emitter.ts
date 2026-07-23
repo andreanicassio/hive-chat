@@ -181,13 +181,24 @@ export class RunEmitter {
     await this.status('idle', null);
 
     // Ripubblica il messaggio completo: chi si è collegato a metà stream
-    // così vede comunque il testo intero.
-    const rows = await db
-      .select()
-      .from(schema.messages)
-      .where(eq(schema.messages.id, this.ctx.messageId))
-      .limit(1);
+    // così vede comunque il testo intero. Carichiamo anche i dati veri
+    // dell'agente per l'autore: pubblicare un autore vuoto sovrascriverebbe
+    // quello corretto nel client, lasciando la bolla senza nome né avatar.
+    const [rows, agentRows] = await Promise.all([
+      db.select().from(schema.messages).where(eq(schema.messages.id, this.ctx.messageId)).limit(1),
+      db
+        .select({
+          name: schema.agents.name,
+          handle: schema.agents.handle,
+          avatarEmoji: schema.agents.avatarEmoji,
+          avatarColor: schema.agents.avatarColor,
+        })
+        .from(schema.agents)
+        .where(eq(schema.agents.id, this.ctx.agentId))
+        .limit(1),
+    ]);
     const row = rows[0];
+    const agent = agentRows[0];
     if (row) {
       await redis.publish(
         redisChannels.workspace(this.ctx.workspaceId),
@@ -198,7 +209,15 @@ export class RunEmitter {
               id: row.id,
               channelId: row.channelId,
               threadRootId: row.threadRootId,
-              author: { type: 'agent', id: this.ctx.agentId, name: '', handle: '', avatarEmoji: null, avatarColor: null },
+              replyTo: null,
+              author: {
+                type: 'agent',
+                id: this.ctx.agentId,
+                name: agent?.name ?? 'Agente',
+                handle: agent?.handle ?? '',
+                avatarEmoji: agent?.avatarEmoji ?? '🤖',
+                avatarColor: agent?.avatarColor ?? '#8A8A80',
+              },
               body: row.body,
               mentions: row.mentions,
               reactions: [],

@@ -17,12 +17,14 @@ import {
   Smile,
   Users,
   X,
+  Reply,
+  CornerUpLeft,
 } from 'lucide-react';
 import { useStore, type RunState } from '../store.js';
 import { api } from '../lib/api.js';
 import { realtime } from '../lib/ws.js';
 import { Avatar } from './Avatar.js';
-import type { Approval, Message, RunEvent } from '@hive/shared';
+import type { Approval, Message, ReplyPreview, RunEvent } from '@hive/shared';
 
 /* ========================================================================== */
 /*  Corpo del messaggio: markdown + menzioni rese come pillole                 */
@@ -219,6 +221,33 @@ function ApprovalCard({ approval }: { approval: Approval }) {
 }
 
 /* ========================================================================== */
+/*  Citazione del messaggio a cui si risponde                                  */
+/* ========================================================================== */
+
+function QuotedReply({ reply }: { reply: ReplyPreview }) {
+  return (
+    <button
+      onClick={() => {
+        // Salta al messaggio citato e lo evidenzia un istante.
+        const el = document.getElementById(`msg-${reply.id}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('flash-highlight');
+          setTimeout(() => el.classList.remove('flash-highlight'), 1200);
+        }
+      }}
+      className="mb-1 flex max-w-full items-center gap-1.5 text-left text-[12.5px] text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-ink)]"
+    >
+      <CornerUpLeft size={12} strokeWidth={2.2} className="shrink-0 text-[var(--color-ink-faint)]" />
+      <span className="shrink-0 font-medium">{reply.authorName}</span>
+      <span className="min-w-0 truncate text-[var(--color-ink-faint)]">
+        {reply.deleted ? 'messaggio eliminato' : reply.excerpt}
+      </span>
+    </button>
+  );
+}
+
+/* ========================================================================== */
 /*  Singolo messaggio                                                          */
 /* ========================================================================== */
 
@@ -234,6 +263,7 @@ function MessageRow({
   approvals: Approval[];
 }) {
   const onlineUserIds = useStore((s) => s.onlineUserIds);
+  const setReplyingTo = useStore((s) => s.setReplyingTo);
 
   // Messaggi consecutivi dello stesso autore entro 5 minuti si raggruppano:
   // meno rumore visivo, si legge come una conversazione.
@@ -260,11 +290,23 @@ function MessageRow({
 
   return (
     <div
+      id={`msg-${message.id}`}
       className={clsx(
         'group relative px-5 transition-colors hover:bg-[color-mix(in_oklab,var(--color-ink)_2.5%,transparent)]',
         grouped ? 'py-0.5' : 'pt-3 pb-0.5',
       )}
     >
+      {/* Azioni al passaggio del mouse: per ora, rispondi. */}
+      <div className="absolute right-4 -top-2 z-10 hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] shadow-[var(--shadow-panel)] group-hover:flex">
+        <button
+          onClick={() => setReplyingTo(message)}
+          className="flex items-center gap-1 px-2 py-1 text-[12.5px] text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-ink)]"
+          title="Rispondi a questo messaggio"
+        >
+          <Reply size={13} strokeWidth={2.2} /> Rispondi
+        </button>
+      </div>
+
       <div className="flex gap-3">
         <div className="w-9 shrink-0">
           {grouped ? (
@@ -286,6 +328,9 @@ function MessageRow({
         </div>
 
         <div className="min-w-0 flex-1 pb-1">
+          {/* Citazione: se questo messaggio risponde a un altro. */}
+          {message.replyTo && <QuotedReply reply={message.replyTo} />}
+
           {!grouped && (
             <div className="mb-0.5 flex items-baseline gap-2">
               <span className="text-[14.5px] font-semibold">{message.author.name}</span>
@@ -381,6 +426,8 @@ function Composer({ channelId, channelName }: { channelId: string; channelName: 
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const sendMessage = useStore((s) => s.sendMessage);
+  const replyingTo = useStore((s) => s.replyingTo);
+  const setReplyingTo = useStore((s) => s.setReplyingTo);
   const agents = useStore((s) => s.agents);
   const members = useStore((s) => s.members);
 
@@ -391,6 +438,11 @@ function Composer({ channelId, channelName }: { channelId: string; channelName: 
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [value]);
+
+  // Quando si sceglie di rispondere, il cursore va subito nel campo.
+  useEffect(() => {
+    if (replyingTo) textarea.current?.focus();
+  }, [replyingTo]);
 
   const suggestions = useMemo(() => {
     if (mentionQuery === null) return [];
@@ -501,6 +553,27 @@ function Composer({ channelId, channelName }: { channelId: string; channelName: 
       )}
 
       <div className="composer">
+        {replyingTo && (
+          <div className="flex items-center gap-2 border-b border-[var(--color-line)] px-3.5 pt-2 pb-1.5 text-[12.5px]">
+            <CornerUpLeft size={13} strokeWidth={2.2} className="shrink-0 text-[var(--color-ink-faint)]" />
+            <span className="text-[var(--color-ink-soft)]">
+              In risposta a{' '}
+              <span className="font-medium text-[var(--color-ink)]">
+                {replyingTo.author.name}
+              </span>
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[var(--color-ink-faint)]">
+              {replyingTo.body.replace(/<@([a-z0-9._-]+)>/g, '@$1').slice(0, 80)}
+            </span>
+            <button
+              onClick={() => setReplyingTo(null)}
+              className="shrink-0 rounded p-0.5 text-[var(--color-ink-faint)] transition-colors hover:text-[var(--color-ink)]"
+              title="Annulla risposta"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
         <textarea
           ref={textarea}
           value={value}

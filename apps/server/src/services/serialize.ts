@@ -8,6 +8,7 @@ import type {
   Message,
   Reaction,
   MentionRef,
+  ReplyPreview,
 } from '@hive/shared';
 
 /* ---------------------------------------------------------------------------
@@ -186,10 +187,42 @@ export async function serializeMessages(
     attachmentsByMessage.set(a.messageId, list);
   }
 
+  // Anteprime dei messaggi citati: una query per tutti quelli con replyTo.
+  const replyIds = rows.map((r) => r.replyToId).filter((id): id is string => Boolean(id));
+  const replyPreviews = new Map<string, ReplyPreview>();
+  if (replyIds.length > 0) {
+    const quoted = await db
+      .select({
+        id: schema.messages.id,
+        authorType: schema.messages.authorType,
+        authorId: schema.messages.authorId,
+        body: schema.messages.body,
+        deletedAt: schema.messages.deletedAt,
+      })
+      .from(schema.messages)
+      .where(inArray(schema.messages.id, replyIds));
+    const quotedActors = await loadActors(
+      quoted.map((q) => ({ type: q.authorType, id: q.authorId })),
+    );
+    for (const q of quoted) {
+      const actor = resolveActor(quotedActors, q.authorType, q.authorId);
+      // L'anteprima è testo semplice: togliamo il markup delle menzioni.
+      const plain = q.body.replace(/<@([a-z0-9._-]+)>/g, '@$1').replace(/<#([a-z0-9-]+)>/g, '#$1');
+      replyPreviews.set(q.id, {
+        id: q.id,
+        authorName: actor.name,
+        authorType: actor.type,
+        excerpt: q.deletedAt ? '' : plain.slice(0, 140),
+        deleted: Boolean(q.deletedAt),
+      });
+    }
+  }
+
   return rows.map((r) => ({
     id: r.id,
     channelId: r.channelId,
     threadRootId: r.threadRootId,
+    replyTo: r.replyToId ? (replyPreviews.get(r.replyToId) ?? null) : null,
     author: resolveActor(actors, r.authorType, r.authorId),
     // Un messaggio cancellato non deve trapelare il testo originale.
     body: r.deletedAt ? '' : r.body,
