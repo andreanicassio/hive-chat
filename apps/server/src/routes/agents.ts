@@ -447,6 +447,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       const skills = await generateSkills({
+        workspaceId,
         purpose: input.purpose,
         kind: input.kind,
         toolIds: input.toolIds,
@@ -458,7 +459,14 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       if (err instanceof NoModelKeyError) {
         throw badRequest('no_model_key', err.message);
       }
-      throw err;
+      // Un errore del provider (chiave sbagliata, rate limit, modello giù) non
+      // deve diventare un 500 opaco: lo giriamo come messaggio leggibile.
+      const detail = err instanceof Error ? err.message : String(err);
+      throw badRequest(
+        'generation_failed',
+        `La generazione non è riuscita: ${detail}. ` +
+          'Controlla che la chiave in Impostazioni sia valida.',
+      );
     }
   });
 }

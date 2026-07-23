@@ -1,4 +1,7 @@
+import { and, eq } from 'drizzle-orm';
 import { env } from '../env.js';
+import { db, schema } from '../db/index.js';
+import { decryptSecret } from '../lib/crypto.js';
 import { toolById } from '@hive/shared';
 import type { AgentKind } from '@hive/shared';
 
@@ -138,15 +141,66 @@ function normalize(raw: unknown, count: number): GeneratedSkill[] {
 
 /** Errore parlante quando manca la configurazione, invece di un 500 opaco. */
 export class NoModelKeyError extends Error {
-  constructor() {
+  constructor(message?: string) {
     super(
-      'Per generare le skill serve una chiave: configura ANTHROPIC_API_KEY oppure OPENROUTER_API_KEY.',
+      message ??
+        'Per generare le skill serve una chiave API. Aprila in Impostazioni → Credenziali e ' +
+          'incolla una chiave OpenRouter oppure una API key Anthropic.',
     );
     this.name = 'NoModelKeyError';
   }
 }
 
+/**
+ * Chiave da usare per la generazione delle skill.
+ *
+ * La generazione è una singola chiamata HTTP con output strutturato, quindi
+ * serve una API key vera. Il token dell'abbonamento Claude NON va bene qui:
+ * è pensato per il loop dell'Agent SDK e, su una chiamata diretta
+ * all'endpoint messages, viene sistematicamente respinto con 429.
+ *
+ * Ordine di ricerca (dal più specifico): segreti del progetto, poi env del
+ * server. A parità, preferiamo OpenRouter perché una sua chiave copre anche
+ * i modelli non-Claude.
+ */
+async function resolveGenerationKey(
+  workspaceId: string,
+): Promise<{ provider: 'anthropic' | 'openrouter'; key: string } | null> {
+  const [wsOpenRouter, wsAnthropic] = await Promise.all([
+    workspaceSecret(workspaceId, 'OPENROUTER_API_KEY'),
+    workspaceSecret(workspaceId, 'ANTHROPIC_API_KEY'),
+  ]);
+
+  if (wsOpenRouter) return { provider: 'openrouter', key: wsOpenRouter };
+  if (env.OPENROUTER_API_KEY) return { provider: 'openrouter', key: env.OPENROUTER_API_KEY };
+  if (wsAnthropic) return { provider: 'anthropic', key: wsAnthropic };
+  if (env.ANTHROPIC_API_KEY) return { provider: 'anthropic', key: env.ANTHROPIC_API_KEY };
+  return null;
+}
+
+/** Legge e decifra un segreto del workspace. */
+async function workspaceSecret(workspaceId: string, key: string): Promise<string | null> {
+  const rows = await db
+    .select({ value: schema.workspaceSecrets.valueEncrypted })
+    .from(schema.workspaceSecrets)
+    .where(
+      and(
+        eq(schema.workspaceSecrets.workspaceId, workspaceId),
+        eq(schema.workspaceSecrets.key, key),
+      ),
+    )
+    .limit(1);
+  const enc = rows[0]?.value;
+  if (!enc) return null;
+  try {
+    return decryptSecret(enc);
+  } catch {
+    return null;
+  }
+}
+
 export async function generateSkills(args: {
+  workspaceId: string;
   purpose: string;
   kind: AgentKind;
   toolIds: string[];
@@ -154,22 +208,39 @@ export async function generateSkills(args: {
 }): Promise<GeneratedSkill[]> {
   const prompt = buildPrompt(args);
 
-  if (env.ANTHROPIC_API_KEY) {
-    return generateViaAnthropic(prompt, args.count);
+  const cred = await resolveGenerationKey(args.workspaceId);
+  if (!cred) {
+    // Distinguiamo il caso "hai solo l'abbonamento": è la configurazione più
+    // probabile di chi ci casca, e merita una spiegazione precisa.
+    const hasSubscriptionOnly =
+      Boolean(env.CLAUDE_CODE_OAUTH_TOKEN) &&
+      !env.ANTHROPIC_API_KEY &&
+      !env.OPENROUTER_API_KEY;
+    throw new NoModelKeyError(
+      hasSubscriptionOnly
+        ? 'Gli agenti girano sul tuo abbonamento, ma la generazione delle skill ha bisogno ' +
+            'di una API key vera (l’abbonamento non è utilizzabile per questa chiamata). ' +
+            'Aggiungi una chiave OpenRouter o Anthropic in Impostazioni → Credenziali.'
+        : undefined,
+    );
   }
-  if (env.OPENROUTER_API_KEY) {
-    return generateViaOpenRouter(prompt, args.count);
-  }
-  throw new NoModelKeyError();
+
+  return cred.provider === 'openrouter'
+    ? generateViaOpenRouter(prompt, args.count, cred.key)
+    : generateViaAnthropic(prompt, args.count, cred.key);
 }
 
-async function generateViaAnthropic(prompt: string, count: number): Promise<GeneratedSkill[]> {
+async function generateViaAnthropic(
+  prompt: string,
+  count: number,
+  apiKey: string,
+): Promise<GeneratedSkill[]> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     signal: AbortSignal.timeout(120_000),
     headers: {
       'content-type': 'application/json',
-      'x-api-key': env.ANTHROPIC_API_KEY,
+      'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
@@ -199,13 +270,17 @@ async function generateViaAnthropic(prompt: string, count: number): Promise<Gene
   return normalize(extractJson(text), count);
 }
 
-async function generateViaOpenRouter(prompt: string, count: number): Promise<GeneratedSkill[]> {
+async function generateViaOpenRouter(
+  prompt: string,
+  count: number,
+  apiKey: string,
+): Promise<GeneratedSkill[]> {
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     signal: AbortSignal.timeout(120_000),
     headers: {
       'content-type': 'application/json',
-      authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+      authorization: `Bearer ${apiKey}`,
       'HTTP-Referer': env.PUBLIC_ORIGIN,
       'X-Title': 'Hive',
     },
