@@ -1,6 +1,17 @@
-import type { WebSocket } from 'ws';
+import { WebSocket } from 'ws';
 import { redisPub, redisSub } from '../lib/redis.js';
 import { redisChannels, type ServerPacket } from '@hive/shared';
+
+/**
+ * Stato "socket aperto".
+ *
+ * Non usiamo `conn.socket.OPEN` come riferimento: a seconda di come
+ * `@fastify/websocket` espone il socket, quella costante d'istanza può
+ * essere `undefined`, e `readyState !== undefined` sarebbe sempre vero —
+ * scartando in silenzio ogni messaggio. Usiamo la costante statica della
+ * classe, che vale sempre 1.
+ */
+const OPEN = WebSocket.OPEN;
 
 /**
  * Hub delle connessioni WebSocket.
@@ -115,7 +126,7 @@ class Hub {
 
   /** Invia direttamente a una socket già in mano al chiamante. */
   send(conn: Connection, packet: ServerPacket): void {
-    if (conn.socket.readyState !== conn.socket.OPEN) return;
+    if (conn.socket.readyState !== OPEN) return;
     try {
       conn.socket.send(JSON.stringify(packet));
     } catch {
@@ -133,7 +144,7 @@ class Hub {
       if (envelope.exceptUserId && conn.userId === envelope.exceptUserId) continue;
       if (envelope.userIds && !envelope.userIds.includes(conn.userId)) continue;
       if (envelope.channelId && !conn.channels.has(envelope.channelId)) continue;
-      if (conn.socket.readyState !== conn.socket.OPEN) continue;
+      if (conn.socket.readyState !== OPEN) continue;
       try {
         conn.socket.send(payload);
       } catch {

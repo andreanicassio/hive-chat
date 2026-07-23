@@ -25,12 +25,31 @@ export async function websocketRoutes(app: FastifyInstance): Promise<void> {
       socket.close(4401, 'unauthorized');
       return;
     }
+    // Alias non-nullable: il narrowing di `user` non attraversa il confine
+    // della funzione `handlePacket` annidata, quindi lo fissiamo qui.
+    const me = user;
 
     let conn: Awaited<ReturnType<typeof hub.add>> | null = null;
     const lastTyping = new Map<string, number>();
 
+    // I pacchetti si elaborano UNO ALLA VOLTA, in ordine di arrivo.
+    //
+    // Senza questa serializzazione, `hello` e il `subscribe` che lo segue
+    // partono come due async concorrenti: `hello` fa un await (registrazione
+    // su Redis) durante il quale `conn` è ancora null, così il `subscribe`
+    // trova conn nullo e viene scartato — e il client non risulta mai
+    // iscritto ad alcun canale. Incatenando le elaborazioni, `subscribe`
+    // aspetta che `hello` abbia finito.
+    let queue: Promise<void> = Promise.resolve();
+
     socket.on('message', (raw: Buffer) => {
-      void (async () => {
+      queue = queue
+        .then(() => handlePacket(raw))
+        .catch((err) => app.log.error({ err }, 'errore gestendo un pacchetto websocket'));
+    });
+
+    async function handlePacket(raw: Buffer): Promise<void> {
+      {
         let parsed;
         try {
           parsed = clientPacketSchema.safeParse(JSON.parse(raw.toString()));
@@ -49,7 +68,7 @@ export async function websocketRoutes(app: FastifyInstance): Promise<void> {
               .where(
                 and(
                   eq(schema.workspaceMembers.workspaceId, packet.workspaceId),
-                  eq(schema.workspaceMembers.userId, user.id),
+                  eq(schema.workspaceMembers.userId, me.id),
                 ),
               )
               .limit(1);
@@ -61,16 +80,16 @@ export async function websocketRoutes(app: FastifyInstance): Promise<void> {
             }
 
             if (conn) await hub.remove(conn);
-            conn = await hub.add(socket, user.id, packet.workspaceId);
+            conn = await hub.add(socket, me.id, packet.workspaceId);
             send({
               t: 'ready',
-              userId: user.id,
+              userId: me.id,
               workspaceId: packet.workspaceId,
               serverTime: new Date().toISOString(),
             });
             await hub.publish(packet.workspaceId, {
-              packet: { t: 'presence', userId: user.id, online: true },
-              exceptUserId: user.id,
+              packet: { t: 'presence', userId: me.id, online: true },
+              exceptUserId: me.id,
             });
             return;
           }
@@ -99,11 +118,11 @@ export async function websocketRoutes(app: FastifyInstance): Promise<void> {
               packet: {
                 t: 'typing',
                 channelId: packet.channelId,
-                actorId: user.id,
-                name: user.name,
+                actorId: me.id,
+                name: me.name,
               },
               channelId: packet.channelId,
-              exceptUserId: user.id,
+              exceptUserId: me.id,
             });
             return;
           }
@@ -117,7 +136,7 @@ export async function websocketRoutes(app: FastifyInstance): Promise<void> {
                 and(
                   eq(schema.channelMembers.channelId, packet.channelId),
                   eq(schema.channelMembers.memberType, 'user'),
-                  eq(schema.channelMembers.memberId, user.id),
+                  eq(schema.channelMembers.memberId, me.id),
                 ),
               );
             return;
@@ -128,10 +147,8 @@ export async function websocketRoutes(app: FastifyInstance): Promise<void> {
             return;
           }
         }
-      })().catch((err) => {
-        app.log.error({ err }, 'errore gestendo un pacchetto websocket');
-      });
-    });
+      }
+    }
 
     socket.on('close', () => {
       void (async () => {
@@ -140,16 +157,16 @@ export async function websocketRoutes(app: FastifyInstance): Promise<void> {
         await hub.remove(conn);
         conn = null;
         // Annuncia offline solo se non restano altre schede aperte.
-        if (!hub.isOnlineLocally(workspaceId, user.id)) {
+        if (!hub.isOnlineLocally(workspaceId, me.id)) {
           await hub.publish(workspaceId, {
-            packet: { t: 'presence', userId: user.id, online: false },
-            exceptUserId: user.id,
+            packet: { t: 'presence', userId: me.id, online: false },
+            exceptUserId: me.id,
           });
         }
         await db
           .update(schema.users)
           .set({ lastSeenAt: new Date() })
-          .where(eq(schema.users.id, user.id))
+          .where(eq(schema.users.id, me.id))
           .catch(() => {});
       })().catch(() => {});
     });
