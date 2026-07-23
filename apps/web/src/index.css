@@ -1,0 +1,468 @@
+@import 'tailwindcss';
+
+/* ===========================================================================
+   Sistema di design
+   ---------------------------------------------------------------------------
+   Palette calda su base crema, ricavata dalla reference. L'idea è che
+   l'interfaccia sia di carta, non di vetro: fondo caldo, pannello quasi
+   bianco che ci galleggia sopra, ombre morbide e nessun blu di sistema.
+   ======================================================================== */
+
+@theme {
+  /* --- Superfici --- */
+  --color-shell: #eae5cf; /* fondo finestra, il crema */
+  --color-shell-deep: #ded8bf; /* bordo e zone in ombra */
+  --color-rail: transparent; /* la sidebar sta a filo sul crema */
+  --color-panel: #fffef9; /* pannello conversazione */
+  --color-panel-alt: #faf8ef; /* righe alternate, blocchi citati */
+  --color-sunken: #f2eee0; /* campi, pillole, stati premuti */
+
+  /* --- Testo --- */
+  --color-ink: #1f1e19; /* testo principale */
+  --color-ink-soft: #57544a; /* testo secondario */
+  --color-ink-faint: #8b8778; /* metadati, orari */
+
+  /* --- Tratti --- */
+  --color-line: #e2ddc8;
+  --color-line-strong: #d2ccb4;
+
+  /* --- Accenti --- */
+  --color-honey: #c8922f; /* accento primario */
+  --color-honey-soft: #f3e6c4;
+  --color-terracotta: #c0663c;
+  --color-sage: #6b7f56;
+  --color-clay: #a8503f;
+
+  /* --- Stati --- */
+  --color-online: #5b9e6a;
+  --color-busy: #d9a441;
+  --color-error: #b6503f;
+
+  /* --- Tipografia --- */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+
+  /* --- Raggi --- */
+  --radius-pill: 999px;
+
+  /* --- Ombre: basse e larghe, mai nette --- */
+  --shadow-panel: 0 1px 2px rgb(60 52 30 / 0.04), 0 8px 24px -8px rgb(60 52 30 / 0.1);
+  --shadow-pop: 0 2px 6px rgb(60 52 30 / 0.08), 0 16px 40px -12px rgb(60 52 30 / 0.22);
+  --shadow-inset: inset 0 1px 2px rgb(60 52 30 / 0.06);
+}
+
+/* --- Modalità scura ------------------------------------------------------
+   Non è un'inversione: è la stessa stanza con la luce abbassata. I toni
+   restano caldi, il crema diventa terra scura. --------------------------- */
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-shell: #171613;
+    --color-shell-deep: #100f0d;
+    --color-rail: #1d1c18;
+    --color-panel: #221f1a;
+    --color-panel-alt: #26231d;
+    --color-sunken: #2b2822;
+
+    --color-ink: #f0ece1;
+    --color-ink-soft: #b3ada0;
+    --color-ink-faint: #7d786c;
+
+    --color-line: #322e27;
+    --color-line-strong: #423d34;
+
+    --color-honey-soft: #3a3122;
+    --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -8px rgb(0 0 0 / 0.5);
+    --shadow-pop: 0 2px 6px rgb(0 0 0 / 0.4), 0 16px 40px -12px rgb(0 0 0 / 0.6);
+  }
+}
+
+/* ========================================================================= */
+
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    /* Il crema non è piatto: schiarisce verso l'alto a sinistra, come
+       nella reference. Dà profondità senza disegnare nulla. */
+    background:
+      radial-gradient(
+        120% 90% at 8% 0%,
+        color-mix(in oklab, var(--color-shell) 82%, #ffffff) 0%,
+        var(--color-shell) 58%
+      ),
+      var(--color-shell);
+    background-attachment: fixed;
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overscroll-behavior: none;
+  }
+
+  /* Focus visibile solo da tastiera: il mouse non deve disegnare anelli. */
+  :focus-visible {
+    outline: 2px solid var(--color-honey);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* Barre di scorrimento discrete, in tono con la palette. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--color-ink-faint) 30%, transparent);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--color-ink-faint) 50%, transparent);
+    background-clip: content-box;
+  }
+
+  ::selection {
+    background: var(--color-honey-soft);
+    color: var(--color-ink);
+  }
+}
+
+@layer components {
+  /* --- Pannello principale: il foglio che galleggia sul crema --- */
+  .panel {
+    background: var(--color-panel);
+    border-radius: 14px;
+    box-shadow: var(--shadow-panel);
+  }
+
+  /* --- Voce della barra laterale --- */
+  .rail-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.3rem 0.6rem;
+    border-radius: 7px;
+    font-size: 14.5px;
+    color: var(--color-ink-soft);
+    transition: background-color 120ms ease, color 120ms ease;
+    text-align: left;
+  }
+  .rail-item:hover {
+    background: color-mix(in oklab, var(--color-ink) 5%, transparent);
+    color: var(--color-ink);
+  }
+  .rail-item[data-active='true'] {
+    background: color-mix(in oklab, var(--color-ink) 9%, transparent);
+    color: var(--color-ink);
+    font-weight: 500;
+  }
+  /* Un canale non letto si legge dal peso, non da un badge urlato. */
+  .rail-item[data-unread='true'] {
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+
+  /* --- Pillola di menzione --- */
+  .mention {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2em;
+    padding: 0.05em 0.4em;
+    margin: 0 0.05em;
+    border-radius: 5px;
+    background: var(--color-honey-soft);
+    color: color-mix(in oklab, var(--color-honey) 75%, var(--color-ink));
+    font-weight: 500;
+    font-size: 0.95em;
+    white-space: nowrap;
+  }
+  .mention[data-kind='agent'] {
+    background: color-mix(in oklab, var(--color-ink) 7%, transparent);
+    color: var(--color-ink);
+  }
+
+  /* --- Campo di composizione --- */
+  .composer {
+    background: var(--color-panel);
+    border: 1px solid var(--color-line-strong);
+    border-radius: 12px;
+    box-shadow: var(--shadow-inset);
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+  }
+  .composer:focus-within {
+    border-color: color-mix(in oklab, var(--color-honey) 55%, var(--color-line-strong));
+    box-shadow:
+      var(--shadow-inset),
+      0 0 0 3px color-mix(in oklab, var(--color-honey) 16%, transparent);
+  }
+
+  /* --- Chip reazione --- */
+  .reaction {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    height: 24px;
+    padding: 0 0.5rem;
+    border-radius: 999px;
+    background: var(--color-sunken);
+    border: 1px solid transparent;
+    font-size: 12.5px;
+    color: var(--color-ink-soft);
+    transition: all 120ms ease;
+  }
+  .reaction:hover {
+    border-color: var(--color-line-strong);
+  }
+  .reaction[data-mine='true'] {
+    background: var(--color-honey-soft);
+    border-color: color-mix(in oklab, var(--color-honey) 40%, transparent);
+    color: color-mix(in oklab, var(--color-honey) 70%, var(--color-ink));
+  }
+
+  /* --- Chip di uso tool nel messaggio dell'agente --- */
+  .tool-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.15rem 0.55rem;
+    border-radius: 6px;
+    background: var(--color-sunken);
+    color: var(--color-ink-soft);
+    font-size: 12.5px;
+    font-family: var(--font-mono);
+    max-width: 100%;
+  }
+
+  /* --- Bottone primario --- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    height: 34px;
+    padding: 0 0.9rem;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 120ms ease;
+    white-space: nowrap;
+  }
+  .btn-primary {
+    background: var(--color-ink);
+    color: var(--color-panel);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--color-ink) 88%, var(--color-panel));
+  }
+  .btn-ghost {
+    color: var(--color-ink-soft);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--color-ink) 6%, transparent);
+    color: var(--color-ink);
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* --- Campo di testo --- */
+  .field {
+    width: 100%;
+    height: 38px;
+    padding: 0 0.7rem;
+    border-radius: 9px;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line-strong);
+    color: var(--color-ink);
+    font-size: 15px;
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+  }
+  .field::placeholder {
+    color: var(--color-ink-faint);
+  }
+  .field:focus {
+    outline: none;
+    border-color: color-mix(in oklab, var(--color-honey) 55%, var(--color-line-strong));
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-honey) 16%, transparent);
+  }
+
+  /* --- Separatore "nuovi messaggi" --- */
+  .new-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--color-clay);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .new-divider::before,
+  .new-divider::after {
+    content: '';
+    height: 1px;
+    background: color-mix(in oklab, var(--color-clay) 35%, transparent);
+    flex: 1;
+  }
+  .new-divider::before {
+    flex: 0 0 auto;
+    width: 0;
+  }
+}
+
+@layer utilities {
+  /* Testo del corpo messaggio: markdown reso leggibile senza prose plugin. */
+  .msg-body {
+    font-size: 15px;
+    line-height: 1.58;
+    word-break: break-word;
+  }
+  .msg-body > * + * {
+    margin-top: 0.5em;
+  }
+  .msg-body ul,
+  .msg-body ol {
+    padding-left: 1.35em;
+  }
+  .msg-body ul {
+    list-style: disc;
+  }
+  .msg-body ol {
+    list-style: decimal;
+  }
+  .msg-body li + li {
+    margin-top: 0.2em;
+  }
+  .msg-body li > ul,
+  .msg-body li > ol {
+    margin-top: 0.2em;
+  }
+  .msg-body strong {
+    font-weight: 620;
+  }
+  .msg-body a {
+    color: var(--color-terracotta);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .msg-body code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    background: var(--color-sunken);
+    padding: 0.12em 0.35em;
+    border-radius: 4px;
+  }
+  .msg-body pre {
+    background: var(--color-panel-alt);
+    border: 1px solid var(--color-line);
+    border-radius: 9px;
+    padding: 0.75rem 0.9rem;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .msg-body pre code {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+  }
+  .msg-body blockquote {
+    border-left: 3px solid var(--color-line-strong);
+    padding-left: 0.8rem;
+    color: var(--color-ink-soft);
+  }
+  .msg-body h1,
+  .msg-body h2,
+  .msg-body h3 {
+    font-weight: 640;
+    line-height: 1.3;
+    margin-top: 1em;
+  }
+  .msg-body h1 { font-size: 1.25em; }
+  .msg-body h2 { font-size: 1.13em; }
+  .msg-body h3 { font-size: 1.03em; }
+  .msg-body table {
+    border-collapse: collapse;
+    font-size: 14px;
+    display: block;
+    overflow-x: auto;
+  }
+  .msg-body th,
+  .msg-body td {
+    border: 1px solid var(--color-line);
+    padding: 0.35rem 0.6rem;
+    text-align: left;
+  }
+  .msg-body th {
+    background: var(--color-panel-alt);
+    font-weight: 600;
+  }
+  .msg-body hr {
+    border: none;
+    border-top: 1px solid var(--color-line);
+  }
+
+  /* Cursore che lampeggia mentre l'agente sta scrivendo. */
+  .streaming-caret::after {
+    content: '';
+    display: inline-block;
+    width: 2px;
+    height: 1.05em;
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    background: var(--color-honey);
+    animation: caret 1s steps(2) infinite;
+  }
+  @keyframes caret {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+
+  /* Puntini "sta scrivendo". */
+  @keyframes typing-dot {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-3px); opacity: 1; }
+  }
+  .typing-dot {
+    animation: typing-dot 1.3s infinite;
+  }
+
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+  }
+  .animate-in-msg {
+    animation: fade-up 180ms ease-out;
+  }
+
+  /* Chi preferisce meno movimento non deve subirlo. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

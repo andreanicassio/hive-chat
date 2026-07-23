@@ -1,0 +1,27 @@
+{
+  "name": "hive",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "npm run build --workspace @hive/shared && npm run build --workspace @hive/server && npm run build --workspace @hive/agent-runtime && npm run build --workspace @hive/web",
+    "dev": "concurrently -n server,runtime,web -c cyan,magenta,green \"npm:dev:server\" \"npm:dev:runtime\" \"npm:dev:web\"",
+    "dev:server": "npm run dev --workspace @hive/server",
+    "dev:runtime": "npm run dev --workspace @hive/agent-runtime",
+    "dev:web": "npm run dev --workspace @hive/web",
+    "db:generate": "npm run db:generate --workspace @hive/server",
+    "db:migrate": "npm run db:migrate --workspace @hive/server",
+    "typecheck": "tsc -b --pretty"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  }
+}
