@@ -176,6 +176,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<Tab>('credenziali');
   const [secrets, setSecrets] = useState<SecretRow[]>([]);
   const [notes, setNotes] = useState('');
+  const [autoSummary, setAutoSummary] = useState<string | null>(null);
+  const [autoUpdatedAt, setAutoUpdatedAt] = useState<string | null>(null);
   const [notesSaved, setNotesSaved] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -192,7 +194,11 @@ export function Settings({ onClose }: { onClose: () => void }) {
     if (!workspace) return;
     Promise.allSettled([
       api.secrets(workspace.id).then(({ secrets }) => setSecrets(secrets)),
-      api.context(workspace.id).then(({ context }) => setNotes(context.manualNotes ?? '')),
+      api.context(workspace.id).then(({ context }) => {
+        setNotes(context.manualNotes ?? '');
+        setAutoSummary(context.autoSummary);
+        setAutoUpdatedAt(context.autoUpdatedAt);
+      }),
     ]).finally(() => setLoading(false));
   }, [workspace]);
 
@@ -302,36 +308,73 @@ export function Settings({ onClose }: { onClose: () => void }) {
               ))}
             </div>
           ) : tab === 'contesto' ? (
-            <div>
-              <p className="mb-3 text-[13px] text-[var(--color-ink-soft)]">
-                Quello che scrivi qui lo vedono <strong>tutti</strong> gli agenti del
-                progetto, in ogni canale. Serve per le cose stabili: com'è fatto il
-                prodotto, chi sono i clienti, che tono usare, cosa non fare mai. Gli
-                agenti aggiungono da soli le loro note sotto; le tue non vengono mai
-                sovrascritte.
-              </p>
-              <textarea
-                className="field h-auto w-full py-2.5 font-normal leading-relaxed"
-                rows={12}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder={
-                  'Es.\n' +
-                  '- Studey è una piattaforma di studio per universitari.\n' +
-                  '- Parliamo agli studenti dando del tu, mai formale.\n' +
-                  '- Le decisioni di prodotto passano sempre da Andrea.\n' +
-                  '- Non promettere date di rilascio.'
-                }
-                maxLength={20000}
-              />
-              <div className="mt-3 flex items-center gap-2">
-                <button className="btn btn-primary" onClick={() => void saveNotes()}>
-                  {notesSaved ? <Check size={14} /> : null}
-                  {notesSaved ? 'Salvato' : 'Salva contesto'}
-                </button>
-                <span className="text-[12px] text-[var(--color-ink-faint)]">
-                  {notes.length}/20000
-                </span>
+            <div className="space-y-5">
+              <div>
+                <div className="mb-1.5 text-[13px] font-medium text-[var(--color-ink-soft)]">
+                  Le tue note
+                </div>
+                <p className="mb-2 text-[12.5px] text-[var(--color-ink-soft)]">
+                  Quello che scrivi qui lo vedono <strong>tutti</strong> gli agenti del
+                  progetto, in ogni canale. Serve per le cose stabili: com'è fatto il
+                  prodotto, chi sono i clienti, che tono usare, cosa non fare mai. Non
+                  vengono mai sovrascritte dagli agenti.
+                </p>
+                <textarea
+                  className="field h-auto w-full py-2.5 font-normal leading-relaxed"
+                  rows={9}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder={
+                    'Es.\n' +
+                    '- Studey è una piattaforma di studio per universitari.\n' +
+                    '- Parliamo agli studenti dando del tu, mai formale.\n' +
+                    '- Le decisioni di prodotto passano sempre da Andrea.\n' +
+                    '- Non promettere date di rilascio.'
+                  }
+                  maxLength={20000}
+                />
+                <div className="mt-2.5 flex items-center gap-2">
+                  <button className="btn btn-primary h-8" onClick={() => void saveNotes()}>
+                    {notesSaved ? <Check size={14} /> : null}
+                    {notesSaved ? 'Salvato' : 'Salva le tue note'}
+                  </button>
+                  <span className="text-[12px] text-[var(--color-ink-faint)]">
+                    {notes.length}/20000
+                  </span>
+                </div>
+              </div>
+
+              {/* Note che gli agenti hanno aggiunto da soli (write_memory). */}
+              <div>
+                <div className="mb-1.5 flex items-center gap-2 text-[13px] font-medium text-[var(--color-ink-soft)]">
+                  <Brain size={14} strokeWidth={2.1} />
+                  Note degli agenti
+                  {autoUpdatedAt && (
+                    <span className="text-[11.5px] font-normal text-[var(--color-ink-faint)]">
+                      · ultimo aggiornamento{' '}
+                      {new Date(autoUpdatedAt).toLocaleString('it-IT', {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  )}
+                </div>
+                <p className="mb-2 text-[12.5px] text-[var(--color-ink-soft)]">
+                  Quello che gli agenti hanno salvato con la memoria di progetto durante il
+                  lavoro. Cresce da solo; le tue note qui sopra hanno sempre la precedenza.
+                </p>
+                {autoSummary?.trim() ? (
+                  <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-[10px] border border-[var(--color-line)] bg-[var(--color-panel-alt)] px-3.5 py-3 font-sans text-[13px] leading-relaxed">
+                    {autoSummary}
+                  </pre>
+                ) : (
+                  <div className="rounded-[10px] border border-dashed border-[var(--color-line-strong)] px-3.5 py-4 text-center text-[12.5px] text-[var(--color-ink-faint)]">
+                    Ancora niente. Quando un agente salva qualcosa nel contesto — con la
+                    memoria di progetto — comparirà qui.
+                  </div>
+                )}
               </div>
             </div>
           ) : (
