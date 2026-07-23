@@ -24,15 +24,19 @@ export function Sidebar({
   onOpenSettings: () => void;
 }) {
   const workspace = useStore((s) => s.workspace);
+  const workspaces = useStore((s) => s.workspaces);
   const groups = useStore((s) => s.groups);
   const channels = useStore((s) => s.channels);
   const agents = useStore((s) => s.agents);
   const user = useStore((s) => s.user);
   const activeChannelId = useStore((s) => s.activeChannelId);
   const openChannel = useStore((s) => s.openChannel);
+  const switchWorkspace = useStore((s) => s.switchWorkspace);
+  const createWorkspace = useStore((s) => s.createWorkspace);
   const connected = useStore((s) => s.connected);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [wsMenu, setWsMenu] = useState(false);
 
   // Canali raggruppati; quelli senza gruppo finiscono in coda sotto "Canali".
   const sections = useMemo(() => {
@@ -179,8 +183,51 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* --- utente corrente --- */}
-      <div className="flex items-center gap-2.5 px-3 py-3">
+      {/* --- utente e progetto corrente --- */}
+      <div className="relative flex items-center gap-2.5 px-3 py-3">
+        {/* Menu di scelta progetto. */}
+        {wsMenu && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setWsMenu(false)} />
+            <div className="absolute bottom-full left-2 z-40 mb-1 w-[216px] overflow-hidden rounded-[11px] border border-[var(--color-line)] bg-[var(--color-panel)] shadow-[var(--shadow-pop)]">
+              <div className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-[var(--color-ink-faint)] uppercase">
+                I tuoi progetti
+              </div>
+              {workspaces.map((w) => (
+                <button
+                  key={w.id}
+                  onClick={() => {
+                    setWsMenu(false);
+                    if (w.id !== workspace?.id) void switchWorkspace(w.id);
+                  }}
+                  className={clsx(
+                    'flex w-full items-center gap-2 px-3 py-1.5 text-left text-[14px] transition-colors',
+                    w.id === workspace?.id
+                      ? 'bg-[color-mix(in_oklab,var(--color-honey)_12%,transparent)] font-medium'
+                      : 'hover:bg-[color-mix(in_oklab,var(--color-ink)_5%,transparent)]',
+                  )}
+                >
+                  <span>{w.iconEmoji}</span>
+                  <span className="min-w-0 flex-1 truncate">{w.name}</span>
+                  {w.id === workspace?.id && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-honey)]" />
+                  )}
+                </button>
+              ))}
+              <button
+                onClick={() => {
+                  setWsMenu(false);
+                  const name = prompt('Nome del nuovo progetto');
+                  if (name?.trim()) void createWorkspace(name.trim(), '🐝');
+                }}
+                className="flex w-full items-center gap-2 border-t border-[var(--color-line)] px-3 py-1.5 text-left text-[13.5px] text-[var(--color-ink-soft)] transition-colors hover:bg-[var(--color-sunken)]"
+              >
+                <Plus size={13} strokeWidth={2.4} /> Nuovo progetto
+              </button>
+            </div>
+          </>
+        )}
+
         <Avatar
           name={user?.name ?? '?'}
           emoji={user?.avatarEmoji}
@@ -188,13 +235,24 @@ export function Sidebar({
           size={30}
           online={connected}
         />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[13.5px] font-medium leading-tight">{user?.name}</div>
-          <div className="flex items-center gap-1 truncate text-[12px] text-[var(--color-ink-faint)]">
-            <span>{workspace?.iconEmoji}</span>
-            <span className="truncate">{workspace?.name}</span>
+        <button
+          onClick={() => setWsMenu((v) => !v)}
+          className="group/ws flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-[color-mix(in_oklab,var(--color-ink)_5%,transparent)]"
+          title="Cambia progetto"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[13.5px] font-medium leading-tight">{user?.name}</div>
+            <div className="flex items-center gap-1 truncate text-[12px] text-[var(--color-ink-faint)]">
+              <span>{workspace?.iconEmoji}</span>
+              <span className="truncate">{workspace?.name}</span>
+            </div>
           </div>
-        </div>
+          <ChevronDown
+            size={13}
+            strokeWidth={2.2}
+            className="shrink-0 text-[var(--color-ink-faint)] transition-transform group-hover/ws:text-[var(--color-ink-soft)]"
+          />
+        </button>
         {!connected && (
           <span
             className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-busy)]"

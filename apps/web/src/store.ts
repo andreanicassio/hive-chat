@@ -81,6 +81,8 @@ interface State {
   /* --- azioni --- */
   loadSession: () => Promise<void>;
   openWorkspace: (workspaceId: string) => Promise<void>;
+  switchWorkspace: (workspaceId: string) => Promise<void>;
+  createWorkspace: (name: string, icon: string) => Promise<string>;
   openChannel: (channelId: string) => Promise<void>;
   loadOlder: (channelId: string) => Promise<void>;
   sendMessage: (channelId: string, body: string) => Promise<void>;
@@ -177,6 +179,24 @@ export const useStore = create<State>((set, get) => ({
       .pendingApprovals(workspaceId)
       .then(({ approvals }) => set({ approvals }))
       .catch(() => {});
+  },
+
+  async switchWorkspace(workspaceId) {
+    // Ricordiamo l'ultimo progetto aperto, così al reload si torna qui.
+    try {
+      localStorage.setItem('hive:lastWorkspace', workspaceId);
+    } catch {
+      /* localStorage non disponibile: pazienza */
+    }
+    set({ activeChannelId: null });
+    await get().openWorkspace(workspaceId);
+  },
+
+  async createWorkspace(name, icon) {
+    const { workspace } = await api.createWorkspace({ name, iconEmoji: icon });
+    set((s) => ({ workspaces: [...s.workspaces, workspace] }));
+    await get().switchWorkspace(workspace.id);
+    return workspace.id;
   },
 
   async openChannel(channelId) {

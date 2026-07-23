@@ -120,14 +120,19 @@ function WorkspaceShell() {
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
-    const first = workspaces[0];
-    if (!first || workspace?.id === first.id) return;
-    void openWorkspace(first.id).catch((e: unknown) =>
-      // Senza questo, un bootstrap fallito lascerebbe lo spinner per sempre
-      // e nessuno saprebbe perché.
+    if (workspace || workspaces.length === 0) return;
+    // Riapri l'ultimo progetto usato, se ancora accessibile; altrimenti il primo.
+    let target = workspaces[0]!.id;
+    try {
+      const saved = localStorage.getItem('hive:lastWorkspace');
+      if (saved && workspaces.some((w) => w.id === saved)) target = saved;
+    } catch {
+      /* ignora */
+    }
+    void openWorkspace(target).catch((e: unknown) =>
       setBootError(e instanceof Error ? e.message : 'Impossibile caricare il progetto'),
     );
-  }, [workspaces, workspace?.id, openWorkspace]);
+  }, [workspaces, workspace, openWorkspace]);
 
   useEffect(() => {
     if (!activeChannelId && channels.length > 0) void openChannel(channels[0]!.id);
