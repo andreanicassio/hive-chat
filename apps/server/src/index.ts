@@ -23,6 +23,7 @@ import { channelRoutes } from './routes/channels.js';
 import { agentRoutes } from './routes/agents.js';
 import { approvalRoutes } from './routes/approvals.js';
 import { artifactRoutes } from './routes/artifacts.js';
+import { desktopRoutes } from './routes/desktop.js';
 import { websocketRoutes } from './realtime/ws.js';
 
 const app = Fastify({
@@ -113,6 +114,7 @@ await app.register(channelRoutes);
 await app.register(agentRoutes);
 await app.register(approvalRoutes);
 await app.register(artifactRoutes);
+await app.register(desktopRoutes);
 await app.register(websocketRoutes);
 
 /* In produzione il server serve anche i file statici della PWA. */

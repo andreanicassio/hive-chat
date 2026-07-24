@@ -1,0 +1,26 @@
+#!/bin/bash
+# Installa l'app Hive su macOS SENZA l'errore "damaged": scaricata via curl,
+# non finisce in quarantena, quindi Gatekeeper non la blocca.
+set -euo pipefail
+URL="https://hive.dvnx.net/download/hive-mac.zip"
+APP="/Applications/Hive.app"
+
+echo "🐝  Installo Hive…"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+curl -fSL --progress-bar "$URL" -o "$TMP/hive.zip"
+
+install_it() {
+  rm -rf "$APP"
+  ditto -x -k "$TMP/hive.zip" /Applications
+  xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+}
+if [ -w /Applications ]; then
+  install_it
+else
+  echo "   (serve la tua password per scrivere in Applicazioni)"
+  sudo bash -c "rm -rf '$APP'; ditto -x -k '$TMP/hive.zip' /Applications; xattr -dr com.apple.quarantine '$APP' 2>/dev/null || true"
+fi
+
+echo "✅  Hive installato in Applicazioni. La apro…"
+open "$APP" || true

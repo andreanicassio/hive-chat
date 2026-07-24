@@ -41,13 +41,36 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Firma per l'aggiornamento automatico (opzionale, quando configurato):
-          # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'desktop-v0.0.0-dev' }}
           releaseName: 'Hive Desktop ${{ github.ref_name }}'
-          releaseBody: 'App desktop di Hive. Scarica il .dmg qui sotto.'
+          releaseBody: 'App desktop di Hive. Installa con: curl -fsSL https://hive.dvnx.net/install-mac | bash'
           releaseDraft: false
           prerelease: false
+
+      # Pubblica l'app sul server Hive per l'installazione "in una riga"
+      # (curl non mette in quarantena → niente errore "damaged").
+      - name: Pubblica l'app su hive.dvnx.net
+        env:
+          UPLOAD_TOKEN: ${{ secrets.DESKTOP_UPLOAD_TOKEN }}
+        run: |
+          set -e
+          if [ -z "${UPLOAD_TOKEN:-}" ]; then
+            echo "DESKTOP_UPLOAD_TOKEN non impostato: salto la pubblicazione."
+            exit 0
+          fi
+          APP="apps/desktop/src-tauri/target/release/bundle/macos/Hive.app"
+          if [ ! -d "$APP" ]; then
+            echo "Hive.app non trovato, cerco:"; find apps/desktop/src-tauri/target -maxdepth 6 -name "*.app" -type d
+            exit 1
+          fi
+          # ditto preserva firma, symlink e attributi del bundle (a differenza di tar).
+          ditto -c -k --keepParent "$APP" hive-mac.zip
+          VER="${GITHUB_REF_NAME#desktop-v}"
+          echo "Pubblico hive-mac.zip (v$VER, $(du -h hive-mac.zip | cut -f1))…"
+          curl -fSL -X PUT "https://hive.dvnx.net/api/desktop/publish/hive-mac.zip?version=$VER" \
+            -H "Authorization: Bearer $UPLOAD_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @hive-mac.zip
+          echo "" && echo "Fatto: https://hive.dvnx.net/install-mac"

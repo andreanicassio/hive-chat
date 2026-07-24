@@ -91,6 +91,14 @@ const schema = z.object({
 
   HIVE_WORKSPACE_ROOT: z.string().default('/srv/hive/workspaces'),
   HIVE_UPLOAD_ROOT: z.string().default('/srv/hive/uploads'),
+  /** Dove finiscono gli artefatti pubblici (app desktop) serviti da nginx. */
+  HIVE_DOWNLOAD_ROOT: z.string().default('/srv/hive/downloads'),
+  /**
+   * Segreto con cui la CI di GitHub pubblica sul server la build dell'app
+   * (PUT /api/desktop/publish). Deve combaciare col secret DESKTOP_UPLOAD_TOKEN
+   * su GitHub. Vuoto = pubblicazione disabilitata.
+   */
+  DESKTOP_UPLOAD_TOKEN: z.string().default(''),
 
   /** Se false, ci si registra solo con un codice d'invito valido. */
   ALLOW_OPEN_SIGNUP: z
