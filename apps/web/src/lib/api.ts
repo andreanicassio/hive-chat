@@ -287,6 +287,13 @@ export const api = {
       { content },
     ),
 
+  /* --- tetto di spesa mensile --- */
+  setBudget: (workspaceId: string, monthlyBudgetUsd: number | null) =>
+    put<{ budget: { limitUsd: number | null; spentUsd: number; exceeded: boolean } }>(
+      `/api/workspaces/${workspaceId}/budget`,
+      { monthlyBudgetUsd },
+    ),
+
   /* --- allegati dei messaggi (immagini trascinate in chat) --- */
   uploadFile: async (workspaceId: string, file: File) => {
     const form = new FormData();
@@ -432,4 +439,6 @@ export interface UsageReport {
   byChannel: Array<{ channelId: string; name: string; billedCostUsd: number; subscriptionEquivalentUsd: number; tokens: number; runs: number }>;
   byModel: Array<{ model: string; runtime: string; subscription: boolean; billedCostUsd: number; subscriptionEquivalentUsd: number; runs: number; tokens: number }>;
   daily: Array<{ date: string; billedCostUsd: number; subscriptionEquivalentUsd: number; runs: number }>;
+  /** Tetto di spesa mensile del progetto. */
+  budget: { limitUsd: number | null; spentUsd: number; exceeded: boolean };
 }

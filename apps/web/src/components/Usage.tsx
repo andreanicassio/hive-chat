@@ -84,6 +84,129 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   );
 }
 
+/** Tetto di spesa mensile: il freno che evita bollette a sorpresa. */
+function BudgetCard({
+  workspaceId,
+  budget,
+  onChange,
+}: {
+  workspaceId: string;
+  budget: { limitUsd: number | null; spentUsd: number; exceeded: boolean };
+  onChange: (b: { limitUsd: number | null; spentUsd: number; exceeded: boolean }) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(budget.limitUsd?.toString() ?? '');
+  const [saving, setSaving] = useState(false);
+
+  async function save(limit: number | null) {
+    setSaving(true);
+    try {
+      const { budget: next } = await api.setBudget(workspaceId, limit);
+      onChange(next);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const pct =
+    budget.limitUsd && budget.limitUsd > 0
+      ? Math.min(100, (budget.spentUsd / budget.limitUsd) * 100)
+      : 0;
+
+  return (
+    <div
+      className={
+        'rounded-xl border p-3.5 ' +
+        (budget.exceeded
+          ? 'border-[var(--color-error)] bg-[color-mix(in_oklab,var(--color-error)_7%,transparent)]'
+          : 'border-[var(--color-line)]')
+      }
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-[13px] font-medium text-[var(--color-ink-soft)]">
+          Tetto di spesa mensile
+        </span>
+        {!editing && (
+          <button
+            className="ml-auto text-[12.5px] text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
+            onClick={() => {
+              setValue(budget.limitUsd?.toString() ?? '');
+              setEditing(true);
+            }}
+          >
+            {budget.limitUsd === null ? 'Imposta' : 'Modifica'}
+          </button>
+        )}
+      </div>
+
+      {editing ? (
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-[15px] text-[var(--color-ink-faint)]">$</span>
+          <input
+            autoFocus
+            type="number"
+            min={0}
+            step={1}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="es. 50"
+            className="field h-8 w-28"
+          />
+          <button
+            className="btn btn-primary btn-sm"
+            disabled={saving}
+            onClick={() => void save(value.trim() === '' ? null : Number(value))}
+          >
+            Salva
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>
+            Annulla
+          </button>
+          {budget.limitUsd !== null && (
+            <button
+              className="ml-auto text-[12.5px] text-[var(--color-ink-faint)] hover:text-[var(--color-error)]"
+              onClick={() => void save(null)}
+            >
+              Togli il limite
+            </button>
+          )}
+        </div>
+      ) : budget.limitUsd === null ? (
+        <p className="mt-1 text-[12.5px] text-[var(--color-ink-faint)]">
+          Nessun limite: gli agenti possono spendere quanto serve. Impostane uno per
+          evitare sorprese.
+        </p>
+      ) : (
+        <>
+          <div className="mt-1.5 flex items-baseline gap-1.5">
+            <span className="text-[19px] font-semibold tabular-nums">
+              ${budget.spentUsd.toFixed(2)}
+            </span>
+            <span className="text-[13px] text-[var(--color-ink-faint)]">
+              di ${budget.limitUsd.toFixed(2)} questo mese
+            </span>
+          </div>
+          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[var(--color-sunken)]">
+            <div
+              className="h-full rounded-full transition-all"
+              style={{
+                width: `${pct}%`,
+                background: budget.exceeded ? 'var(--color-error)' : 'var(--color-honey)',
+              }}
+            />
+          </div>
+          {budget.exceeded && (
+            <p className="mt-1.5 text-[12.5px] text-[var(--color-error)]">
+              Tetto raggiunto: gli agenti non partono più finché non lo alzi.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function Usage() {
   const workspace = useStore((s) => s.workspace);
   const [days, setDays] = useState(30);
@@ -151,6 +274,12 @@ export function Usage() {
 
   return (
     <div className="space-y-5">
+      <BudgetCard
+        workspaceId={workspace!.id}
+        budget={report.budget}
+        onChange={(b) => setReport((r) => (r ? { ...r, budget: b } : r))}
+      />
+
       {/* selettore periodo */}
       <div className="flex items-center gap-1">
         {PERIODS.map((p) => (

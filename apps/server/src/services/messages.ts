@@ -5,6 +5,7 @@ import { badRequest } from '../lib/errors.js';
 import { hub } from '../realtime/hub.js';
 import { redisPub } from '../lib/redis.js';
 import { serializeMessage } from './serialize.js';
+import { budgetState } from './budget.js';
 import {
   MAX_HANDOFF_HOPS,
   parseMentions,
@@ -370,35 +371,55 @@ export interface EnqueueRunArgs {
  */
 export async function flushPendingPrompts(agentId: string, channelId: string): Promise<void> {
   const key = redisChannels.pendingPrompts(agentId, channelId);
-  const raw = await redisPub.lrange(key, 0, -1);
-  if (raw.length === 0) return;
-  await redisPub.del(key);
+  // Uno alla volta: il primo parte, gli altri restano in coda e toccherà a
+  // loro quando anche questo avrà finito.
+  const raw = await redisPub.rpop(key);
+  if (!raw) return;
+  const job = JSON.parse(raw) as RunJob;
+  await dispatchJob(job);
+}
 
-  // lrange dà i più recenti per primi (lpush): rimettiamoli in ordine.
-  const items = raw
-    .map((r) => {
-      try {
-        return JSON.parse(r) as EnqueueRunArgs;
-      } catch {
-        return null;
-      }
-    })
-    .filter((x): x is EnqueueRunArgs => x !== null)
-    .reverse();
-  if (items.length === 0) return;
+/** Manda un turno già creato alla coda che lo eseguirà. */
+async function dispatchJob(job: RunJob): Promise<void> {
+  const agentExec = (
+    await db
+      .select({
+        execution: schema.agents.execution,
+        ownerId: schema.agents.createdBy,
+        runnerTokenId: schema.agents.runnerTokenId,
+      })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, job.agentId))
+      .limit(1)
+  )[0];
 
-  const first = items[0]!;
-  const prompt =
-    items.length === 1
-      ? first.prompt
-      : items.map((i) => i.prompt).join('\n\n');
-
-  await enqueueRun({
-    ...first,
-    prompt,
-    // L'ultimo messaggio è quello a cui la risposta si aggancia.
-    triggerMessageId: items[items.length - 1]!.triggerMessageId,
-  }).catch(() => undefined);
+  if (agentExec?.execution === 'local' && agentExec.ownerId) {
+    const target = agentExec.runnerTokenId;
+    const online = target
+      ? await redisPub.exists(redisChannels.runnerPresenceById(target))
+      : await redisPub.exists(redisChannels.runnerPresence(agentExec.ownerId, job.workspaceId));
+    if (online) {
+      await redisPub.lpush(
+        target
+          ? redisChannels.runnerQueueById(target)
+          : redisChannels.runnerQueue(agentExec.ownerId, job.workspaceId),
+        JSON.stringify(job),
+      );
+      return;
+    }
+    let machine: string | null = null;
+    if (target) {
+      const t = await db
+        .select({ label: schema.runnerTokens.label })
+        .from(schema.runnerTokens)
+        .where(eq(schema.runnerTokens.id, target))
+        .limit(1);
+      machine = t[0]?.label ?? null;
+    }
+    await failRunnerOffline(job.runId, job.responseMessageId, job.workspaceId, job.channelId, machine);
+    return;
+  }
+  await redisPub.lpush(redisChannels.runQueue, JSON.stringify(job));
 }
 
 /** Stati in cui un turno è ancora vivo. */
@@ -428,25 +449,15 @@ async function activeRunFor(agentId: string, channelId: string): Promise<string 
 export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
   // Se l'agente sta già lavorando qui, il messaggio si accoda: lo riprenderà
   // appena finito, senza perdere nulla e senza turni sovrapposti.
-  const busy = await activeRunFor(args.agentId, args.channelId);
-  if (busy) {
-    await redisPub.lpush(
-      redisChannels.pendingPrompts(args.agentId, args.channelId),
-      JSON.stringify({
-        workspaceId: args.workspaceId,
-        channelId: args.channelId,
-        agentId: args.agentId,
-        triggerMessageId: args.triggerMessageId,
-        prompt: args.prompt,
-        fromAgentHandle: args.fromAgentHandle ?? null,
-        hop: args.hop,
-      }),
-    );
-    await redisPub.expire(redisChannels.pendingPrompts(args.agentId, args.channelId), 3600);
-    return busy;
-  }
+  // Se l'agente sta già lavorando qui, creiamo comunque il turno (così in
+  // chat compare subito «In coda…») ma non lo mandiamo in esecuzione: partirà
+  // appena quello in corso avrà finito.
+  const queueBehind = await activeRunFor(args.agentId, args.channelId);
 
   const runId = randomUUID();
+  // Tetto di spesa: se il progetto ha finito il budget del mese, il turno
+  // non parte. Lo diciamo in chat invece di far sparire il messaggio.
+  const budget = await budgetState(args.workspaceId);
 
   const placeholder = await db
     .insert(schema.messages)
@@ -502,53 +513,54 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
     hop: args.hop + 1,
   };
 
-  // Instradamento: un agente `local` gira sul computer del suo proprietario,
-  // tramite il runner. Gli altri sul server. La coda è una lista Redis su cui
-  // il consumatore giusto fa BRPOP.
-  const owner = await db
-    .select({
-      execution: schema.agents.execution,
-      ownerId: schema.agents.createdBy,
-      runnerTokenId: schema.agents.runnerTokenId,
-    })
-    .from(schema.agents)
-    .where(eq(schema.agents.id, args.agentId))
-    .limit(1);
-  const agentExec = owner[0];
-
-  if (agentExec?.execution === 'local' && agentExec.ownerId) {
-    // Se l'agente ha scelto UNA macchina, il lavoro va solo lì; altrimenti
-    // finisce nella coda generica, servita dalla prima macchina accesa.
-    const target = agentExec.runnerTokenId;
-    const online = target
-      ? await redisPub.exists(redisChannels.runnerPresenceById(target))
-      : await redisPub.exists(
-          redisChannels.runnerPresence(agentExec.ownerId!, args.workspaceId),
-        );
-    if (online) {
-      await redisPub.lpush(
-        target
-          ? redisChannels.runnerQueueById(target)
-          : redisChannels.runnerQueue(agentExec.ownerId!, args.workspaceId),
-        JSON.stringify(job),
-      );
-    } else {
-      // Nome della macchina scelta, se ce n'è una: il messaggio dice quale.
-      let machine: string | null = null;
-      if (target) {
-        const t = await db
-          .select({ label: schema.runnerTokens.label })
-          .from(schema.runnerTokens)
-          .where(eq(schema.runnerTokens.id, target))
-          .limit(1);
-        machine = t[0]?.label ?? null;
-      }
-      await failRunnerOffline(runId, responseMessage.id, args.workspaceId, args.channelId, machine);
+  if (budget.exceeded) {
+    const note =
+      `_Tetto di spesa raggiunto: questo progetto ha speso $${budget.spentUsd.toFixed(2)} ` +
+      `sui $${budget.limitUsd?.toFixed(2)} previsti per questo mese. Alza il limite in ` +
+      `Impostazioni → Utilizzo per far ripartire gli agenti._`;
+    await db
+      .update(schema.agentRuns)
+      .set({ status: 'error', error: 'budget esaurito', endedAt: new Date() })
+      .where(eq(schema.agentRuns.id, runId));
+    await db
+      .update(schema.messages)
+      .set({ body: note })
+      .where(eq(schema.messages.id, responseMessage.id));
+    const rows = await db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, responseMessage.id))
+      .limit(1);
+    if (rows[0]) {
+      const updated = await serializeMessage(rows[0], null);
+      await hub.publish(args.workspaceId, {
+        packet: { t: 'message.updated', message: updated },
+        channelId: args.channelId,
+      });
     }
-  } else {
-    await redisPub.lpush(redisChannels.runQueue, JSON.stringify(job));
+    await hub.publish(args.workspaceId, {
+      packet: {
+        t: 'run.status',
+        runId,
+        messageId: responseMessage.id,
+        status: 'error',
+        error: 'budget esaurito',
+      },
+      channelId: args.channelId,
+    });
+    return runId;
   }
 
+  if (queueBehind) {
+    await redisPub.lpush(
+      redisChannels.pendingPrompts(args.agentId, args.channelId),
+      JSON.stringify(job),
+    );
+    await redisPub.expire(redisChannels.pendingPrompts(args.agentId, args.channelId), 7200);
+    return runId;
+  }
+
+  await dispatchJob(job);
   return runId;
 }
 

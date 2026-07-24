@@ -71,6 +71,8 @@ export const workspaces = pgTable(
     slug: varchar('slug', { length: 48 }).notNull(),
     name: varchar('name', { length: 64 }).notNull(),
     iconEmoji: varchar('icon_emoji', { length: 8 }).notNull().default('🐝'),
+    /** Tetto di spesa mensile in dollari per gli agenti. Null = nessun limite. */
+    monthlyBudgetUsd: numeric('monthly_budget_usd', { precision: 10, scale: 2 }),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     archivedAt: timestamp('archived_at', { withTimezone: true }),

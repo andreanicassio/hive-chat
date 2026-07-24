@@ -18,6 +18,7 @@ import { redisPub } from '../lib/redis.js';
 import { env } from '../env.js';
 import { computeCapabilities } from '../services/capabilities.js';
 import { usageReport } from '../services/usage.js';
+import { budgetState } from '../services/budget.js';
 
 /** Canali creati con ogni nuovo progetto, per non partire da una schermata vuota. */
 const STARTER_CHANNELS = [
@@ -528,6 +529,20 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /* --------------------------------------------------- utilizzo e costi */
+  /* --------------------------------------------- tetto di spesa mensile */
+  app.put('/api/workspaces/:workspaceId/budget', async (request) => {
+    const { workspaceId } = z.object({ workspaceId: z.uuid() }).parse(request.params);
+    await requireMembership(request, workspaceId, 'admin');
+    const { monthlyBudgetUsd } = z
+      .object({ monthlyBudgetUsd: z.number().min(0).max(100000).nullable() })
+      .parse(request.body);
+    await db
+      .update(schema.workspaces)
+      .set({ monthlyBudgetUsd: monthlyBudgetUsd === null ? null : String(monthlyBudgetUsd) })
+      .where(eq(schema.workspaces.id, workspaceId));
+    return { budget: await budgetState(workspaceId) };
+  });
+
   app.get('/api/workspaces/:workspaceId/usage', async (request) => {
     const { workspaceId } = z.object({ workspaceId: z.uuid() }).parse(request.params);
     // Solo admin/owner vedono i costi del progetto.
@@ -535,7 +550,8 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     const { days } = z
       .object({ days: z.coerce.number().int().min(1).max(365).default(30) })
       .parse(request.query);
-    return usageReport(workspaceId, days);
+    const report = await usageReport(workspaceId, days);
+    return { ...report, budget: await budgetState(workspaceId) };
   });
 
   app.put('/api/workspaces/:workspaceId/context', async (request) => {
