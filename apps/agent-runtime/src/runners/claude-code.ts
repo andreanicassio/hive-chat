@@ -146,6 +146,9 @@ export class ClaudeCodeRunner implements Runner {
       (t) => !input.disableHiveTools || !t.startsWith('mcp__hive__'),
     );
     const dangerous = dangerousToolNames(grants);
+    // In `bypass` l'agente non chiede mai conferma: gli strumenti concessi ma
+    // "pericolosi" vengono auto-approvati (come --dangerously-skip-permissions).
+    const bypass = agent.permissionMode === 'bypass';
 
     // Neghiamo esplicitamente ogni tool built-in NON concesso, così l'SDK non
     // lo espone nemmeno al modello: senza questo l'agente prova tool che non
@@ -187,6 +190,8 @@ export class ClaudeCodeRunner implements Runner {
         };
       }
 
+      if (bypass) return { behavior: 'allow', updatedInput: toolInput };
+
       const { title, detail } = describeApproval(toolName, toolInput);
       const outcome = await requestApproval(
         {
@@ -224,6 +229,10 @@ export class ClaudeCodeRunner implements Runner {
       allowedTools,
       disallowedTools,
       canUseTool,
+      // In `bypass` disattiviamo anche la policy interna dell'SDK sui comandi
+      // (equivalente di `--dangerously-skip-permissions`): niente conferme, il
+      // canUteTool qui sopra non viene nemmeno invocato.
+      ...(bypass ? { permissionMode: 'bypassPermissions' as const } : {}),
       // Isolamento a livello processo (bubblewrap su Linux): l'agente vede
       // solo la sua working directory e può contattare solo i domini permessi.
       sandbox: sandboxFor({

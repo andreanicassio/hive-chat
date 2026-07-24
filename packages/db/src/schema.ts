@@ -299,6 +299,8 @@ export const agents = pgTable(
     repo: jsonb('repo'),
     /** `server` (default) o `local`: dove gira il turno dell'agente. */
     execution: varchar('execution', { length: 8 }).notNull().default('server'),
+    /** `ask` (conferma in chat) o `bypass` (autonomia totale, niente conferme). */
+    permissionMode: varchar('permission_mode', { length: 8 }).notNull().default('ask'),
     autoRespond: boolean('auto_respond').notNull().default(false),
     /** Stato volatile mostrato nella barra in basso. */
     status: varchar('status', { length: 16 }).notNull().default('idle'),

@@ -344,6 +344,17 @@ export const agentExecutions = ['server', 'local'] as const;
 export type AgentExecution = (typeof agentExecutions)[number];
 export const agentExecutionSchema = z.enum(agentExecutions);
 
+/**
+ * Come vengono gestite le azioni che di norma chiedono conferma:
+ * - `ask`    → card di approvazione inline in chat (default sicuro).
+ * - `bypass` → autonomia totale: l'agente non chiede mai nulla (come
+ *   `claude --dangerously-skip-permissions`). Solo per agenti sviluppatore
+ *   in cui ti fidi del perimetro (es. il tuo runner locale).
+ */
+export const permissionModes = ['ask', 'bypass'] as const;
+export type PermissionMode = (typeof permissionModes)[number];
+export const permissionModeSchema = z.enum(permissionModes);
+
 /** Runtime già utilizzabili. `opencode` è dichiarato ma non ancora attivo. */
 export const implementedRuntimes: AgentRuntime[] = ['claude-code', 'openrouter-tools'];
 
@@ -460,6 +471,8 @@ export interface Agent {
   repo: RepoConfig | null;
   /** Dove gira: sul server o sul runner locale del proprietario. */
   execution: AgentExecution;
+  /** Gate delle azioni: `ask` (conferma in chat) o `bypass` (autonomia totale). */
+  permissionMode: PermissionMode;
   /** Presente se l'agente gira in locale: il runner di questa persona è acceso? */
   runnerOnline?: boolean;
   /** Risponde da solo quando qualcuno scrive nel canale senza taggarlo. */
@@ -487,6 +500,7 @@ export const createAgentSchema = z.object({
   mcpServers: z.array(mcpServerConfigSchema).max(20).default([]),
   repo: repoConfigSchema.nullable().optional(),
   execution: agentExecutionSchema.default('server'),
+  permissionMode: permissionModeSchema.default('ask'),
   autoRespond: z.boolean().default(false),
   channelIds: z.array(uuid).max(100).default([]),
 });

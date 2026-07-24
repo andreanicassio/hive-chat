@@ -15,6 +15,7 @@ import {
   X,
   GitBranch,
   Cpu,
+  ShieldCheck,
 } from 'lucide-react';
 import { useStore } from '../store.js';
 import { api, ApiError } from '../lib/api.js';
@@ -229,6 +230,7 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
   const [repoUrl, setRepoUrl] = useState('');
   const [repoBranch, setRepoBranch] = useState('main');
   const [execution, setExecution] = useState<'server' | 'local'>('server');
+  const [permissionMode, setPermissionMode] = useState<'ask' | 'bypass'>('ask');
 
   const [catalog, setCatalog] = useState<ToolDef[]>([]);
   const [defaults, setDefaults] = useState<Record<string, string[]>>({});
@@ -308,6 +310,7 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
         description: purpose.trim().slice(0, 200) || null,
         autoRespond,
         execution,
+        permissionMode: kind === 'developer' ? permissionMode : 'ask',
         tools: [...toolIds].map((id) => ({ toolId: id, config: {}, requireApproval: false })),
         channelIds: [...channelIds],
         repo:
@@ -531,6 +534,43 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
                 <p className="mt-1.5 text-[12.5px] text-[var(--color-ink-faint)]">
                   Questo agente risponderà solo quando il tuo <strong>runner locale</strong> è
                   acceso su questa macchina (vedi <code>deploy/RUNNER.md</code>).
+                </p>
+              )}
+
+              {/* Permessi: conferma in chat o autonomia totale */}
+              <label className="mt-4 mb-1.5 flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-ink-soft)]">
+                <ShieldCheck size={14} strokeWidth={2.1} /> Permessi
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    { v: 'ask', t: 'Chiede conferma', d: 'Le azioni delicate (shell, deploy…) passano da un tuo ok in chat.' },
+                    { v: 'bypass', t: 'Autonomia totale', d: 'Non chiede mai: fa tutto da solo. Come --dangerously-skip-permissions.' },
+                  ] as const
+                ).map((o) => (
+                  <button
+                    key={o.v}
+                    type="button"
+                    onClick={() => setPermissionMode(o.v)}
+                    className={
+                      'rounded-lg border p-2.5 text-left transition-colors ' +
+                      (permissionMode === o.v
+                        ? o.v === 'bypass'
+                          ? 'border-[var(--color-error)] bg-[var(--color-error-soft,#fde8e8)]'
+                          : 'border-[var(--color-honey)] bg-[var(--color-honey-soft)]'
+                        : 'border-[var(--color-line)] hover:bg-[var(--color-sunken)]')
+                    }
+                  >
+                    <div className="text-[13px] font-medium">{o.t}</div>
+                    <div className="mt-0.5 text-[11.5px] text-[var(--color-ink-faint)]">{o.d}</div>
+                  </button>
+                ))}
+              </div>
+              {permissionMode === 'bypass' && (
+                <p className="mt-1.5 flex items-start gap-1.5 text-[12.5px] text-[var(--color-error)]">
+                  <AlertTriangle size={13} strokeWidth={2.2} className="mt-0.5 shrink-0" />
+                  L'agente potrà eseguire comandi, modificare e cancellare file senza chiederti
+                  nulla. Usalo solo dove ti fidi del perimetro (es. il tuo runner locale).
                 </p>
               )}
             </div>

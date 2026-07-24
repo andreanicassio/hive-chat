@@ -335,6 +335,7 @@ export function serializeAgent(row: AgentRow, extra?: Partial<Agent>): Agent {
     mcpServers: (row.mcpServers as Agent['mcpServers']) ?? [],
     repo: (row.repo as Agent['repo']) ?? null,
     execution: (row.execution as Agent['execution']) ?? 'server',
+    permissionMode: (row.permissionMode as Agent['permissionMode']) ?? 'ask',
     autoRespond: row.autoRespond,
     status: row.status as Agent['status'],
     statusLabel: row.statusLabel,

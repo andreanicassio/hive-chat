@@ -155,7 +155,11 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
   // suo perimetro di fiducia — non limitiamo gli strumenti. Le sole azioni che
   // chiedono conferma inline in chat sono quelle che l'agente ha marcato come
   // "richiede approvazione".
-  const needApproval = dangerousToolNames(grants);
+  // In `bypass` l'agente ha autonomia totale: non chiediamo mai conferma
+  // (come `claude --dangerously-skip-permissions`). Altrimenti chiedono
+  // conferma solo gli strumenti marcati "richiede approvazione".
+  const bypass = agent.permissionMode === 'bypass';
+  const needApproval = bypass ? new Set<string>() : dangerousToolNames(grants);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20 * 60_000);
@@ -169,6 +173,11 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
         ? { type: 'preset', preset: 'claude_code', append: context.systemPrompt }
         : context.systemPrompt,
     sandbox: { enabled: false }, // il computer dell'utente È il perimetro
+    // In `bypass` togliamo anche la policy interna dell'SDK sui comandi (es.
+    // niente redirezioni/scritture): è l'equivalente di
+    // `--dangerously-skip-permissions`. In `ask` restiamo su default e il gate
+    // umano passa dall'hook qui sotto.
+    ...(bypass ? { permissionMode: 'bypassPermissions' as const } : {}),
     // Gate delle azioni via hook PreToolUse: passa tutto, tranne gli strumenti
     // marcati "richiede approvazione" → card di conferma inline in chat.
     hooks: {
