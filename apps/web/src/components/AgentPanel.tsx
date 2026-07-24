@@ -231,6 +231,7 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
   const editing = Boolean(agent);
 
   const [name, setName] = useState(agent?.name ?? '');
+  const [handle, setHandle] = useState(agent?.handle ?? '');
   const [emoji, setEmoji] = useState(agent?.avatarEmoji ?? '🐝');
   const [kind, setKind] = useState<AgentKind>(agent?.kind ?? 'assistant');
   const [model, setModel] = useState(agent?.model ?? '');
@@ -246,6 +247,11 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
   const [permissionMode, setPermissionMode] = useState<'ask' | 'bypass'>(
     agent?.permissionMode ?? 'ask',
   );
+  const [toolConfigs, setToolConfigs] = useState<Record<string, Record<string, unknown>>>(() => {
+    const out: Record<string, Record<string, unknown>> = {};
+    for (const g of agent?.tools ?? []) out[g.toolId] = (g.config ?? {}) as Record<string, unknown>;
+    return out;
+  });
   const [runnerTokenId, setRunnerTokenId] = useState<string | null>(agent?.runnerTokenId ?? null);
   const [runners, setRunners] = useState<RunnerToken[]>([]);
 
@@ -333,6 +339,7 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
     try {
       await api.updateAgent(agent.id, {
         name: name.trim(),
+        ...(handle.trim() && handle !== agent.handle ? { handle: handle.trim() } : {}),
         kind,
         model,
         avatarEmoji: emoji,
@@ -344,7 +351,11 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
         tools: [...toolIds].map((id) => {
           // Conserviamo config e "richiede approvazione" già impostati.
           const prev = (agent.tools ?? []).find((t) => t.toolId === id);
-          return { toolId: id, config: prev?.config ?? {}, requireApproval: prev?.requireApproval ?? false };
+          return {
+            toolId: id,
+            config: toolConfigs[id] ?? prev?.config ?? {},
+            requireApproval: prev?.requireApproval ?? false,
+          };
         }),
         repo:
           kind === 'developer' && repoUrl.trim()
@@ -394,7 +405,11 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
         execution,
         permissionMode: kind === 'developer' ? permissionMode : 'ask',
         runnerTokenId: execution === 'local' ? runnerTokenId : null,
-        tools: [...toolIds].map((id) => ({ toolId: id, config: {}, requireApproval: false })),
+        tools: [...toolIds].map((id) => ({
+          toolId: id,
+          config: toolConfigs[id] ?? {},
+          requireApproval: false,
+        })),
         channelIds: [...channelIds],
         repo:
           kind === 'developer' && repoUrl.trim()
@@ -528,6 +543,44 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
               )}
             </label>
           </div>
+
+          {/* In modifica l'handle è indipendente dal nome: si cambia a mano,
+              perché rinominare non deve rompere le menzioni già scritte. */}
+          {editing && (
+            <label className="block">
+              <span className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink-soft)]">
+                Come lo tagghi
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[15px] text-[var(--color-ink-faint)]">@</span>
+                <input
+                  className="field font-mono"
+                  value={handle}
+                  onChange={(e) =>
+                    setHandle(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))
+                  }
+                  maxLength={32}
+                  placeholder="devver"
+                />
+                {handle !== agent!.handle && handle.trim().length >= 2 && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm shrink-0"
+                    onClick={() => setHandle(agent!.handle)}
+                  >
+                    Annulla
+                  </button>
+                )}
+              </div>
+              {handle !== agent!.handle && (
+                <span className="mt-1 flex items-start gap-1.5 text-[12px] text-[var(--color-ink-soft)]">
+                  <AlertTriangle size={12} strokeWidth={2.2} className="mt-0.5 shrink-0" />
+                  D'ora in poi risponderà a <strong>@{handle || '…'}</strong>. I messaggi già
+                  scritti con <strong>@{agent!.handle}</strong> restano com'erano.
+                </span>
+              )}
+            </label>
+          )}
 
           {/* Tipo */}
           <div>
@@ -757,8 +810,8 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
                     {tools.map((t) => {
                       const on = toolIds.has(t.id);
                       return (
+                        <div key={t.id}>
                         <button
-                          key={t.id}
                           onClick={() =>
                             setToolIds((prev) => {
                               const next = new Set(prev);
@@ -798,6 +851,16 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
                             </span>
                           </span>
                         </button>
+                          {on && (
+                            <ToolConfigForm
+                              toolId={t.id}
+                              value={toolConfigs[t.id] ?? {}}
+                              onChange={(cfg) =>
+                                setToolConfigs((prev) => ({ ...prev, [t.id]: cfg }))
+                              }
+                            />
+                          )}
+                        </div>
                       );
                     })}
                   </div>
@@ -923,6 +986,143 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
 
     </Modal>
   );
+}
+
+
+/* ========================================================================== */
+/*  Configurazione dei tool che ne richiedono una                              */
+/* ========================================================================== */
+
+/**
+ * Alcuni tool non funzionano senza impostazioni: il Deploy ha bisogno del
+ * comando da lanciare, la Chiamata HTTP degli host autorizzati. Senza questo
+ * form il salvataggio veniva rifiutato dal server con un errore incomprensibile.
+ */
+function ToolConfigForm({
+  toolId,
+  value,
+  onChange,
+}: {
+  toolId: string;
+  value: Record<string, unknown>;
+  onChange: (cfg: Record<string, unknown>) => void;
+}) {
+  const set = (patch: Record<string, unknown>) => onChange({ ...value, ...patch });
+  const field =
+    'w-full rounded-lg border border-[var(--color-line-strong)] bg-[var(--color-panel)] px-2.5 py-1.5 text-[13px] outline-none focus:border-[color-mix(in_oklab,var(--color-honey)_55%,var(--color-line-strong))]';
+
+  if (toolId === 'code.deploy') {
+    const command = typeof value.command === 'string' ? value.command : '';
+    return (
+      <div className="mt-1 ml-7 space-y-2 border-l-2 border-[var(--color-line)] pl-3">
+        <label className="block">
+          <span className="mb-1 block text-[12px] font-medium text-[var(--color-ink-soft)]">
+            Comando di deploy <span className="text-[var(--color-error)]">*</span>
+          </span>
+          <input
+            className={field + ' font-mono'}
+            value={command}
+            onChange={(e) => set({ command: e.target.value })}
+            placeholder="es. ./deploy.sh   oppure   npm run deploy"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[12px] font-medium text-[var(--color-ink-soft)]">
+            Ambiente
+          </span>
+          <input
+            className={field}
+            value={typeof value.environment === 'string' ? value.environment : ''}
+            onChange={(e) => set({ environment: e.target.value })}
+            placeholder="production"
+          />
+        </label>
+        {!command.trim() && (
+          <p className="text-[11.5px] text-[var(--color-error)]">
+            Senza comando questo tool non si può salvare.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (toolId === 'http.request') {
+    const hosts = Array.isArray(value.allowedHosts) ? (value.allowedHosts as string[]) : [];
+    const methods = Array.isArray(value.methods) ? (value.methods as string[]) : ['GET'];
+    return (
+      <div className="mt-1 ml-7 space-y-2 border-l-2 border-[var(--color-line)] pl-3">
+        <label className="block">
+          <span className="mb-1 block text-[12px] font-medium text-[var(--color-ink-soft)]">
+            Host consentiti <span className="text-[var(--color-error)]">*</span>
+          </span>
+          <input
+            className={field + ' font-mono'}
+            defaultValue={hosts.join(', ')}
+            onBlur={(e) =>
+              set({
+                allowedHosts: e.target.value
+                  .split(',')
+                  .map((h) => h.trim())
+                  .filter(Boolean),
+              })
+            }
+            placeholder="api.stripe.com, api.github.com"
+          />
+          <span className="mt-1 block text-[11.5px] text-[var(--color-ink-faint)]">
+            Separati da virgola. L'agente non potrà contattare altri host.
+          </span>
+        </label>
+        <div>
+          <span className="mb-1 block text-[12px] font-medium text-[var(--color-ink-soft)]">
+            Metodi permessi
+          </span>
+          <div className="flex flex-wrap gap-1">
+            {(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const).map((m) => {
+              const on = methods.includes(m);
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() =>
+                    set({ methods: on ? methods.filter((x) => x !== m) : [...methods, m] })
+                  }
+                  className={
+                    'rounded-md px-2 py-0.5 font-mono text-[11.5px] transition-colors ' +
+                    (on
+                      ? 'bg-[var(--color-honey)] text-white'
+                      : 'bg-[var(--color-sunken)] text-[var(--color-ink-soft)]')
+                  }
+                >
+                  {m}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <label className="block">
+          <span className="mb-1 block text-[12px] font-medium text-[var(--color-ink-soft)]">
+            Segreto da usare (facoltativo)
+          </span>
+          <input
+            className={field + ' font-mono'}
+            value={typeof value.credentialKey === 'string' ? value.credentialKey : ''}
+            onChange={(e) => set({ credentialKey: e.target.value || null })}
+            placeholder="es. STRIPE_API_KEY"
+          />
+          <span className="mt-1 block text-[11.5px] text-[var(--color-ink-faint)]">
+            Nome della chiave in Impostazioni → Credenziali. Il valore resta sul server.
+          </span>
+        </label>
+        {hosts.length === 0 && (
+          <p className="text-[11.5px] text-[var(--color-error)]">
+            Indica almeno un host, altrimenti non si può salvare.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return null;
 }
 
 /* ========================================================================== */

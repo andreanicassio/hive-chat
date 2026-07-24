@@ -73,9 +73,18 @@ function validateTools(
     if (def.configSchema) {
       const parsed = def.configSchema.safeParse(grant.config);
       if (!parsed.success) {
+        // Messaggio leggibile: dice QUALE campo manca, non il gergo di zod.
+        const issue = parsed.error.issues[0];
+        const field = issue?.path?.join('.') ?? '';
+        const detail =
+          issue?.code === 'invalid_type' && issue.input === undefined
+            ? `manca il campo "${field}"`
+            : field
+              ? `${field}: ${issue?.message ?? 'valore non valido'}`
+              : (issue?.message ?? 'valore non valido');
         throw badRequest(
           'invalid_tool_config',
-          `Configurazione non valida per "${def.label}": ${parsed.error.issues[0]?.message ?? 'errore'}`,
+          `Per usare "${def.label}" devi completarne la configurazione — ${detail}.`,
         );
       }
       grant.config = parsed.data as Record<string, unknown>;
@@ -244,9 +253,17 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     }
     if (input.tools) validateTools(input.tools, kind);
 
+    // L'handle si può cambiare, ma deve restare unico nel progetto: se è già
+    // preso ne ricaviamo una variante libera (es. devver2).
+    let nextHandle: string | undefined;
+    if (input.handle !== undefined && slugifyHandle(input.handle) !== existing.handle) {
+      nextHandle = await uniqueAgentHandle(existing.workspaceId, input.handle);
+    }
+
     const updated = await db
       .update(schema.agents)
       .set({
+        ...(nextHandle ? { handle: nextHandle } : {}),
         ...(input.name !== undefined ? { name: input.name.trim() } : {}),
         ...(input.description !== undefined ? { description: input.description } : {}),
         ...(input.purpose !== undefined ? { purpose: input.purpose } : {}),

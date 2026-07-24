@@ -556,7 +556,35 @@ export const createAgentSchema = z.object({
 });
 export type CreateAgentInput = z.infer<typeof createAgentSchema>;
 
-export const updateAgentSchema = createAgentSchema.partial();
+/**
+ * Modifica di un agente.
+ *
+ * NON si può usare `createAgentSchema.partial()`: `.partial()` rende i campi
+ * facoltativi ma i loro `.default()` scattano lo stesso quando la chiave manca.
+ * Il risultato era che una modifica parziale (es. il solo interruttore dei
+ * permessi) rimetteva di nascosto tipo, tool, icona ed effort ai valori di
+ * default. Qui i campi sono davvero opzionali: quello che non mandi non cambia.
+ */
+export const updateAgentSchema = z.object({
+  name: z.string().min(1).max(48).optional(),
+  handle: handleSchema.optional(),
+  kind: agentKindSchema.optional(),
+  description: z.string().max(280).nullable().optional(),
+  purpose: z.string().max(4000).nullable().optional(),
+  model: z.string().max(128).optional(),
+  effort: z.enum(effortLevels).optional(),
+  avatarEmoji: z.string().min(1).max(8).optional(),
+  avatarColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  systemPrompt: z.string().max(20000).nullable().optional(),
+  tools: z.array(agentToolGrantSchema).max(40).optional(),
+  mcpServers: z.array(mcpServerConfigSchema).max(20).optional(),
+  repo: repoConfigSchema.nullable().optional(),
+  execution: agentExecutionSchema.optional(),
+  permissionMode: permissionModeSchema.optional(),
+  runnerTokenId: z.uuid().nullable().optional(),
+  autoRespond: z.boolean().optional(),
+  channelIds: z.array(uuid).max(100).optional(),
+});
 export type UpdateAgentInput = z.infer<typeof updateAgentSchema>;
 
 /* ---------------------------------------------------------------------------
