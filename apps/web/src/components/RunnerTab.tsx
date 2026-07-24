@@ -110,12 +110,27 @@ export function RunnerTab({ workspaceId }: { workspaceId: string }) {
                 key={t.id}
                 className="flex items-center gap-2 rounded-[9px] bg-[var(--color-panel-alt)] px-3 py-2"
               >
+                <span
+                  className={
+                    'mt-1.5 h-2 w-2 shrink-0 rounded-full ' +
+                    (t.online ? 'bg-[var(--color-success,#2e9e5b)]' : 'bg-[var(--color-ink-faint)]')
+                  }
+                  title={t.online ? 'accesa' : 'spenta'}
+                />
                 <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-medium">{t.label ?? 'Runner'}</div>
-                  <div className="text-[11.5px] text-[var(--color-ink-faint)]">
-                    {t.lastSeenAt
-                      ? `attivo · visto ${new Date(t.lastSeenAt).toLocaleString('it')}`
-                      : 'mai collegato'}
+                  <div className="text-[13px] font-medium">
+                    {t.label ?? 'Runner'}
+                    {t.host && (
+                      <span className="ml-1.5 font-normal text-[var(--color-ink-faint)]">
+                        su {t.host}
+                      </span>
+                    )}
+                  </div>
+                  <div className="truncate text-[11.5px] text-[var(--color-ink-faint)]">
+                    {t.online ? 'accesa ora' : t.lastSeenAt
+                      ? `spenta · vista ${new Date(t.lastSeenAt).toLocaleString('it')}`
+                      : 'mai collegata'}
+                    {t.workdir ? ` · ${t.workdir}` : ''}
                   </div>
                 </div>
                 <button

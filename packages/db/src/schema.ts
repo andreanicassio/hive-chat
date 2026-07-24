@@ -301,6 +301,11 @@ export const agents = pgTable(
     execution: varchar('execution', { length: 8 }).notNull().default('server'),
     /** `ask` (conferma in chat) o `bypass` (autonomia totale, niente conferme). */
     permissionMode: varchar('permission_mode', { length: 8 }).notNull().default('ask'),
+    /**
+     * Su QUALE runner gira, quando `execution = 'local'`. Null = la prima
+     * macchina disponibile fra quelle accese (comportamento storico).
+     */
+    runnerTokenId: uuid('runner_token_id'),
     autoRespond: boolean('auto_respond').notNull().default(false),
     /** Stato volatile mostrato nella barra in basso. */
     status: varchar('status', { length: 16 }).notNull().default('idle'),
@@ -579,6 +584,9 @@ export const runnerTokens = pgTable(
     /** SHA-256 del token: il valore in chiaro si mostra una volta sola. */
     tokenHash: text('token_hash').notNull(),
     label: varchar('label', { length: 80 }),
+    /** Come si è presentato l'ultima volta: nome macchina e cartella di lavoro. */
+    lastHost: varchar('last_host', { length: 120 }),
+    lastWorkdir: text('last_workdir'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),

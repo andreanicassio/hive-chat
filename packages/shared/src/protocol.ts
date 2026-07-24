@@ -123,6 +123,10 @@ export const redisChannels = {
    * computer). Il runner fa BRPOP su questa chiave.
    */
   runnerQueue: (userId: string) => `hive:runs:runner:${userId}`,
+  /** Coda di UNA macchina precisa: usata quando l'agente sceglie il runner. */
+  runnerQueueById: (tokenId: string) => `hive:runs:runner:t:${tokenId}`,
+  /** Presenza di UNA macchina precisa. */
+  runnerPresenceById: (tokenId: string) => `hive:runner:t:${tokenId}`,
   /**
    * Presenza del runner di un utente: chiave con TTL che il runner rinnova a
    * intervalli. Se manca, il runner è considerato offline.
@@ -134,6 +138,8 @@ export const redisChannels = {
    * far partire un turno dell'agente. Il runner fa poll su questa lista.
    */
   runnerCommands: (userId: string) => `hive:runner:cmd:${userId}`,
+  /** Comandi per UNA macchina precisa. */
+  runnerCommandsById: (tokenId: string) => `hive:runner:cmd:t:${tokenId}`,
   /** Risultato di un comando, atteso dal server (chiave con TTL). */
   runnerCommandResult: (commandId: string) => `hive:runner:cmdres:${commandId}`,
   /** Richieste di annullamento run. */

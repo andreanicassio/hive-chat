@@ -36,7 +36,7 @@ async function resolveRun(userId: string, runId: string) {
 /** Autentica il runner dal token bearer e ne ricava utente + progetto. */
 async function requireRunner(
   request: FastifyRequest,
-): Promise<{ userId: string; workspaceId: string }> {
+): Promise<{ userId: string; workspaceId: string; tokenId: string }> {
   const token = (request.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
   if (!token.startsWith('hrt_')) throw unauthorized('Token runner mancante o non valido.');
   const rows = await db
@@ -50,11 +50,13 @@ async function requireRunner(
     .update(schema.runnerTokens)
     .set({ lastSeenAt: new Date() })
     .where(eq(schema.runnerTokens.id, row.id));
-  return { userId: row.userId, workspaceId: row.workspaceId };
+  return { userId: row.userId, workspaceId: row.workspaceId, tokenId: row.id };
 }
 
-async function refreshPresence(userId: string, name: string): Promise<void> {
-  await redisPub.set(redisChannels.runnerPresence(userId), name || '1', 'EX', RUNNER_PRESENCE_TTL_SEC);
+async function refreshPresence(userId: string, tokenId: string, name: string): Promise<void> {
+  const label = name || '1';
+  await redisPub.set(redisChannels.runnerPresence(userId), label, 'EX', RUNNER_PRESENCE_TTL_SEC);
+  await redisPub.set(redisChannels.runnerPresenceById(tokenId), label, 'EX', RUNNER_PRESENCE_TTL_SEC);
 }
 
 /** Ultima sessione SDK riuscita dell'agente in questo canale, per il resume. */
@@ -72,25 +74,48 @@ async function lastSessionId(agentId: string): Promise<string | null> {
 export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
   /* --------------------------------------------------- presenza / heartbeat */
   app.post('/api/runner/hello', async (request) => {
-    const { userId, workspaceId } = await requireRunner(request);
+    const { userId, workspaceId, tokenId } = await requireRunner(request);
     const body = z
-      .object({ name: z.string().max(80).optional() })
+      .object({
+        name: z.string().max(80).optional(),
+        host: z.string().max(120).optional(),
+        workdir: z.string().max(2000).optional(),
+      })
       .parse(request.body ?? {});
-    await refreshPresence(userId, body.name ?? 'runner');
+    await refreshPresence(userId, tokenId, body.name ?? 'runner');
+    // Così in Impostazioni si vede DOVE gira ogni runner.
+    await db
+      .update(schema.runnerTokens)
+      .set({
+        ...(body.host ? { lastHost: body.host } : {}),
+        ...(body.workdir ? { lastWorkdir: body.workdir } : {}),
+        ...(body.name ? { label: body.name } : {}),
+      })
+      .where(eq(schema.runnerTokens.id, tokenId));
     return { ok: true, userId, workspaceId };
   });
 
   /* ------------------------------------------------------ poll di un job */
   app.get('/api/runner/poll', async (request, reply) => {
-    const { userId } = await requireRunner(request);
+    const { userId, tokenId } = await requireRunner(request);
     const name = z.object({ name: z.string().max(80).optional() }).parse(request.query).name ?? 'runner';
-    const key = redisChannels.runnerQueue(userId);
+    // Prima la coda di QUESTA macchina (agenti che l'hanno scelta), poi quella
+    // generica dell'utente (agenti senza macchina preferita).
+    const keys = [redisChannels.runnerQueueById(tokenId), redisChannels.runnerQueue(userId)];
 
-    // Long-poll leggero: controlliamo la coda per ~25s rinnovando la presenza.
+    // La presenza si rinnova QUI, all'arrivo della richiesta: è la prova che
+    // il runner è vivo. Non va rinnovata dentro il ciclo, altrimenti una
+    // richiesta rimasta appesa terrebbe "accesa" una macchina già spenta.
+    await refreshPresence(userId, tokenId, name);
+
+    // Long-poll leggero: controlliamo la coda per ~25s (TTL presenza 30s).
     const deadline = Date.now() + 25_000;
     while (Date.now() < deadline) {
-      await refreshPresence(userId, name);
-      const raw = await redisPub.rpop(key);
+      let raw: string | null = null;
+      for (const k of keys) {
+        raw = await redisPub.rpop(k);
+        if (raw) break;
+      }
       if (raw) {
         const job = runJobSchema.parse(JSON.parse(raw));
         // Sicurezza: il job dev'essere di un agente 'local' di questo utente.
@@ -257,10 +282,15 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
   // Il runner fa poll qui per servire richieste che non fanno partire un turno
   // (es. leggere/scrivere il CLAUDE.md del progetto dall'interfaccia).
   app.get('/api/runner/commands', async (request, reply) => {
-    const { userId } = await requireRunner(request);
+    const { userId, tokenId } = await requireRunner(request);
     const deadline = Date.now() + 20_000;
+    const cmdKeys = [redisChannels.runnerCommandsById(tokenId), redisChannels.runnerCommands(userId)];
     while (Date.now() < deadline) {
-      const raw = await redisPub.rpop(redisChannels.runnerCommands(userId));
+      let raw: string | null = null;
+      for (const k of cmdKeys) {
+        raw = await redisPub.rpop(k);
+        if (raw) break;
+      }
       if (raw) return { command: JSON.parse(raw) };
       await new Promise((r) => setTimeout(r, 700));
     }

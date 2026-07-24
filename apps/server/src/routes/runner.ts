@@ -5,21 +5,39 @@ import { z } from 'zod';
 import { db, schema } from '../db/index.js';
 import { requireMembership, requireUser } from '../lib/auth.js';
 import { notFound } from '../lib/errors.js';
-import { createRunnerTokenSchema, type RunnerToken } from '@hive/shared';
+import { createRunnerTokenSchema, redisChannels, type RunnerToken } from '@hive/shared';
+import { redisPub } from '../lib/redis.js';
 
 /** SHA-256 esadecimale del token: sul DB salviamo solo questo. */
 export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-function serialize(row: typeof schema.runnerTokens.$inferSelect): RunnerToken {
+function serialize(
+  row: typeof schema.runnerTokens.$inferSelect,
+  online = false,
+): RunnerToken {
   return {
     id: row.id,
     label: row.label,
     createdAt: row.createdAt.toISOString(),
     lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
     revoked: row.revokedAt != null,
+    online,
+    host: row.lastHost ?? null,
+    workdir: row.lastWorkdir ?? null,
   };
+}
+
+/** Quali di questi runner stanno rispondendo adesso. */
+async function onlineIds(ids: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  await Promise.all(
+    ids.map(async (id) => {
+      if (await redisPub.exists(redisChannels.runnerPresenceById(id))) out.add(id);
+    }),
+  );
+  return out;
 }
 
 /**
@@ -63,7 +81,8 @@ export async function runnerTokenRoutes(app: FastifyInstance): Promise<void> {
         ),
       )
       .orderBy(desc(schema.runnerTokens.createdAt));
-    return { runnerTokens: rows.map(serialize) };
+    const live = await onlineIds(rows.map((r) => r.id));
+    return { runnerTokens: rows.map((r) => serialize(r, live.has(r.id))) };
   });
 
   /* ------------------------------------------------------------ revoca token */

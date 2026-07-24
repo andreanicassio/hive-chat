@@ -24,7 +24,7 @@ import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
 import { AgentDetail } from './AgentDetail.js';
 import { Modal, ModalRow, ModalSearch } from './Modal.js';
-import type { Agent, AgentKind, CatalogModel } from '@hive/shared';
+import type { Agent, AgentKind, CatalogModel, RunnerToken } from '@hive/shared';
 
 /* ========================================================================== */
 /*  Selettore modello                                                          */
@@ -246,6 +246,8 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
   const [permissionMode, setPermissionMode] = useState<'ask' | 'bypass'>(
     agent?.permissionMode ?? 'ask',
   );
+  const [runnerTokenId, setRunnerTokenId] = useState<string | null>(agent?.runnerTokenId ?? null);
+  const [runners, setRunners] = useState<RunnerToken[]>([]);
 
   const [catalog, setCatalog] = useState<ToolDef[]>([]);
   const [defaults, setDefaults] = useState<Record<string, string[]>>({});
@@ -253,6 +255,15 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /* Le macchine su cui l'utente ha installato un runner. */
+  useEffect(() => {
+    if (!workspace) return;
+    void api
+      .listRunnerTokens(workspace.id)
+      .then(({ runnerTokens }) => setRunners(runnerTokens))
+      .catch(() => setRunners([]));
+  }, [workspace]);
 
   /* Catalogo tool e modello di default. In modifica NON tocchiamo i valori
      dell'agente: prendiamo solo il catalogo. */
@@ -329,6 +340,7 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
         autoRespond,
         execution,
         permissionMode: kind === 'developer' ? permissionMode : 'ask',
+        runnerTokenId: execution === 'local' ? runnerTokenId : null,
         tools: [...toolIds].map((id) => {
           // Conserviamo config e "richiede approvazione" già impostati.
           const prev = (agent.tools ?? []).find((t) => t.toolId === id);
@@ -381,6 +393,7 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
         autoRespond,
         execution,
         permissionMode: kind === 'developer' ? permissionMode : 'ask',
+        runnerTokenId: execution === 'local' ? runnerTokenId : null,
         tools: [...toolIds].map((id) => ({ toolId: id, config: {}, requireApproval: false })),
         channelIds: [...channelIds],
         repo:
@@ -633,8 +646,40 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
                 ))}
               </div>
               {execution === 'local' && (
+                <div className="mt-2">
+                  <label className="mb-1 block text-[12.5px] font-medium text-[var(--color-ink-soft)]">
+                    Su quale macchina
+                  </label>
+                  <select
+                    className="field"
+                    value={runnerTokenId ?? ''}
+                    onChange={(e) => setRunnerTokenId(e.target.value || null)}
+                  >
+                    <option value="">La prima libera</option>
+                    {runners.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.online ? '● ' : '○ '}
+                        {r.label ?? 'Runner'}
+                        {r.host ? ` — ${r.host}` : ''}
+                        {r.online ? '' : ' (spenta)'}
+                      </option>
+                    ))}
+                  </select>
+                  {runnerTokenId && (
+                    <p className="mt-1 text-[12px] text-[var(--color-ink-faint)]">
+                      {runners.find((r) => r.id === runnerTokenId)?.workdir ?? ''}
+                    </p>
+                  )}
+                  {runners.length === 0 && (
+                    <p className="mt-1 text-[12px] text-[var(--color-ink-faint)]">
+                      Nessun runner ancora: generane uno in Impostazioni → Runner.
+                    </p>
+                  )}
+                </div>
+              )}
+              {execution === 'local' && (
                 <p className="mt-1.5 text-[12.5px] text-[var(--color-ink-faint)]">
-                  Risponde solo quando il tuo <strong>runner</strong> è acceso. Puoi installarlo su
+                  Risponde solo quando il <strong>runner</strong> è acceso. Puoi installarlo su
                   qualunque macchina (il tuo Mac o un server remoto via SSH) con il comando in
                   Impostazioni → Runner: si collega da solo in uscita, senza aprire porte.
                 </p>

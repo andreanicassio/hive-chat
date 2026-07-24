@@ -386,18 +386,42 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
   // tramite il runner. Gli altri sul server. La coda è una lista Redis su cui
   // il consumatore giusto fa BRPOP.
   const owner = await db
-    .select({ execution: schema.agents.execution, ownerId: schema.agents.createdBy })
+    .select({
+      execution: schema.agents.execution,
+      ownerId: schema.agents.createdBy,
+      runnerTokenId: schema.agents.runnerTokenId,
+    })
     .from(schema.agents)
     .where(eq(schema.agents.id, args.agentId))
     .limit(1);
   const agentExec = owner[0];
 
   if (agentExec?.execution === 'local' && agentExec.ownerId) {
-    const online = await redisPub.exists(redisChannels.runnerPresence(agentExec.ownerId));
+    // Se l'agente ha scelto UNA macchina, il lavoro va solo lì; altrimenti
+    // finisce nella coda generica, servita dalla prima macchina accesa.
+    const target = agentExec.runnerTokenId;
+    const online = target
+      ? await redisPub.exists(redisChannels.runnerPresenceById(target))
+      : await redisPub.exists(redisChannels.runnerPresence(agentExec.ownerId));
     if (online) {
-      await redisPub.lpush(redisChannels.runnerQueue(agentExec.ownerId), JSON.stringify(job));
+      await redisPub.lpush(
+        target
+          ? redisChannels.runnerQueueById(target)
+          : redisChannels.runnerQueue(agentExec.ownerId),
+        JSON.stringify(job),
+      );
     } else {
-      await failRunnerOffline(runId, responseMessage.id, args.workspaceId, args.channelId);
+      // Nome della macchina scelta, se ce n'è una: il messaggio dice quale.
+      let machine: string | null = null;
+      if (target) {
+        const t = await db
+          .select({ label: schema.runnerTokens.label })
+          .from(schema.runnerTokens)
+          .where(eq(schema.runnerTokens.id, target))
+          .limit(1);
+        machine = t[0]?.label ?? null;
+      }
+      await failRunnerOffline(runId, responseMessage.id, args.workspaceId, args.channelId, machine);
     }
   } else {
     await redisPub.lpush(redisChannels.runQueue, JSON.stringify(job));
@@ -415,10 +439,12 @@ async function failRunnerOffline(
   responseMessageId: string,
   workspaceId: string,
   channelId: string,
+  machine: string | null = null,
 ): Promise<void> {
-  const note =
-    '_Questo agente gira sul computer del suo proprietario e il runner locale è ' +
-    'spento in questo momento. Avvia il runner su quella macchina e riprova._';
+  const note = machine
+    ? `_Questo agente gira sulla macchina «${machine}», che ora è spenta. Accendi lì il runner e riprova._`
+    : '_Questo agente gira su una macchina con il runner, e nessuna è accesa in ' +
+      'questo momento. Avvia il runner e riprova._';
   await db
     .update(schema.agentRuns)
     .set({ status: 'error', error: 'runner offline', endedAt: new Date() })

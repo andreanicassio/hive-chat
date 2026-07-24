@@ -2,6 +2,7 @@ import { query, createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import { hostname } from 'node:os';
 import { z } from 'zod';
 import {
   dangerousToolNames,
@@ -470,7 +471,7 @@ export async function startRunnerClient(): Promise<void> {
     const hello = await fetch(`${cfg.serverUrl}/api/runner/hello`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.token}` },
-      body: JSON.stringify({ name: cfg.name }),
+      body: JSON.stringify({ name: cfg.name, host: hostname(), workdir: cfg.workdir }),
     });
     if (!hello.ok) throw new Error(`hello ${hello.status}`);
     console.log('[runner] collegato ✓ — in attesa di lavoro');

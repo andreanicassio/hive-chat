@@ -167,6 +167,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         repo: input.repo ?? null,
         execution: input.execution,
         permissionMode: input.permissionMode,
+        runnerTokenId: input.runnerTokenId ?? null,
         autoRespond: input.autoRespond,
         createdBy: user.id,
       })
@@ -262,6 +263,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         ...(input.repo !== undefined ? { repo: input.repo } : {}),
         ...(input.execution !== undefined ? { execution: input.execution } : {}),
         ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
+        ...(input.runnerTokenId !== undefined ? { runnerTokenId: input.runnerTokenId } : {}),
         ...(input.autoRespond !== undefined ? { autoRespond: input.autoRespond } : {}),
       })
       .where(eq(schema.agents.id, agentId))

@@ -336,6 +336,7 @@ export function serializeAgent(row: AgentRow, extra?: Partial<Agent>): Agent {
     repo: (row.repo as Agent['repo']) ?? null,
     execution: (row.execution as Agent['execution']) ?? 'server',
     permissionMode: (row.permissionMode as Agent['permissionMode']) ?? 'ask',
+    runnerTokenId: row.runnerTokenId ?? null,
     autoRespond: row.autoRespond,
     status: row.status as Agent['status'],
     statusLabel: row.statusLabel,

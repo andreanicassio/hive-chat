@@ -301,6 +301,11 @@ export interface RunnerToken {
   createdAt: string;
   lastSeenAt: string | null;
   revoked: boolean;
+  /** Acceso adesso? (presenza rinnovata dal runner stesso) */
+  online: boolean;
+  /** Come si è presentato l'ultima volta. */
+  host: string | null;
+  workdir: string | null;
 }
 export const createRunnerTokenSchema = z.object({
   label: z.string().max(80).optional(),
@@ -515,6 +520,8 @@ export interface Agent {
   execution: AgentExecution;
   /** Gate delle azioni: `ask` (conferma in chat) o `bypass` (autonomia totale). */
   permissionMode: PermissionMode;
+  /** Su quale runner gira (se `execution = 'local'`). Null = il primo libero. */
+  runnerTokenId: string | null;
   /** Presente se l'agente gira in locale: il runner di questa persona è acceso? */
   runnerOnline?: boolean;
   /** Risponde da solo quando qualcuno scrive nel canale senza taggarlo. */
@@ -543,6 +550,7 @@ export const createAgentSchema = z.object({
   repo: repoConfigSchema.nullable().optional(),
   execution: agentExecutionSchema.default('server'),
   permissionMode: permissionModeSchema.default('ask'),
+  runnerTokenId: z.uuid().nullable().default(null),
   autoRespond: z.boolean().default(false),
   channelIds: z.array(uuid).max(100).default([]),
 });

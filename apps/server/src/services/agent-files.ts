@@ -40,9 +40,13 @@ interface RunnerCommand {
 /** Invia un comando al runner dell'utente e ne attende il risultato. */
 async function askRunner(
   userId: string,
+  runnerTokenId: string | null,
   command: Omit<RunnerCommand, 'id'>,
 ): Promise<{ ok: boolean; content?: string; path?: string; exists?: boolean; error?: string }> {
-  const online = await redisPub.get(redisChannels.runnerPresence(userId));
+  // Se l'agente punta a una macchina precisa, deve essere accesa QUELLA.
+  const online = runnerTokenId
+    ? await redisPub.get(redisChannels.runnerPresenceById(runnerTokenId))
+    : await redisPub.get(redisChannels.runnerPresence(userId));
   if (!online) {
     throw badRequest(
       'runner_offline',
@@ -51,7 +55,9 @@ async function askRunner(
   }
   const id = randomUUID();
   await redisPub.lpush(
-    redisChannels.runnerCommands(userId),
+    runnerTokenId
+      ? redisChannels.runnerCommandsById(runnerTokenId)
+      : redisChannels.runnerCommands(userId),
     JSON.stringify({ id, ...command } satisfies RunnerCommand),
   );
   // Il runner fa poll ogni pochi secondi: aspettiamo il risultato.
@@ -76,10 +82,11 @@ export async function readClaudeMd(agent: {
   kind: string;
   execution: string;
   createdBy: string | null;
+  runnerTokenId?: string | null;
 }): Promise<ClaudeMdResult> {
   if (agent.execution === 'local') {
     if (!agent.createdBy) throw badRequest('no_owner', 'Agente senza proprietario.');
-    const res = await askRunner(agent.createdBy, { op: 'claudeMd.read' });
+    const res = await askRunner(agent.createdBy, agent.runnerTokenId ?? null, { op: 'claudeMd.read' });
     if (!res.ok) throw badRequest('runner_error', res.error ?? 'Lettura fallita sul runner.');
     return {
       content: res.content ?? '',
@@ -106,12 +113,16 @@ export async function writeClaudeMd(
     kind: string;
     execution: string;
     createdBy: string | null;
+    runnerTokenId?: string | null;
   },
   content: string,
 ): Promise<ClaudeMdResult> {
   if (agent.execution === 'local') {
     if (!agent.createdBy) throw badRequest('no_owner', 'Agente senza proprietario.');
-    const res = await askRunner(agent.createdBy, { op: 'claudeMd.write', content });
+    const res = await askRunner(agent.createdBy, agent.runnerTokenId ?? null, {
+      op: 'claudeMd.write',
+      content,
+    });
     if (!res.ok) throw badRequest('runner_error', res.error ?? 'Scrittura fallita sul runner.');
     return { content, path: res.path ?? 'CLAUDE.md', source: 'runner', exists: true };
   }
