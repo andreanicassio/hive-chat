@@ -27,3 +27,6 @@ apps/desktop/node_modules/
 # Artefatti di test/binari pesanti (non vanno nel repo)
 chrome-headless-shell/
 *.zip
+
+# Backup temporanei (possono contenere segreti)
+*.bak

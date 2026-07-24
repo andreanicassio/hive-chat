@@ -1,12 +1,15 @@
 use std::process::{Child, Command};
 use std::sync::Mutex;
-use tauri::{Manager, State, WindowEvent};
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::{Manager, State, Url, WindowEvent};
 
 /// Il runner locale come processo figlio dell'app: uno alla volta.
 struct RunnerState(Mutex<Option<Child>>);
 
+/// URL della schermata iniziale (bundle), per il menu "Cambia server".
+struct StartUrl(Mutex<Option<Url>>);
+
 /// Avvia il runner locale (`deploy/hive-runner.sh`) come figlio dell'app.
-/// `repo_path` è la cartella del repo Hive clonato su questa macchina.
 #[tauri::command]
 fn start_runner(
     repo_path: String,
@@ -72,6 +75,70 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(RunnerState(Mutex::new(None)))
+        .manage(StartUrl(Mutex::new(None)))
+        // Menu nativo: Modifica (copia/incolla nel webview), Vista (Ricarica,
+        // Cambia server). Senza questo non funzionano né ⌘R né ⌘C nella chat.
+        .menu(|app| {
+            let reload = MenuItemBuilder::with_id("reload", "Ricarica")
+                .accelerator("CmdOrCtrl+R")
+                .build(app)?;
+            let change = MenuItemBuilder::with_id("change_server", "Cambia server…")
+                .accelerator("CmdOrCtrl+Shift+O")
+                .build(app)?;
+
+            let app_menu = SubmenuBuilder::new(app, "Hive")
+                .about(None)
+                .separator()
+                .quit()
+                .build()?;
+            let edit_menu = SubmenuBuilder::new(app, "Modifica")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+            let view_menu = SubmenuBuilder::new(app, "Vista")
+                .item(&reload)
+                .item(&change)
+                .build()?;
+
+            MenuBuilder::new(app)
+                .items(&[&app_menu, &edit_menu, &view_menu])
+                .build()
+        })
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "reload" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.eval("window.location.reload()");
+                }
+            }
+            "change_server" => {
+                // Torna alla schermata iniziale del bundle (dove scegli il server).
+                let start = app
+                    .try_state::<StartUrl>()
+                    .and_then(|s| s.0.lock().ok().and_then(|g| g.clone()));
+                if let (Some(w), Some(url)) = (app.get_webview_window("main"), start) {
+                    let _ = w.navigate(url);
+                }
+            }
+            _ => {}
+        })
+        .setup(|app| {
+            // Ricordiamo l'URL della schermata iniziale, per "Cambia server".
+            if let Some(w) = app.get_webview_window("main") {
+                if let Ok(u) = w.url() {
+                    if let Some(state) = app.try_state::<StartUrl>() {
+                        if let Ok(mut g) = state.0.lock() {
+                            *g = Some(u);
+                        }
+                    }
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             start_runner,
             stop_runner,
