@@ -40,13 +40,14 @@ interface RunnerCommand {
 /** Invia un comando al runner dell'utente e ne attende il risultato. */
 async function askRunner(
   userId: string,
+  workspaceId: string,
   runnerTokenId: string | null,
   command: Omit<RunnerCommand, 'id'>,
 ): Promise<{ ok: boolean; content?: string; path?: string; exists?: boolean; error?: string }> {
   // Se l'agente punta a una macchina precisa, deve essere accesa QUELLA.
   const online = runnerTokenId
     ? await redisPub.get(redisChannels.runnerPresenceById(runnerTokenId))
-    : await redisPub.get(redisChannels.runnerPresence(userId));
+    : await redisPub.get(redisChannels.runnerPresence(userId, workspaceId));
   if (!online) {
     throw badRequest(
       'runner_offline',
@@ -86,7 +87,9 @@ export async function readClaudeMd(agent: {
 }): Promise<ClaudeMdResult> {
   if (agent.execution === 'local') {
     if (!agent.createdBy) throw badRequest('no_owner', 'Agente senza proprietario.');
-    const res = await askRunner(agent.createdBy, agent.runnerTokenId ?? null, { op: 'claudeMd.read' });
+    const res = await askRunner(agent.createdBy, agent.workspaceId, agent.runnerTokenId ?? null, {
+      op: 'claudeMd.read',
+    });
     if (!res.ok) throw badRequest('runner_error', res.error ?? 'Lettura fallita sul runner.');
     return {
       content: res.content ?? '',
@@ -119,7 +122,7 @@ export async function writeClaudeMd(
 ): Promise<ClaudeMdResult> {
   if (agent.execution === 'local') {
     if (!agent.createdBy) throw badRequest('no_owner', 'Agente senza proprietario.');
-    const res = await askRunner(agent.createdBy, agent.runnerTokenId ?? null, {
+    const res = await askRunner(agent.createdBy, agent.workspaceId, agent.runnerTokenId ?? null, {
       op: 'claudeMd.write',
       content,
     });

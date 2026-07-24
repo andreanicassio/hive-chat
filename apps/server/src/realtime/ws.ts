@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { hub } from './hub.js';
 import { loadSession } from '../lib/auth.js';
@@ -7,6 +7,45 @@ import { clientPacketSchema, type ServerPacket } from '@hive/shared';
 
 /** Finestra minima fra due eventi "sta scrivendo" dello stesso utente. */
 const TYPING_THROTTLE_MS = 2500;
+
+/**
+ * Filtra gli id tenendo solo i canali che questa persona può davvero leggere:
+ * devono stare nel suo progetto e, se privati, deve esserne membro (gli
+ * amministratori del progetto vedono tutto, come sul lato REST).
+ */
+async function readableChannels(
+  ids: string[],
+  workspaceId: string,
+  userId: string,
+  role: string,
+): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select({ id: schema.channels.id, visibility: schema.channels.visibility })
+    .from(schema.channels)
+    .where(and(eq(schema.channels.workspaceId, workspaceId), inArray(schema.channels.id, ids)));
+  if (rows.length === 0) return [];
+
+  const isAdmin = role === 'admin' || role === 'owner';
+  const privateIds = rows.filter((r) => r.visibility === 'private').map((r) => r.id);
+  let joined = new Set<string>();
+  if (privateIds.length > 0 && !isAdmin) {
+    const mem = await db
+      .select({ channelId: schema.channelMembers.channelId })
+      .from(schema.channelMembers)
+      .where(
+        and(
+          inArray(schema.channelMembers.channelId, privateIds),
+          eq(schema.channelMembers.memberType, 'user'),
+          eq(schema.channelMembers.memberId, userId),
+        ),
+      );
+    joined = new Set(mem.map((m) => m.channelId));
+  }
+  return rows
+    .filter((r) => r.visibility !== 'private' || isAdmin || joined.has(r.id))
+    .map((r) => r.id);
+}
 
 export async function websocketRoutes(app: FastifyInstance): Promise<void> {
   app.get('/ws', { websocket: true }, async (socket, request) => {
@@ -30,6 +69,8 @@ export async function websocketRoutes(app: FastifyInstance): Promise<void> {
     const me = user;
 
     let conn: Awaited<ReturnType<typeof hub.add>> | null = null;
+    // Ruolo nel progetto: serve a decidere cosa può ascoltare.
+    let role = 'guest';
     const lastTyping = new Map<string, number>();
 
     // I pacchetti si elaborano UNO ALLA VOLTA, in ordine di arrivo.
@@ -79,6 +120,7 @@ export async function websocketRoutes(app: FastifyInstance): Promise<void> {
               return;
             }
 
+            role = member[0]!.role as string;
             if (conn) await hub.remove(conn);
             conn = await hub.add(socket, me.id, packet.workspaceId);
             send({
@@ -96,7 +138,16 @@ export async function websocketRoutes(app: FastifyInstance): Promise<void> {
 
           case 'subscribe': {
             if (!conn) return;
-            for (const id of packet.channelIds) conn.channels.add(id);
+            // NON ci si può iscrivere a un canale qualsiasi: senza questo
+            // controllo bastava conoscere (o indovinare) un id per ricevere
+            // in tempo reale tutto ciò che passa in un canale privato.
+            const allowed = await readableChannels(
+              packet.channelIds,
+              conn.workspaceId,
+              me.id,
+              role,
+            );
+            for (const id of allowed) conn.channels.add(id);
             return;
           }
 

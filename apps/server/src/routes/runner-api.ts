@@ -53,9 +53,19 @@ async function requireRunner(
   return { userId: row.userId, workspaceId: row.workspaceId, tokenId: row.id };
 }
 
-async function refreshPresence(userId: string, tokenId: string, name: string): Promise<void> {
+async function refreshPresence(
+  userId: string,
+  workspaceId: string,
+  tokenId: string,
+  name: string,
+): Promise<void> {
   const label = name || '1';
-  await redisPub.set(redisChannels.runnerPresence(userId), label, 'EX', RUNNER_PRESENCE_TTL_SEC);
+  await redisPub.set(
+    redisChannels.runnerPresence(userId, workspaceId),
+    label,
+    'EX',
+    RUNNER_PRESENCE_TTL_SEC,
+  );
   await redisPub.set(redisChannels.runnerPresenceById(tokenId), label, 'EX', RUNNER_PRESENCE_TTL_SEC);
 }
 
@@ -82,7 +92,7 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
         workdir: z.string().max(2000).optional(),
       })
       .parse(request.body ?? {});
-    await refreshPresence(userId, tokenId, body.name ?? 'runner');
+    await refreshPresence(userId, workspaceId, tokenId, body.name ?? 'runner');
     // Così in Impostazioni si vede DOVE gira ogni runner.
     await db
       .update(schema.runnerTokens)
@@ -97,16 +107,19 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
 
   /* ------------------------------------------------------ poll di un job */
   app.get('/api/runner/poll', async (request, reply) => {
-    const { userId, tokenId } = await requireRunner(request);
+    const { userId, workspaceId, tokenId } = await requireRunner(request);
     const name = z.object({ name: z.string().max(80).optional() }).parse(request.query).name ?? 'runner';
     // Prima la coda di QUESTA macchina (agenti che l'hanno scelta), poi quella
     // generica dell'utente (agenti senza macchina preferita).
-    const keys = [redisChannels.runnerQueueById(tokenId), redisChannels.runnerQueue(userId)];
+    const keys = [
+      redisChannels.runnerQueueById(tokenId),
+      redisChannels.runnerQueue(userId, workspaceId),
+    ];
 
     // La presenza si rinnova QUI, all'arrivo della richiesta: è la prova che
     // il runner è vivo. Non va rinnovata dentro il ciclo, altrimenti una
     // richiesta rimasta appesa terrebbe "accesa" una macchina già spenta.
-    await refreshPresence(userId, tokenId, name);
+    await refreshPresence(userId, workspaceId, tokenId, name);
 
     // Long-poll leggero: controlliamo la coda per ~25s (TTL presenza 30s).
     const deadline = Date.now() + 25_000;
@@ -125,8 +138,13 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
           .where(eq(schema.agents.id, job.agentId))
           .limit(1);
         const agent = agentRows[0];
-        if (!agent || agent.createdBy !== userId || agent.execution !== 'local') {
-          // Non è roba di questo runner: la scartiamo (non dovrebbe capitare).
+        if (
+          !agent ||
+          agent.createdBy !== userId ||
+          agent.execution !== 'local' ||
+          agent.workspaceId !== workspaceId
+        ) {
+          // Non è roba di questo runner (altro utente o altro progetto).
           continue;
         }
         const context = await buildAgentContext(db, {

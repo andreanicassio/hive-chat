@@ -145,8 +145,15 @@ export const api = {
 
   updateChannel: (
     channelId: string,
-    input: { topic?: string | null; purpose?: string | null; groupId?: string | null },
+    input: {
+      name?: string;
+      topic?: string | null;
+      purpose?: string | null;
+      groupId?: string | null;
+    },
   ) => patch<{ channel: Channel }>(`/api/channels/${channelId}`, input),
+
+  archiveChannel: (channelId: string) => del<{ ok: true }>(`/api/channels/${channelId}`),
 
   joinChannel: (channelId: string) => post<{ ok: true }>(`/api/channels/${channelId}/join`),
   leaveChannel: (channelId: string) => post<{ ok: true }>(`/api/channels/${channelId}/leave`),

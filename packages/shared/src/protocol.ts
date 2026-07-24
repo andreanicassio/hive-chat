@@ -67,6 +67,7 @@ export type ServerPacket =
   /* --- canali e agenti --- */
   | { t: 'channel.created'; channel: Channel }
   | { t: 'channel.updated'; channel: Channel }
+  | { t: 'channel.deleted'; channelId: string }
   | { t: 'agent.upserted'; agent: Agent }
   | {
       t: 'agent.status';
@@ -122,7 +123,14 @@ export const redisChannels = {
    * Coda dei run affidati al runner locale di un utente (esecuzione sul suo
    * computer). Il runner fa BRPOP su questa chiave.
    */
-  runnerQueue: (userId: string) => `hive:runs:runner:${userId}`,
+  /**
+   * Coda generica: i turni di agenti che non hanno scelto una macchina.
+   * È legata anche al PROGETTO, altrimenti un runner installato per un
+   * progetto potrebbe prendere lavoro di un altro e girare nella cartella
+   * sbagliata.
+   */
+  runnerQueue: (userId: string, workspaceId: string) =>
+    `hive:runs:runner:${userId}:${workspaceId}`,
   /** Coda di UNA macchina precisa: usata quando l'agente sceglie il runner. */
   runnerQueueById: (tokenId: string) => `hive:runs:runner:t:${tokenId}`,
   /** Presenza di UNA macchina precisa. */
@@ -131,7 +139,8 @@ export const redisChannels = {
    * Presenza del runner di un utente: chiave con TTL che il runner rinnova a
    * intervalli. Se manca, il runner è considerato offline.
    */
-  runnerPresence: (userId: string) => `hive:runner:${userId}`,
+  runnerPresence: (userId: string, workspaceId: string) =>
+    `hive:runner:${userId}:${workspaceId}`,
   /**
    * Comandi "fuori turno" per il runner di un utente: servono a leggere e
    * scrivere file sulla sua macchina (es. il CLAUDE.md del progetto) senza

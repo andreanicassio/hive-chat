@@ -169,7 +169,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     const onlineOwners = new Set<string>();
     if (localOwnerIds.length > 0) {
       const flags = await Promise.all(
-        localOwnerIds.map((id) => redisPub.exists(redisChannels.runnerPresence(id))),
+        localOwnerIds.map((id) => redisPub.exists(redisChannels.runnerPresence(id, workspaceId))),
       );
       localOwnerIds.forEach((id, i) => {
         if (flags[i]) onlineOwners.add(id);

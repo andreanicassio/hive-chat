@@ -7,7 +7,21 @@ import { conflict, notFound } from '../lib/errors.js';
 import { hub } from '../realtime/hub.js';
 import { postMessage } from '../services/messages.js';
 import { serializeChannel, serializeMessages } from '../services/serialize.js';
-import { createChannelSchema, postMessageSchema } from '@hive/shared';
+import { channelNameSchema, createChannelSchema, postMessageSchema } from '@hive/shared';
+
+/** Gli utenti che fanno parte di un canale: per non annunciare i privati a tutti. */
+async function channelUserIds(channelId: string): Promise<string[]> {
+  const rows = await db
+    .select({ memberId: schema.channelMembers.memberId })
+    .from(schema.channelMembers)
+    .where(
+      and(
+        eq(schema.channelMembers.channelId, channelId),
+        eq(schema.channelMembers.memberType, 'user'),
+      ),
+    );
+  return rows.map((r) => r.memberId);
+}
 
 export async function channelRoutes(app: FastifyInstance): Promise<void> {
   /* --------------------------------------------------------- crea canale */
@@ -68,7 +82,12 @@ export async function channelRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const channel = serializeChannel(row, { unreadCount: 0, hasMention: false, agentIds: [] });
-    await hub.publish(workspaceId, { packet: { t: 'channel.created', channel } });
+    // Un canale privato non va annunciato a tutto il progetto: nome, scopo e
+    // id finirebbero a chi non ne fa parte (e il client si iscriverebbe pure).
+    await hub.publish(workspaceId, {
+      packet: { t: 'channel.created', channel },
+      ...(row.visibility === 'private' ? { userIds: await channelUserIds(row.id) } : {}),
+    });
 
     return reply.code(201).send({ channel });
   });
@@ -79,11 +98,31 @@ export async function channelRoutes(app: FastifyInstance): Promise<void> {
     const { workspaceId } = await requireChannelAccess(request, channelId, 'member');
     const input = z
       .object({
+        name: channelNameSchema.optional(),
         topic: z.string().max(280).nullable().optional(),
         purpose: z.string().max(1000).nullable().optional(),
         groupId: z.uuid().nullable().optional(),
       })
       .parse(request.body);
+
+    // Il nome è unico nel progetto: se è già preso lo diciamo chiaramente
+    // invece di far esplodere il vincolo del database.
+    if (input.name) {
+      const clash = await db
+        .select({ id: schema.channels.id })
+        .from(schema.channels)
+        .where(
+          and(
+            eq(schema.channels.workspaceId, workspaceId),
+            eq(schema.channels.name, input.name),
+            isNull(schema.channels.archivedAt),
+          ),
+        )
+        .limit(1);
+      if (clash[0] && clash[0].id !== channelId) {
+        throw conflict('channel_exists', `Esiste già un canale #${input.name}.`);
+      }
+    }
 
     const updated = await db
       .update(schema.channels)
@@ -94,8 +133,29 @@ export async function channelRoutes(app: FastifyInstance): Promise<void> {
     if (!row) throw notFound('Canale non trovato');
 
     const channel = serializeChannel(row);
-    await hub.publish(workspaceId, { packet: { t: 'channel.updated', channel } });
+    await hub.publish(workspaceId, {
+      packet: { t: 'channel.updated', channel },
+      ...(row.visibility === 'private' ? { userIds: await channelUserIds(row.id) } : {}),
+    });
     return { channel };
+  });
+
+  /* ------------------------------------------------------ archivia canale */
+  // Archiviamo invece di cancellare: i messaggi restano, il canale sparisce
+  // dalle liste. Serve il ruolo admin, come per gli agenti.
+  app.delete('/api/channels/:channelId', async (request) => {
+    const { channelId } = z.object({ channelId: z.uuid() }).parse(request.params);
+    const { workspaceId } = await requireChannelAccess(request, channelId, 'admin');
+
+    const updated = await db
+      .update(schema.channels)
+      .set({ archivedAt: new Date() })
+      .where(eq(schema.channels.id, channelId))
+      .returning();
+    if (!updated[0]) throw notFound('Canale non trovato');
+
+    await hub.publish(workspaceId, { packet: { t: 'channel.deleted', channelId } });
+    return { ok: true };
   });
 
   /* -------------------------------------------------------- entra/esci */

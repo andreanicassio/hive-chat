@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql as raw } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { db, schema } from '../db/index.js';
+import { badRequest } from '../lib/errors.js';
 import { hub } from '../realtime/hub.js';
 import { redisPub } from '../lib/redis.js';
 import { serializeMessage } from './serialize.js';
@@ -131,6 +132,22 @@ export interface PostMessageArgs {
 
 export async function postMessage(args: PostMessageArgs) {
   const { refs, agents } = await resolveMentions(args.workspaceId, args.body);
+
+  // Si può rispondere e aprire thread solo su messaggi di QUESTO canale.
+  // Senza questo controllo si poteva citare un messaggio di un canale privato
+  // (l'anteprima ne riporta autore ed estratto) o gonfiare il contatore delle
+  // risposte di un messaggio altrui.
+  for (const ref of [args.replyToId, args.threadRootId]) {
+    if (!ref) continue;
+    const target = await db
+      .select({ channelId: schema.messages.channelId })
+      .from(schema.messages)
+      .where(eq(schema.messages.id, ref))
+      .limit(1);
+    if (!target[0] || target[0].channelId !== args.channelId) {
+      throw badRequest('bad_reference', 'Il messaggio citato non appartiene a questo canale.');
+    }
+  }
 
   const values = {
     channelId: args.channelId,
@@ -402,12 +419,14 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
     const target = agentExec.runnerTokenId;
     const online = target
       ? await redisPub.exists(redisChannels.runnerPresenceById(target))
-      : await redisPub.exists(redisChannels.runnerPresence(agentExec.ownerId));
+      : await redisPub.exists(
+          redisChannels.runnerPresence(agentExec.ownerId!, args.workspaceId),
+        );
     if (online) {
       await redisPub.lpush(
         target
           ? redisChannels.runnerQueueById(target)
-          : redisChannels.runnerQueue(agentExec.ownerId),
+          : redisChannels.runnerQueue(agentExec.ownerId!, args.workspaceId),
         JSON.stringify(job),
       );
     } else {

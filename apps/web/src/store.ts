@@ -105,6 +105,7 @@ interface State {
   updateArtifactRemote: (artifactId: string, patch: UpdateArtifactInput) => Promise<void>;
   deleteArtifact: (artifactId: string, channelId: string) => Promise<void>;
   setArtifactPanelOpen: (open: boolean) => void;
+  resyncChannel: (channelId: string) => Promise<void>;
   loadDocuments: (workspaceId: string) => Promise<void>;
   setDocumentsPanelOpen: (open: boolean) => void;
   handlePacket: (packet: unknown) => void;
@@ -226,7 +227,17 @@ export const useStore = create<State>((set, get) => ({
       runs: new Map(),
     });
 
-    realtime.onStatusChange = (connected) => set({ connected });
+    realtime.onStatusChange = (connected) => {
+      const wasConnected = get().connected;
+      set({ connected });
+      // Il realtime non ha replay: quello che è passato mentre eravamo
+      // scollegati è perso. Alla riconnessione ricarichiamo il canale aperto,
+      // altrimenti restano buchi invisibili nella conversazione.
+      if (connected && !wasConnected) {
+        const channelId = get().activeChannelId;
+        if (channelId) void get().resyncChannel(channelId);
+      }
+    };
     realtime.connect(workspaceId);
     realtime.subscribe(data.channels.map((c) => c.id));
 
@@ -312,9 +323,15 @@ export const useStore = create<State>((set, get) => ({
     const clientNonce = randomId();
     const replyToId = get().replyingTo?.id ?? null;
     set({ replyingTo: null });
-    await api.postMessage(channelId, { body, clientNonce, replyToId });
-    // Il messaggio arriva dal websocket: non lo inseriamo qui per evitare
-    // di vederlo comparire due volte.
+    const { message } = await api.postMessage(channelId, { body, clientNonce, replyToId });
+    // Lo mostriamo subito invece di aspettare il websocket: se la socket è
+    // giù il messaggio non comparirebbe affatto. `upsertMessage` è per id,
+    // quindi il pacchetto che arriverà dopo lo sostituisce senza duplicati.
+    set((s) => {
+      const next = new Map(s.messagesByChannel);
+      next.set(channelId, upsertMessage(next.get(channelId) ?? [], message));
+      return { messagesByChannel: next };
+    });
   },
 
   setReplyingTo(message) {
@@ -360,6 +377,21 @@ export const useStore = create<State>((set, get) => ({
       next.set(channelId, (next.get(channelId) ?? []).filter((a) => a.id !== artifactId));
       return { artifactsByChannel: next };
     });
+  },
+
+  async resyncChannel(channelId) {
+    try {
+      const { messages, hasMore } = await api.messages(channelId, { limit: 50 });
+      set((s) => {
+        const next = new Map(s.messagesByChannel);
+        next.set(channelId, messages);
+        const more = new Map(s.hasMoreByChannel);
+        more.set(channelId, hasMore);
+        return { messagesByChannel: next, hasMoreByChannel: more };
+      });
+    } catch {
+      /* riproveremo alla prossima riconnessione */
+    }
   },
 
   setArtifactPanelOpen(open) {
@@ -646,6 +678,15 @@ export const useStore = create<State>((set, get) => ({
           );
           return { artifactsByChannel: next };
         });
+        break;
+      }
+
+      case 'channel.deleted': {
+        const p = packet as unknown as { channelId: string };
+        set((s) => ({
+          channels: s.channels.filter((c) => c.id !== p.channelId),
+          activeChannelId: s.activeChannelId === p.channelId ? null : s.activeChannelId,
+        }));
         break;
       }
 

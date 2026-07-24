@@ -17,6 +17,7 @@ import { closeDb } from './db/index.js';
 import { closeRedis } from './lib/redis.js';
 import { hub } from './realtime/hub.js';
 import { startModelSync } from './services/models.js';
+import { startRunReaper } from './services/reaper.js';
 
 import { authRoutes } from './routes/auth.js';
 import { workspaceRoutes } from './routes/workspaces.js';
@@ -139,6 +140,8 @@ if (existsSync(webDist)) {
 /* ------------------------------------------------------------- avvio */
 
 startModelSync();
+// Chiude i turni rimasti appesi (macchina morta, conferma mai data).
+startRunReaper();
 
 const close = async (signal: string) => {
   app.log.info(`ricevuto ${signal}, chiusura in corso`);

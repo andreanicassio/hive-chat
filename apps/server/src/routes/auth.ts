@@ -119,7 +119,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /* ------------------------------------------------------------------- login */
-  app.post('/api/auth/login', async (request, reply) => {
+  app.post(
+    '/api/auth/login',
+    // Il limite globale (600/min per IP) è troppo generoso per il login:
+    // qui stringiamo, così tentare password a raffica non è praticabile.
+    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (request, reply) => {
     const input = loginSchema.parse(request.body);
     const email = input.email.trim().toLowerCase();
 

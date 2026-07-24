@@ -1,7 +1,19 @@
 import { useMemo, useState } from 'react';
 import clsx from 'clsx';
-import { Hash, Lock, Plus, Search, Inbox, Bot, ChevronDown, Settings2 } from 'lucide-react';
+import {
+  Hash,
+  Lock,
+  Plus,
+  Search,
+  Inbox,
+  Bot,
+  ChevronDown,
+  Settings2,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 import { useStore } from '../store.js';
+import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
 import type { Channel } from '@hive/shared';
 
@@ -37,6 +49,33 @@ export function Sidebar({
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [wsMenu, setWsMenu] = useState(false);
+  /* Rinomina in linea e menu contestuale dei canali. */
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [menuFor, setMenuFor] = useState<
+    { id: string; name: string; x: number; y: number } | null
+  >(null);
+
+  async function commitRename(channelId: string, previous: string) {
+    const name = renameValue.trim().replace(/^-+|-+$/g, '');
+    setRenamingId(null);
+    if (!name || name === previous) return;
+    try {
+      await api.updateChannel(channelId, { name });
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : 'Rinomina non riuscita.');
+    }
+  }
+
+  async function archive(channelId: string, name: string) {
+    setMenuFor(null);
+    if (!confirm(`Eliminare #${name}? Sparisce dall'elenco; i messaggi restano archiviati.`)) return;
+    try {
+      await api.archiveChannel(channelId);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : 'Eliminazione non riuscita.');
+    }
+  }
 
   // Canali raggruppati; quelli senza gruppo finiscono in coda sotto "Canali".
   const sections = useMemo(() => {
@@ -73,6 +112,7 @@ export function Sidebar({
     });
 
   return (
+    <>
     <aside className="flex h-full w-[236px] shrink-0 flex-col">
       {/* --- ricerca --- */}
       <div className="px-3 pt-3 pb-2">
@@ -129,13 +169,49 @@ export function Sidebar({
                   const channelAgents = agents.filter((a) =>
                     (a.channelIds ?? []).includes(channel.id),
                   );
+                  // Rinomina in linea: doppio clic sul nome del canale.
+                  if (renamingId === channel.id) {
+                    return (
+                      <div key={channel.id} className="rail-item" data-active={active}>
+                        {channel.visibility === 'private' ? (
+                          <Lock size={13.5} strokeWidth={2.2} className="opacity-65" />
+                        ) : (
+                          <Hash size={13.5} strokeWidth={2.4} className="opacity-65" />
+                        )}
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) =>
+                            setRenameValue(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void commitRename(channel.id, channel.name);
+                            if (e.key === 'Escape') setRenamingId(null);
+                          }}
+                          onBlur={() => void commitRename(channel.id, channel.name)}
+                          maxLength={48}
+                          className="min-w-0 flex-1 rounded border border-[var(--color-honey)] bg-[var(--color-panel)] px-1 py-0.5 text-[13.5px] outline-none"
+                        />
+                      </div>
+                    );
+                  }
                   return (
                     <button
                       key={channel.id}
-                      className="rail-item"
+                      className="rail-item group"
                       data-active={active}
                       data-unread={unread && !active}
                       onClick={() => void openChannel(channel.id)}
+                      onDoubleClick={(e) => {
+                        e.preventDefault();
+                        setRenamingId(channel.id);
+                        setRenameValue(channel.name);
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setMenuFor({ id: channel.id, name: channel.name, x: e.clientX, y: e.clientY });
+                      }}
+                      title="Doppio clic per rinominare · tasto destro per altre azioni"
                     >
                       {channel.visibility === 'private' ? (
                         <Lock size={13.5} strokeWidth={2.2} className="opacity-65" />
@@ -268,5 +344,34 @@ export function Sidebar({
         </button>
       </div>
     </aside>
+
+      {/* Menu contestuale del canale (tasto destro). */}
+      {menuFor && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setMenuFor(null)} />
+          <div
+            className="fixed z-50 min-w-[180px] overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-panel)] py-1 shadow-[var(--shadow-pop)]"
+            style={{ left: menuFor.x, top: menuFor.y }}
+          >
+            <button
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] transition-colors hover:bg-[var(--color-sunken)]"
+              onClick={() => {
+                setRenamingId(menuFor.id);
+                setRenameValue(menuFor.name);
+                setMenuFor(null);
+              }}
+            >
+              <Pencil size={13} /> Rinomina
+            </button>
+            <button
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-[var(--color-error)] transition-colors hover:bg-[var(--color-sunken)]"
+              onClick={() => void archive(menuFor.id, menuFor.name)}
+            >
+              <Trash2 size={13} /> Elimina canale
+            </button>
+          </div>
+        </>
+      )}
+    </>
   );
 }
