@@ -9,6 +9,7 @@ import {
   Loader2,
   Save,
   Hash,
+  SlidersHorizontal,
 } from 'lucide-react';
 import type { Agent } from '@hive/shared';
 import { useStore } from '../store.js';
@@ -21,7 +22,15 @@ import { Avatar } from './Avatar.js';
  * Il file è quello VERO sul disco (sul server o sulla macchina di chi ha il
  * runner acceso), non una copia.
  */
-export function AgentDetail({ agent, onClose }: { agent: Agent; onClose: () => void }) {
+export function AgentDetail({
+  agent,
+  onClose,
+  onEdit,
+}: {
+  agent: Agent;
+  onClose: () => void;
+  onEdit: (agent: Agent) => void;
+}) {
   const channels = useStore((s) => s.channels);
   const inChannels = channels.filter((c) => (agent.channelIds ?? []).includes(c.id));
 
@@ -73,6 +82,13 @@ export function AgentDetail({ agent, onClose }: { agent: Agent; onClose: () => v
               </div>
             )}
           </div>
+          <button
+            onClick={() => onEdit(agent)}
+            className="btn btn-ghost btn-sm shrink-0"
+            title="Modifica nome, modello, tool, canali…"
+          >
+            <SlidersHorizontal size={13} /> Modifica tutto
+          </button>
           <button
             onClick={onClose}
             className="rounded-lg p-1.5 text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)]"

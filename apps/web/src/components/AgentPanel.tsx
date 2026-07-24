@@ -22,7 +22,7 @@ import { useStore } from '../store.js';
 import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
 import { AgentDetail } from './AgentDetail.js';
-import type { AgentKind, CatalogModel } from '@hive/shared';
+import type { Agent, AgentKind, CatalogModel } from '@hive/shared';
 
 /* ========================================================================== */
 /*  Selettore modello                                                          */
@@ -215,24 +215,35 @@ const GROUP_LABELS: Record<string, string> = {
 
 const EMOJI_CHOICES = ['🐝', '🤖', '🍯', '🦉', '🐙', '🦊', '🌱', '⚡', '🔧', '📊', '🎯', '🧭'];
 
-export function AgentPanel({ onClose }: { onClose: () => void }) {
+/**
+ * Pannello di creazione E modifica di un agente.
+ *
+ * Passando `agent` si entra in modalità modifica: i campi partono dai suoi
+ * valori e il salvataggio fa una PATCH invece di creare.
+ */
+export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Agent }) {
   const workspace = useStore((s) => s.workspace);
   const channels = useStore((s) => s.channels);
   const agents = useStore((s) => s.agents);
   const capabilities = useStore((s) => s.capabilities);
+  const editing = Boolean(agent);
 
-  const [name, setName] = useState('');
-  const [emoji, setEmoji] = useState('🐝');
-  const [kind, setKind] = useState<AgentKind>('assistant');
-  const [model, setModel] = useState('');
-  const [purpose, setPurpose] = useState('');
-  const [toolIds, setToolIds] = useState<Set<string>>(new Set());
-  const [channelIds, setChannelIds] = useState<Set<string>>(new Set());
-  const [autoRespond, setAutoRespond] = useState(false);
-  const [repoUrl, setRepoUrl] = useState('');
-  const [repoBranch, setRepoBranch] = useState('main');
-  const [execution, setExecution] = useState<'server' | 'local'>('server');
-  const [permissionMode, setPermissionMode] = useState<'ask' | 'bypass'>('ask');
+  const [name, setName] = useState(agent?.name ?? '');
+  const [emoji, setEmoji] = useState(agent?.avatarEmoji ?? '🐝');
+  const [kind, setKind] = useState<AgentKind>(agent?.kind ?? 'assistant');
+  const [model, setModel] = useState(agent?.model ?? '');
+  const [purpose, setPurpose] = useState(agent?.purpose ?? '');
+  const [toolIds, setToolIds] = useState<Set<string>>(
+    new Set((agent?.tools ?? []).map((t) => t.toolId)),
+  );
+  const [channelIds, setChannelIds] = useState<Set<string>>(new Set(agent?.channelIds ?? []));
+  const [autoRespond, setAutoRespond] = useState(agent?.autoRespond ?? false);
+  const [repoUrl, setRepoUrl] = useState(agent?.repo?.gitUrl ?? '');
+  const [repoBranch, setRepoBranch] = useState(agent?.repo?.branch ?? 'main');
+  const [execution, setExecution] = useState<'server' | 'local'>(agent?.execution ?? 'server');
+  const [permissionMode, setPermissionMode] = useState<'ask' | 'bypass'>(
+    agent?.permissionMode ?? 'ask',
+  );
 
   const [catalog, setCatalog] = useState<ToolDef[]>([]);
   const [defaults, setDefaults] = useState<Record<string, string[]>>({});
@@ -241,17 +252,20 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  /* Catalogo tool e modello di default. */
+  /* Catalogo tool e modello di default. In modifica NON tocchiamo i valori
+     dell'agente: prendiamo solo il catalogo. */
   useEffect(() => {
     void api.tools().then(({ tools, defaults }) => {
       setCatalog(tools);
       setDefaults(defaults);
-      setToolIds(new Set(defaults.assistant ?? []));
+      if (!editing) setToolIds(new Set(defaults.assistant ?? []));
     });
-    void api.models({ kind: 'assistant' }).then(({ defaultModel, models }) => {
-      setModel(models.some((m) => m.id === defaultModel) ? defaultModel : (models[0]?.id ?? ''));
-    });
-  }, []);
+    if (!editing) {
+      void api.models({ kind: 'assistant' }).then(({ defaultModel, models }) => {
+        setModel(models.some((m) => m.id === defaultModel) ? defaultModel : (models[0]?.id ?? ''));
+      });
+    }
+  }, [editing]);
 
   /* Cambiando tipo cambiano sia i tool proponibili sia i modelli validi. */
   function switchKind(next: AgentKind) {
@@ -295,6 +309,58 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
       setError(err instanceof ApiError ? err.message : 'Generazione non riuscita.');
     } finally {
       setGenerating(false);
+    }
+  }
+
+  /** Salvataggio in modifica: PATCH + allineamento dei canali. */
+  async function saveEdits() {
+    if (!name.trim() || !model || !agent) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.updateAgent(agent.id, {
+        name: name.trim(),
+        kind,
+        model,
+        avatarEmoji: emoji,
+        purpose: purpose.trim() || null,
+        autoRespond,
+        execution,
+        permissionMode: kind === 'developer' ? permissionMode : 'ask',
+        tools: [...toolIds].map((id) => {
+          // Conserviamo config e "richiede approvazione" già impostati.
+          const prev = (agent.tools ?? []).find((t) => t.toolId === id);
+          return { toolId: id, config: prev?.config ?? {}, requireApproval: prev?.requireApproval ?? false };
+        }),
+        repo:
+          kind === 'developer' && repoUrl.trim()
+            ? {
+                gitUrl: repoUrl.trim(),
+                branch: repoBranch.trim() || 'main',
+                credentialKey: agent.repo?.credentialKey ?? 'GITHUB_TOKEN',
+                setupCommand: agent.repo?.setupCommand ?? null,
+              }
+            : null,
+      });
+
+      // Skill generate durante la modifica: si salvano sull'agente.
+      for (const s of skills) {
+        await api.saveSkill(agent.id, { ...s, enabled: true, generatedByAi: true }).catch(() => {});
+      }
+
+      // I canali si aggiornano a parte (aggancia/sgancia).
+      const before = new Set(agent.channelIds ?? []);
+      for (const id of channelIds) {
+        if (!before.has(id)) await api.attachAgent(agent.id, id, autoRespond).catch(() => {});
+      }
+      for (const id of before) {
+        if (!channelIds.has(id)) await api.detachAgent(agent.id, id).catch(() => {});
+      }
+      onClose();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Salvataggio non riuscito.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -350,9 +416,16 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
       <div className="flex max-h-[92vh] w-full max-w-[680px] flex-col overflow-hidden rounded-[16px] bg-[var(--color-panel)] shadow-[var(--shadow-pop)]">
         {/* --- intestazione --- */}
         <header className="flex shrink-0 items-center gap-3 border-b border-[var(--color-line)] px-5 py-3.5">
-          <Avatar name={name || 'Nuovo agente'} emoji={emoji} color="#C8922F" size={34} />
+          <Avatar
+            name={name || 'Nuovo agente'}
+            emoji={emoji}
+            color={agent?.avatarColor ?? '#C8922F'}
+            size={34}
+          />
           <div className="min-w-0 flex-1">
-            <h2 className="text-[16px] font-semibold tracking-[-0.01em]">Nuovo agente</h2>
+            <h2 className="text-[16px] font-semibold tracking-[-0.01em]">
+              {editing ? `Modifica ${agent!.name}` : 'Nuovo agente'}
+            </h2>
             <p className="text-[13px] text-[var(--color-ink-soft)]">
               {kind === 'developer'
                 ? 'Lavora sul codice con shell e filesystem'
@@ -777,20 +850,32 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
 
         {/* --- piede --- */}
         <footer className="flex shrink-0 items-center gap-2 border-t border-[var(--color-line)] px-5 py-3">
-          <span className="text-[12.5px] text-[var(--color-ink-faint)]">
-            {agents.length} {agents.length === 1 ? 'agente' : 'agenti'} nel progetto
-          </span>
+          {editing ? (
+            <button
+              className="flex items-center gap-1.5 text-[12.5px] text-[var(--color-ink-faint)] transition-colors hover:text-[var(--color-error)]"
+              onClick={() => {
+                if (!confirm(`Archiviare ${agent!.name}? Non risponderà più, ma i suoi messaggi restano.`)) return;
+                void api.archiveAgent(agent!.id).then(onClose).catch(() => {});
+              }}
+            >
+              <Trash2 size={13} strokeWidth={2.1} /> Archivia
+            </button>
+          ) : (
+            <span className="text-[12.5px] text-[var(--color-ink-faint)]">
+              {agents.length} {agents.length === 1 ? 'agente' : 'agenti'} nel progetto
+            </span>
+          )}
           <div className="ml-auto flex gap-2">
             <button className="btn btn-ghost" onClick={onClose}>
               Annulla
             </button>
             <button
               className="btn btn-primary"
-              onClick={() => void create()}
+              onClick={() => void (editing ? saveEdits() : create())}
               disabled={saving || !name.trim() || !model}
             >
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Bot size={14} />}
-              {saving ? 'Creo…' : 'Crea agente'}
+              {saving ? 'Salvo…' : editing ? 'Salva modifiche' : 'Crea agente'}
             </button>
           </div>
         </footer>
@@ -808,7 +893,9 @@ export function AgentList({ onClose, onNew }: { onClose: () => void; onNew: () =
   const channels = useStore((s) => s.channels);
   const activity = useStore((s) => s.agentActivity);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
   const detail = detailId ? (agents.find((a) => a.id === detailId) ?? null) : null;
+  const editTarget = editId ? (agents.find((a) => a.id === editId) ?? null) : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgb(30_26_16/0.34)] p-4 backdrop-blur-[2px]">
@@ -896,7 +983,22 @@ export function AgentList({ onClose, onNew }: { onClose: () => void; onNew: () =
         </div>
       </div>
 
-      {detail && <AgentDetail agent={detail} onClose={() => setDetailId(null)} />}
+      {detail && !editTarget && (
+        <AgentDetail
+          agent={detail}
+          onClose={() => setDetailId(null)}
+          onEdit={(a) => setEditId(a.id)}
+        />
+      )}
+      {editTarget && (
+        <AgentPanel
+          agent={editTarget}
+          onClose={() => {
+            setEditId(null);
+            setDetailId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
