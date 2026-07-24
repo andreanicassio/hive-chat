@@ -64,7 +64,7 @@
       <p class="sub">Apri la chat della squadra e, se vuoi, avvia il tuo runner locale su questo computer.</p>
 
       <label for="server">Indirizzo del server Hive</label>
-      <input id="server" placeholder="http://10.0.0.76" />
+      <input id="server" placeholder="https://hive.dvnx.net" />
       <button class="btn primary" id="open">Apri Hive →</button>
 
       <div class="runner">
@@ -88,7 +88,7 @@
         set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
       };
       // Ripristina i valori salvati.
-      $("server").value = store.get("hive:serverUrl", "http://10.0.0.76");
+      $("server").value = store.get("hive:serverUrl", "https://hive.dvnx.net");
       $("repo").value = store.get("hive:repoPath", "");
       $("envfile").value = store.get("hive:envFile", "deploy/runner.env");
 
