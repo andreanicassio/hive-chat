@@ -21,7 +21,7 @@ Monorepo npm workspaces (`packages/*`, `apps/*`):
 
 ```bash
 npm run build          # tutti i pacchetti, nell'ordine giusto
-npm run typecheck      # tsc -b su tutto
+npm run typecheck      # tsc --noEmit su ogni pacchetto, stesso ordine
 npm run -w @hive/web build     # un solo pacchetto (più veloce durante il lavoro)
 ```
 
@@ -42,8 +42,13 @@ Il frontend è servito da nginx da `apps/web/dist` — basta ricompilare, nessun
 Il runner distribuito agli utenti è un bundle a parte:
 
 ```bash
-./deploy/publish-runner.sh 0.4.1    # esbuild + tarball in /srv/hive/downloads
+./deploy/publish-runner.sh 0.4.2    # esbuild + tarball in /srv/hive/downloads
 ```
+
+Il runner acceso si aggiorna da solo: mentre fa il poll, se non ha turni da
+eseguire, controlla la versione pubblicata e — se è cambiata — esce pulito.
+Il `run.sh` che lo avvolge scarica il bundle nuovo e riparte. Aggiorna quindi
+solo **fra** un turno e l'altro, mai a metà.
 
 ## Dati
 

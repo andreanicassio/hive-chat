@@ -18,7 +18,7 @@
     "dev:web": "npm run dev --workspace @hive/web",
     "db:generate": "npm run db:generate --workspace @hive/server",
     "db:migrate": "npm run db:migrate --workspace @hive/server",
-    "typecheck": "tsc -b --pretty"
+    "typecheck": "npm run typecheck --workspace @hive/shared && npm run typecheck --workspace @hive/db && npm run typecheck --workspace @hive/server && npm run typecheck --workspace @hive/agent-runtime && npm run typecheck --workspace @hive/web"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

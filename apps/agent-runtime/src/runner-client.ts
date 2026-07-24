@@ -1,7 +1,8 @@
 import { query, createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { hostname } from 'node:os';
 import { z } from 'zod';
 import {
@@ -465,6 +466,35 @@ async function commandLoop(cfg: Config): Promise<void> {
   }
 }
 
+/**
+ * C'è una versione più nuova pubblicata sul server?
+ *
+ * L'aggiornamento vero lo fa `run.sh`, ma solo *fra* un'esecuzione e l'altra:
+ * finché questo processo vive, non viene mai controllato nulla. E questo
+ * processo, di suo, non finisce mai. Quindi il pezzo mancante è qui: ci
+ * accorgiamo noi che c'è una versione nuova e usciamo puliti, così lo script
+ * che ci avvolge scarica e riparte. Senza questo, un runner acceso resta sulla
+ * versione che aveva il giorno che l'hanno acceso.
+ */
+async function newerVersionPublished(serverUrl: string): Promise<string | null> {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const [local, res] = await Promise.all([
+      readFile(join(here, 'VERSION'), 'utf8').catch(() => ''),
+      fetch(`${serverUrl}/download/runner-version`, { signal: AbortSignal.timeout(5000) }),
+    ]);
+    if (!res.ok) return null;
+    const remote = (await res.text()).trim();
+    const current = local.trim();
+    // Senza un VERSION locale non sappiamo da dove veniamo: meglio restare su
+    // quello che gira che riavviarsi in cerchio a ogni giro di poll.
+    if (!remote || !current || remote === current) return null;
+    return remote;
+  } catch {
+    return null;
+  }
+}
+
 export async function startRunnerClient(): Promise<void> {
   const cfg = readConfig();
   console.log(`[runner] «${cfg.name}» → ${cfg.serverUrl}\n[runner] cartella di lavoro: ${cfg.workdir}`);
@@ -485,6 +515,11 @@ export async function startRunnerClient(): Promise<void> {
   // Comandi fuori turno (lettura/scrittura file) in parallelo ai turni.
   void commandLoop(cfg);
 
+  // Ogni quanto guardare se è uscita una versione nuova, e quando l'abbiamo
+  // guardata l'ultima volta.
+  const UPDATE_CHECK_MS = 5 * 60 * 1000;
+  let lastUpdateCheck = Date.now();
+
   // Loop di poll.
   for (;;) {
     try {
@@ -492,7 +527,19 @@ export async function startRunnerClient(): Promise<void> {
         `${cfg.serverUrl}/api/runner/poll?name=${encodeURIComponent(cfg.name)}`,
         { headers: { authorization: `Bearer ${cfg.token}` } },
       );
-      if (res.status === 204) continue;
+      if (res.status === 204) {
+        // 204 = nessun turno da fare: è l'unico momento in cui possiamo
+        // uscire senza interrompere il lavoro di qualcuno.
+        if (Date.now() - lastUpdateCheck >= UPDATE_CHECK_MS) {
+          lastUpdateCheck = Date.now();
+          const next = await newerVersionPublished(cfg.serverUrl);
+          if (next) {
+            console.log(`[runner] disponibile la versione ${next}: mi riavvio per prenderla`);
+            return;
+          }
+        }
+        continue;
+      }
       if (res.status === 401) {
         console.error('[runner] token rifiutato. Controlla HIVE_RUNNER_TOKEN.');
         await new Promise((r) => setTimeout(r, 10_000));
