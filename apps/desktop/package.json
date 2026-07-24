@@ -4,6 +4,7 @@
   "private": true,
   "description": "App nativa di Hive (Tauri): finestra della chat + runner locale integrato.",
   "scripts": {
+    "tauri": "tauri",
     "icon": "tauri icon icon-source.png",
     "dev": "tauri dev",
     "build": "tauri build"
