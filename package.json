@@ -11,7 +11,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "npm run build --workspace @hive/shared && npm run build --workspace @hive/server && npm run build --workspace @hive/agent-runtime && npm run build --workspace @hive/web",
+    "build": "npm run build --workspace @hive/shared && npm run build --workspace @hive/db && npm run build --workspace @hive/server && npm run build --workspace @hive/agent-runtime && npm run build --workspace @hive/web",
     "dev": "concurrently -n server,runtime,web -c cyan,magenta,green \"npm:dev:server\" \"npm:dev:runtime\" \"npm:dev:web\"",
     "dev:server": "npm run dev --workspace @hive/server",
     "dev:runtime": "npm run dev --workspace @hive/agent-runtime",
