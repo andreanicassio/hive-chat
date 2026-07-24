@@ -128,6 +128,14 @@ export const redisChannels = {
    * intervalli. Se manca, il runner è considerato offline.
    */
   runnerPresence: (userId: string) => `hive:runner:${userId}`,
+  /**
+   * Comandi "fuori turno" per il runner di un utente: servono a leggere e
+   * scrivere file sulla sua macchina (es. il CLAUDE.md del progetto) senza
+   * far partire un turno dell'agente. Il runner fa poll su questa lista.
+   */
+  runnerCommands: (userId: string) => `hive:runner:cmd:${userId}`,
+  /** Risultato di un comando, atteso dal server (chiave con TTL). */
+  runnerCommandResult: (commandId: string) => `hive:runner:cmdres:${commandId}`,
   /** Richieste di annullamento run. */
   runCancel: (runId: string) => `hive:runs:cancel:${runId}`,
   /** Risposta a una richiesta di approvazione, attesa dal worker. */

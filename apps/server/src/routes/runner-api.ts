@@ -253,6 +253,41 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
     return { decided: false };
   });
 
+  /* ------------------------------- comandi fuori turno (lettura/scrittura file) */
+  // Il runner fa poll qui per servire richieste che non fanno partire un turno
+  // (es. leggere/scrivere il CLAUDE.md del progetto dall'interfaccia).
+  app.get('/api/runner/commands', async (request, reply) => {
+    const { userId } = await requireRunner(request);
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      const raw = await redisPub.rpop(redisChannels.runnerCommands(userId));
+      if (raw) return { command: JSON.parse(raw) };
+      await new Promise((r) => setTimeout(r, 700));
+    }
+    return reply.code(204).send();
+  });
+
+  app.post('/api/runner/command-result', async (request) => {
+    await requireRunner(request);
+    const body = z
+      .object({
+        commandId: z.uuid(),
+        ok: z.boolean(),
+        content: z.string().max(400_000).optional(),
+        path: z.string().max(2000).optional(),
+        exists: z.boolean().optional(),
+        error: z.string().max(2000).optional(),
+      })
+      .parse(request.body);
+    await redisPub.set(
+      redisChannels.runnerCommandResult(body.commandId),
+      JSON.stringify(body),
+      'EX',
+      60,
+    );
+    return { ok: true };
+  });
+
   /* ------------------------ tool hive proxati: DOCUMENTI (base di conoscenza) */
   // Il runner locale non ha il DB: gli strumenti dei documenti passano di qui.
   app.post('/api/runner/documents/list', async (request) => {

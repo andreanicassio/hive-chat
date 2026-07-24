@@ -262,6 +262,18 @@ export const api = {
 
   deleteArtifact: (artifactId: string) => del<{ ok: true }>(`/api/artifacts/${artifactId}`),
 
+  /* --- CLAUDE.md del progetto su cui lavora un agente --- */
+  getAgentClaudeMd: (agentId: string) =>
+    get<{ content: string; path: string; source: 'server' | 'runner'; exists: boolean }>(
+      `/api/agents/${agentId}/claude-md`,
+    ),
+
+  saveAgentClaudeMd: (agentId: string, content: string) =>
+    put<{ content: string; path: string; source: 'server' | 'runner'; exists: boolean }>(
+      `/api/agents/${agentId}/claude-md`,
+      { content },
+    ),
+
   /* --- documenti (base di conoscenza del progetto) --- */
   listDocuments: (workspaceId: string) =>
     get<{ documents: DocumentNode[] }>(`/api/workspaces/${workspaceId}/documents`),

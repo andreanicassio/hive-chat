@@ -1,7 +1,7 @@
 import { query, createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { mkdir } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { z } from 'zod';
 import {
   dangerousToolNames,
@@ -410,6 +410,57 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
   }
 }
 
+/**
+ * Loop dei comandi "fuori turno": il server chiede di leggere o scrivere file
+ * su questa macchina (per ora il CLAUDE.md del progetto) senza far partire un
+ * turno dell'agente. Gira in parallelo al poll dei turni.
+ */
+async function commandLoop(cfg: Config): Promise<void> {
+  const headers = { authorization: `Bearer ${cfg.token}` };
+  const claudeMdPath = join(cfg.workdir, 'CLAUDE.md');
+
+  for (;;) {
+    try {
+      const res = await fetch(`${cfg.serverUrl}/api/runner/commands`, { headers });
+      if (res.status !== 200) {
+        await new Promise((r) => setTimeout(r, res.status === 204 ? 200 : 3000));
+        continue;
+      }
+      const { command } = (await res.json()) as {
+        command: { id: string; op: string; content?: string };
+      };
+      let result: Record<string, unknown>;
+      try {
+        if (command.op === 'claudeMd.read') {
+          let content = '';
+          let exists = true;
+          try {
+            content = await readFile(claudeMdPath, 'utf8');
+          } catch {
+            exists = false;
+          }
+          result = { ok: true, content, path: claudeMdPath, exists };
+        } else if (command.op === 'claudeMd.write') {
+          await writeFile(claudeMdPath, command.content ?? '', 'utf8');
+          console.log(`[runner] CLAUDE.md aggiornato (${claudeMdPath})`);
+          result = { ok: true, path: claudeMdPath, exists: true };
+        } else {
+          result = { ok: false, error: `Comando sconosciuto: ${command.op}` };
+        }
+      } catch (err) {
+        result = { ok: false, error: (err as Error).message };
+      }
+      await fetch(`${cfg.serverUrl}/api/runner/command-result`, {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({ commandId: command.id, ...result }),
+      }).catch(() => {});
+    } catch {
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+}
+
 export async function startRunnerClient(): Promise<void> {
   const cfg = readConfig();
   console.log(`[runner] «${cfg.name}» → ${cfg.serverUrl}\n[runner] cartella di lavoro: ${cfg.workdir}`);
@@ -426,6 +477,9 @@ export async function startRunnerClient(): Promise<void> {
   } catch (err) {
     console.error('[runner] impossibile collegarsi:', (err as Error).message);
   }
+
+  // Comandi fuori turno (lettura/scrittura file) in parallelo ai turni.
+  void commandLoop(cfg);
 
   // Loop di poll.
   for (;;) {

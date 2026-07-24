@@ -8,6 +8,7 @@ import { hub } from '../realtime/hub.js';
 import { agentChannelMap, serializeAgent } from '../services/serialize.js';
 import { listModels, modelExists } from '../services/models.js';
 import { generateSkills, NoModelKeyError } from '../services/generate.js';
+import { readClaudeMd, writeClaudeMd } from '../services/agent-files.js';
 import {
   colorFor,
   createAgentSchema,
@@ -306,6 +307,28 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         ),
       );
     return { ok: true };
+  });
+
+  /* ------------------- CLAUDE.md del progetto su cui lavora l'agente */
+  // È il file VERO sul disco: sul server per gli agenti `server`, sulla
+  // macchina della persona (via runner) per quelli `local`.
+  app.get('/api/agents/:agentId/claude-md', async (request) => {
+    const { agentId } = z.object({ agentId: z.uuid() }).parse(request.params);
+    const rows = await db.select().from(schema.agents).where(eq(schema.agents.id, agentId)).limit(1);
+    const existing = rows[0];
+    if (!existing) throw notFound('Agente non trovato');
+    await requireMembership(request, existing.workspaceId);
+    return readClaudeMd(existing);
+  });
+
+  app.put('/api/agents/:agentId/claude-md', async (request) => {
+    const { agentId } = z.object({ agentId: z.uuid() }).parse(request.params);
+    const { content } = z.object({ content: z.string().max(200_000) }).parse(request.body);
+    const rows = await db.select().from(schema.agents).where(eq(schema.agents.id, agentId)).limit(1);
+    const existing = rows[0];
+    if (!existing) throw notFound('Agente non trovato');
+    await requireMembership(request, existing.workspaceId, 'member');
+    return writeClaudeMd(existing, content);
   });
 
   /* --------------------------------------- aggancia/sgancia dai canali */

@@ -16,10 +16,12 @@ import {
   GitBranch,
   Cpu,
   ShieldCheck,
+  ChevronRight,
 } from 'lucide-react';
 import { useStore } from '../store.js';
 import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
+import { AgentDetail } from './AgentDetail.js';
 import type { AgentKind, CatalogModel } from '@hive/shared';
 
 /* ========================================================================== */
@@ -805,6 +807,8 @@ export function AgentList({ onClose, onNew }: { onClose: () => void; onNew: () =
   const agents = useStore((s) => s.agents);
   const channels = useStore((s) => s.channels);
   const activity = useStore((s) => s.agentActivity);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const detail = detailId ? (agents.find((a) => a.id === detailId) ?? null) : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgb(30_26_16/0.34)] p-4 backdrop-blur-[2px]">
@@ -841,7 +845,9 @@ export function AgentList({ onClose, onNew }: { onClose: () => void; onNew: () =
                 return (
                   <div
                     key={a.id}
-                    className="flex items-start gap-3 rounded-[10px] px-3 py-2.5 transition-colors hover:bg-[var(--color-sunken)]"
+                    onClick={() => setDetailId(a.id)}
+                    className="group flex cursor-pointer items-start gap-3 rounded-[10px] px-3 py-2.5 transition-colors hover:bg-[var(--color-sunken)]"
+                    title="Vedi dettagli e impostazioni"
                   >
                     <Avatar name={a.name} emoji={a.avatarEmoji} color={a.avatarColor} size={34} isAgent />
                     <div className="min-w-0 flex-1">
@@ -872,10 +878,14 @@ export function AgentList({ onClose, onNew }: { onClose: () => void; onNew: () =
                         </div>
                       )}
                     </div>
-                    {state && (
+                    {state ? (
                       <span className="flex shrink-0 items-center gap-1 text-[12px] text-[var(--color-ink-faint)]">
                         <Loader2 size={11} className="animate-spin" />
                         {state.status === 'waiting' ? 'in attesa' : 'al lavoro'}
+                      </span>
+                    ) : (
+                      <span className="flex shrink-0 items-center gap-1 self-center text-[12px] text-[var(--color-ink-faint)] opacity-0 transition-opacity group-hover:opacity-100">
+                        Dettagli <ChevronRight size={13} strokeWidth={2.2} />
                       </span>
                     )}
                   </div>
@@ -885,6 +895,8 @@ export function AgentList({ onClose, onNew }: { onClose: () => void; onNew: () =
           )}
         </div>
       </div>
+
+      {detail && <AgentDetail agent={detail} onClose={() => setDetailId(null)} />}
     </div>
   );
 }
