@@ -93,9 +93,27 @@
   }
 
   body {
-    /* Gradiente campionato dalla reference: parte da un giallo-verde caldo
-       in alto e scende verso un azzurro-grigio freddo. Non è un crema
-       piatto, ed è quella transizione a dare l'aria della finestra. */
+    /* Tinta piena di sicurezza sotto il gradiente (vedi body::before). */
+    background-color: var(--color-shell);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overscroll-behavior: none;
+  }
+
+  /* Il gradiente come layer FISSO dietro tutto, non come background-attachment:
+     fixed — quest'ultimo, dentro WKWebView (l'app Mac), va a scacchi/bianco al
+     ripaint quando si clicca. Un elemento fisso a tutto schermo si compone una
+     volta sola e non ha quel problema. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
     background: linear-gradient(
       180deg,
       #e5e5bd 0%,
@@ -107,14 +125,10 @@
       #ced5d3 80%,
       #c8d1d7 100%
     );
-    background-attachment: fixed;
-    color: var(--color-ink);
-    font-family: var(--font-sans);
-    font-size: 14px;
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
-    overscroll-behavior: none;
+  }
+
+  :root[data-theme='dark'] body::before {
+    background: linear-gradient(180deg, #1a1916 0%, #141310 55%, #100f0d 100%);
   }
 
   /* Focus visibile solo da tastiera: il mouse non deve disegnare anelli. */
