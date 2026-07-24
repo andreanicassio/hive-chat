@@ -17,11 +17,13 @@ import {
   Cpu,
   ShieldCheck,
   ChevronRight,
+  Plus,
 } from 'lucide-react';
 import { useStore } from '../store.js';
 import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
 import { AgentDetail } from './AgentDetail.js';
+import { Modal, ModalRow, ModalSearch } from './Modal.js';
 import type { Agent, AgentKind, CatalogModel } from '@hive/shared';
 
 /* ========================================================================== */
@@ -411,37 +413,62 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
       !model.startsWith('anthropic/') &&
       !capabilities.openrouterConfigured);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgb(30_26_16/0.34)] p-4 backdrop-blur-[2px]">
-      <div className="flex max-h-[92vh] w-full max-w-[680px] flex-col overflow-hidden rounded-[16px] bg-[var(--color-panel)] shadow-[var(--shadow-pop)]">
-        {/* --- intestazione --- */}
-        <header className="flex shrink-0 items-center gap-3 border-b border-[var(--color-line)] px-5 py-3.5">
-          <Avatar
-            name={name || 'Nuovo agente'}
-            emoji={emoji}
-            color={agent?.avatarColor ?? '#C8922F'}
-            size={34}
-          />
-          <div className="min-w-0 flex-1">
-            <h2 className="text-[16px] font-semibold tracking-[-0.01em]">
-              {editing ? `Modifica ${agent!.name}` : 'Nuovo agente'}
-            </h2>
-            <p className="text-[13px] text-[var(--color-ink-soft)]">
-              {kind === 'developer'
-                ? 'Lavora sul codice con shell e filesystem'
-                : 'Risponde in chat usando i tool che gli dai'}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)] hover:text-[var(--color-ink)]"
-          >
-            <X size={17} />
-          </button>
-        </header>
+  const footerNode = (
+    <>
+      {editing ? (
+        <button
+          className="flex items-center gap-1.5 text-[12.5px] text-[var(--color-ink-faint)] transition-colors hover:text-[var(--color-error)]"
+          onClick={() => {
+            if (!confirm(`Archiviare ${agent!.name}? Non risponderà più, ma i suoi messaggi restano.`))
+              return;
+            void api.archiveAgent(agent!.id).then(onClose).catch(() => {});
+          }}
+        >
+          <Trash2 size={13} strokeWidth={2.1} /> Archivia
+        </button>
+      ) : (
+        <span className="text-[12.5px] text-[var(--color-ink-faint)]">
+          {agents.length} {agents.length === 1 ? 'agente' : 'agenti'} nel progetto
+        </span>
+      )}
+      <div className="ml-auto flex gap-2">
+        <button className="btn btn-ghost" onClick={onClose}>
+          Annulla
+        </button>
+        <button
+          className="btn btn-primary"
+          onClick={() => void (editing ? saveEdits() : create())}
+          disabled={saving || !name.trim() || !model}
+        >
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Bot size={14} />}
+          {saving ? 'Salvo…' : editing ? 'Salva modifiche' : 'Crea agente'}
+        </button>
+      </div>
+    </>
+  );
 
-        {/* --- corpo --- */}
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+  return (
+    <Modal
+      onClose={onClose}
+      size="lg"
+      dismissable={false}
+      icon={
+        <Avatar
+          name={name || 'Nuovo agente'}
+          emoji={emoji}
+          color={agent?.avatarColor ?? '#C8922F'}
+          size={34}
+        />
+      }
+      title={editing ? `Modifica ${agent!.name}` : 'Nuovo agente'}
+      subtitle={
+        kind === 'developer'
+          ? 'Lavora sul codice con shell e filesystem'
+          : 'Risponde in chat usando i tool che gli dai'
+      }
+      footer={footerNode}
+    >
+      <div className="space-y-5">
           {/* Identità */}
           <div className="flex gap-3">
             <div>
@@ -586,7 +613,7 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
                 {(
                   [
                     { v: 'server', t: 'Sul server', d: 'Sempre attivo, isolato in container.' },
-                    { v: 'local', t: 'Sul mio computer', d: 'Runner locale: lavora sul tuo codice, con le tue credenziali.' },
+                    { v: 'local', t: 'Su una mia macchina', d: 'Dove hai installato il runner: il tuo Mac o un server remoto.' },
                   ] as const
                 ).map((o) => (
                   <button
@@ -607,8 +634,9 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
               </div>
               {execution === 'local' && (
                 <p className="mt-1.5 text-[12.5px] text-[var(--color-ink-faint)]">
-                  Questo agente risponderà solo quando il tuo <strong>runner locale</strong> è
-                  acceso su questa macchina (vedi <code>deploy/RUNNER.md</code>).
+                  Risponde solo quando il tuo <strong>runner</strong> è acceso. Puoi installarlo su
+                  qualunque macchina (il tuo Mac o un server remoto via SSH) con il comando in
+                  Impostazioni → Runner: si collega da solo in uscita, senza aprire porte.
                 </p>
               )}
 
@@ -848,39 +876,7 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
           )}
         </div>
 
-        {/* --- piede --- */}
-        <footer className="flex shrink-0 items-center gap-2 border-t border-[var(--color-line)] px-5 py-3">
-          {editing ? (
-            <button
-              className="flex items-center gap-1.5 text-[12.5px] text-[var(--color-ink-faint)] transition-colors hover:text-[var(--color-error)]"
-              onClick={() => {
-                if (!confirm(`Archiviare ${agent!.name}? Non risponderà più, ma i suoi messaggi restano.`)) return;
-                void api.archiveAgent(agent!.id).then(onClose).catch(() => {});
-              }}
-            >
-              <Trash2 size={13} strokeWidth={2.1} /> Archivia
-            </button>
-          ) : (
-            <span className="text-[12.5px] text-[var(--color-ink-faint)]">
-              {agents.length} {agents.length === 1 ? 'agente' : 'agenti'} nel progetto
-            </span>
-          )}
-          <div className="ml-auto flex gap-2">
-            <button className="btn btn-ghost" onClick={onClose}>
-              Annulla
-            </button>
-            <button
-              className="btn btn-primary"
-              onClick={() => void (editing ? saveEdits() : create())}
-              disabled={saving || !name.trim() || !model}
-            >
-              {saving ? <Loader2 size={14} className="animate-spin" /> : <Bot size={14} />}
-              {saving ? 'Salvo…' : editing ? 'Salva modifiche' : 'Crea agente'}
-            </button>
-          </div>
-        </footer>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -894,94 +890,113 @@ export function AgentList({ onClose, onNew }: { onClose: () => void; onNew: () =
   const activity = useStore((s) => s.agentActivity);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
+  const [q, setQ] = useState('');
   const detail = detailId ? (agents.find((a) => a.id === detailId) ?? null) : null;
   const editTarget = editId ? (agents.find((a) => a.id === editId) ?? null) : null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgb(30_26_16/0.34)] p-4 backdrop-blur-[2px]">
-      <div className="flex max-h-[85vh] w-full max-w-[560px] flex-col overflow-hidden rounded-[16px] bg-[var(--color-panel)] shadow-[var(--shadow-pop)]">
-        <header className="flex shrink-0 items-center gap-2 border-b border-[var(--color-line)] px-5 py-3.5">
-          <Bot size={18} strokeWidth={2.1} />
-          <h2 className="flex-1 text-[16px] font-semibold">Agenti</h2>
-          <button className="btn btn-primary h-8" onClick={onNew}>
-            Nuovo agente
-          </button>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)]"
-          >
-            <X size={17} />
-          </button>
-        </header>
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return agents;
+    return agents.filter(
+      (a) =>
+        a.name.toLowerCase().includes(needle) ||
+        a.handle.toLowerCase().includes(needle) ||
+        (a.description ?? '').toLowerCase().includes(needle),
+    );
+  }, [agents, q]);
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          {agents.length === 0 ? (
-            <div className="px-6 py-12 text-center">
-              <div className="mb-2 text-3xl">🐝</div>
-              <p className="text-[15px] font-medium">Nessun agente, per ora</p>
-              <p className="mx-auto mt-1 max-w-xs text-[13.5px] text-[var(--color-ink-soft)]">
-                Creane uno, mettilo in un canale e taggalo: risponderà lì dentro insieme
-                a tutti gli altri.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {agents.map((a) => {
-                const state = activity.get(a.id);
-                const inChannels = channels.filter((c) => (a.channelIds ?? []).includes(c.id));
-                return (
-                  <div
-                    key={a.id}
-                    onClick={() => setDetailId(a.id)}
-                    className="group flex cursor-pointer items-start gap-3 rounded-[10px] px-3 py-2.5 transition-colors hover:bg-[var(--color-sunken)]"
-                    title="Vedi dettagli e impostazioni"
-                  >
-                    <Avatar name={a.name} emoji={a.avatarEmoji} color={a.avatarColor} size={34} isAgent />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[14.5px] font-semibold">{a.name}</span>
-                        <span className="text-[12.5px] text-[var(--color-ink-faint)]">
-                          @{a.handle}
+  return (
+    <>
+      <Modal
+        onClose={onClose}
+        size="md"
+        tall
+        flush
+        icon={<Bot size={18} strokeWidth={2.1} />}
+        title="Agenti"
+        headerRight={
+          <button className="btn btn-primary btn-sm" onClick={onNew}>
+            <Plus size={13} strokeWidth={2.4} /> Nuovo agente
+          </button>
+        }
+      >
+        {agents.length > 0 && (
+          <ModalSearch value={q} onChange={setQ} placeholder="Cerca un agente…" />
+        )}
+
+        {agents.length === 0 ? (
+          <div className="px-6 py-12 text-center">
+            <div className="mb-2 text-3xl">🐝</div>
+            <p className="text-[15px] font-medium">Nessun agente, per ora</p>
+            <p className="mx-auto mt-1 max-w-xs text-[13.5px] text-[var(--color-ink-soft)]">
+              Creane uno, mettilo in un canale e taggalo: risponderà lì dentro insieme a tutti
+              gli altri.
+            </p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <p className="px-6 py-10 text-center text-[13.5px] text-[var(--color-ink-faint)]">
+            Nessun agente per «{q}».
+          </p>
+        ) : (
+          <div className="pb-2">
+            {filtered.map((a) => {
+              const state = activity.get(a.id);
+              const inChannels = channels.filter((c) => (a.channelIds ?? []).includes(c.id));
+              return (
+                <ModalRow
+                  key={a.id}
+                  onClick={() => setDetailId(a.id)}
+                  leading={
+                    <Avatar
+                      name={a.name}
+                      emoji={a.avatarEmoji}
+                      color={a.avatarColor}
+                      size={34}
+                      isAgent
+                    />
+                  }
+                  title={
+                    <span className="flex items-center gap-2">
+                      {a.name}
+                      <span className="text-[12.5px] font-normal text-[var(--color-ink-faint)]">
+                        @{a.handle}
+                      </span>
+                      {a.kind === 'developer' && (
+                        <span className="flex items-center gap-1 rounded bg-[var(--color-sunken)] px-1.5 text-[10.5px] font-medium text-[var(--color-ink-soft)]">
+                          <Terminal size={9} /> sviluppatore
                         </span>
-                        {a.kind === 'developer' && (
-                          <span className="flex items-center gap-1 rounded bg-[var(--color-sunken)] px-1.5 text-[10.5px] font-medium text-[var(--color-ink-soft)]">
-                            <Terminal size={9} /> sviluppatore
-                          </span>
-                        )}
-                      </div>
-                      <div className="truncate font-mono text-[12px] text-[var(--color-ink-faint)]">
-                        {a.model}
-                      </div>
-                      {inChannels.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {inChannels.map((c) => (
-                            <span
-                              key={c.id}
-                              className="rounded bg-[var(--color-sunken)] px-1.5 py-px text-[11.5px] text-[var(--color-ink-soft)]"
-                            >
-                              #{c.name}
-                            </span>
-                          ))}
-                        </div>
                       )}
-                    </div>
-                    {state ? (
-                      <span className="flex shrink-0 items-center gap-1 text-[12px] text-[var(--color-ink-faint)]">
+                    </span>
+                  }
+                  meta={
+                    <>
+                      {inChannels.length > 0
+                        ? inChannels.map((c) => `#${c.name}`).join(' · ')
+                        : 'in nessun canale'}
+                      {' · '}
+                      <span className="font-mono">{a.model.replace(/^.*\//, '')}</span>
+                    </>
+                  }
+                  trailing={
+                    state ? (
+                      <span className="flex items-center gap-1 text-[12px] text-[var(--color-ink-faint)]">
                         <Loader2 size={11} className="animate-spin" />
                         {state.status === 'waiting' ? 'in attesa' : 'al lavoro'}
                       </span>
                     ) : (
-                      <span className="flex shrink-0 items-center gap-1 self-center text-[12px] text-[var(--color-ink-faint)] opacity-0 transition-opacity group-hover:opacity-100">
-                        Dettagli <ChevronRight size={13} strokeWidth={2.2} />
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
+                      <ChevronRight
+                        size={15}
+                        strokeWidth={2.2}
+                        className="text-[var(--color-ink-faint)] opacity-0 transition-opacity group-hover:opacity-100"
+                      />
+                    )
+                  }
+                />
+              );
+            })}
+          </div>
+        )}
+      </Modal>
 
       {detail && !editTarget && (
         <AgentDetail
@@ -999,6 +1014,6 @@ export function AgentList({ onClose, onNew }: { onClose: () => void; onNew: () =
           }}
         />
       )}
-    </div>
+    </>
   );
 }

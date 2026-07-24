@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  X,
   Terminal,
   Cpu,
   ShieldCheck,
@@ -15,6 +14,7 @@ import type { Agent } from '@hive/shared';
 import { useStore } from '../store.js';
 import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
+import { Modal } from './Modal.js';
 
 /**
  * Dettagli di un agente: cosa è, dove gira, che permessi ha — e soprattutto
@@ -50,54 +50,50 @@ export function AgentDetail({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[rgb(30_26_16/0.34)] p-4 backdrop-blur-[2px]">
-      <div className="flex max-h-[86vh] w-full max-w-[620px] flex-col overflow-hidden rounded-[16px] bg-[var(--color-panel)] shadow-[var(--shadow-pop)]">
-        {/* intestazione */}
-        <header className="flex shrink-0 items-start gap-3 border-b border-[var(--color-line)] px-5 py-4">
-          <Avatar name={agent.name} emoji={agent.avatarEmoji} color={agent.avatarColor} size={40} isAgent />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h2 className="text-[16px] font-semibold">{agent.name}</h2>
-              <span className="text-[13px] text-[var(--color-ink-faint)]">@{agent.handle}</span>
-              {agent.kind === 'developer' && (
-                <span className="flex items-center gap-1 rounded bg-[var(--color-sunken)] px-1.5 text-[10.5px] font-medium text-[var(--color-ink-soft)]">
-                  <Terminal size={9} /> sviluppatore
+    <Modal
+      onClose={onClose}
+      size="md"
+      icon={
+        <Avatar name={agent.name} emoji={agent.avatarEmoji} color={agent.avatarColor} size={40} isAgent />
+      }
+      title={
+        <span className="flex items-center gap-2">
+          {agent.name}
+          <span className="text-[13px] font-normal text-[var(--color-ink-faint)]">
+            @{agent.handle}
+          </span>
+          {agent.kind === 'developer' && (
+            <span className="flex items-center gap-1 rounded bg-[var(--color-sunken)] px-1.5 text-[10.5px] font-medium text-[var(--color-ink-soft)]">
+              <Terminal size={9} /> sviluppatore
+            </span>
+          )}
+        </span>
+      }
+      subtitle={<span className="font-mono text-[12px]">{agent.model}</span>}
+      headerRight={
+        <button
+          onClick={() => onEdit(agent)}
+          className="btn btn-ghost btn-sm shrink-0"
+          title="Modifica nome, modello, tool, canali…"
+        >
+          <SlidersHorizontal size={13} /> Modifica tutto
+        </button>
+      }
+    >
+        <div className="space-y-5">
+          {inChannels.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {inChannels.map((c) => (
+                <span
+                  key={c.id}
+                  className="flex items-center gap-0.5 rounded bg-[var(--color-sunken)] px-1.5 py-px text-[11.5px] text-[var(--color-ink-soft)]"
+                >
+                  <Hash size={9} />
+                  {c.name}
                 </span>
-              )}
+              ))}
             </div>
-            <div className="mt-0.5 truncate font-mono text-[12px] text-[var(--color-ink-faint)]">
-              {agent.model}
-            </div>
-            {inChannels.length > 0 && (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {inChannels.map((c) => (
-                  <span
-                    key={c.id}
-                    className="flex items-center gap-0.5 rounded bg-[var(--color-sunken)] px-1.5 py-px text-[11.5px] text-[var(--color-ink-soft)]"
-                  >
-                    <Hash size={9} />
-                    {c.name}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-          <button
-            onClick={() => onEdit(agent)}
-            className="btn btn-ghost btn-sm shrink-0"
-            title="Modifica nome, modello, tool, canali…"
-          >
-            <SlidersHorizontal size={13} /> Modifica tutto
-          </button>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)]"
-          >
-            <X size={17} />
-          </button>
-        </header>
-
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+          )}
           {agent.description && (
             <p className="text-[13.5px] leading-relaxed text-[var(--color-ink-soft)]">
               {agent.description}
@@ -179,8 +175,7 @@ export function AgentDetail({
             </>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

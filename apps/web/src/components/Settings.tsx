@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../store.js';
 import { Usage } from './Usage.js';
+import { Modal } from './Modal.js';
 import { RunnerTab } from './RunnerTab.js';
 import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
@@ -220,18 +221,14 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const byKey = new Map(secrets.map((s) => [s.key, s]));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgb(30_26_16/0.34)] p-4 backdrop-blur-[2px]">
-      <div className="flex max-h-[90vh] w-full max-w-[640px] flex-col overflow-hidden rounded-[16px] bg-[var(--color-panel)] shadow-[var(--shadow-pop)]">
-        <header className="flex shrink-0 items-center gap-2 border-b border-[var(--color-line)] px-5 py-3.5">
-          <span className="text-[17px]">{workspace?.iconEmoji}</span>
-          <h2 className="flex-1 text-[16px] font-semibold">Impostazioni · {workspace?.name}</h2>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)]"
-          >
-            <X size={17} />
-          </button>
-        </header>
+    <Modal
+      onClose={onClose}
+      size="lg"
+      tall
+      flush
+      icon={<span className="text-[17px]">{workspace?.iconEmoji}</span>}
+      title={`Impostazioni · ${workspace?.name ?? ''}`}
+    >
 
         <nav className="flex shrink-0 gap-1 border-b border-[var(--color-line)] px-4">
           {(
@@ -436,7 +433,6 @@ export function Settings({ onClose }: { onClose: () => void }) {
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

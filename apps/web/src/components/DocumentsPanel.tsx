@@ -19,6 +19,7 @@ import {
 import type { DocumentNode, DocumentFull } from '@hive/shared';
 import { useStore } from '../store.js';
 import { api } from '../lib/api.js';
+import { Modal } from './Modal.js';
 
 const NO_DOCS: DocumentNode[] = [];
 
@@ -165,8 +166,8 @@ export function DocumentsPanel({ workspaceId }: { workspaceId: string }) {
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm">
-      <div className="flex h-[82vh] w-full max-w-5xl overflow-hidden rounded-2xl border border-[var(--color-line)] bg-[var(--color-panel)] shadow-2xl">
+    <Modal onClose={() => close(false)} size="xl" tall flush>
+      <div className="flex h-full">
         {/* Colonna albero */}
         <div className="flex w-72 shrink-0 flex-col border-r border-[var(--color-line)]">
           <div className="flex items-center justify-between px-3.5 py-3">
@@ -277,7 +278,7 @@ export function DocumentsPanel({ workspaceId }: { workspaceId: string }) {
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
