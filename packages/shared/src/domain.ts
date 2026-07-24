@@ -249,6 +249,48 @@ export interface Artifact {
   updatedAt: string;
 }
 
+/* ---------------------------------------------------------------------------
+ * Documenti: base di conoscenza del progetto (albero cartelle + file)
+ * ------------------------------------------------------------------------ */
+export type DocumentKind = 'folder' | 'file';
+
+/** Nodo dell'albero (l'indice): nessun contenuto, solo i metadati. */
+export interface DocumentNode {
+  id: string;
+  parentId: string | null;
+  kind: DocumentKind;
+  name: string;
+  description: string | null;
+  mime: string | null;
+  size: number | null;
+  /** Vero per i binari caricati (PDF, ecc.): il contenuto si scarica a parte. */
+  hasBlob: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Documento completo, col contenuto testuale (per editor / lettura). */
+export interface DocumentFull extends DocumentNode {
+  content: string | null;
+}
+
+export const createDocumentSchema = z.object({
+  parentId: z.uuid().nullable().default(null),
+  kind: z.enum(['folder', 'file']),
+  name: z.string().min(1).max(200),
+  description: z.string().max(500).nullable().optional(),
+  content: z.string().max(200_000).optional(),
+});
+export type CreateDocumentInput = z.infer<typeof createDocumentSchema>;
+
+export const updateDocumentSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(500).nullable().optional(),
+  content: z.string().max(200_000).optional(),
+  parentId: z.uuid().nullable().optional(),
+});
+export type UpdateDocumentInput = z.infer<typeof updateDocumentSchema>;
+
 /** Creazione dal client umano: contenuto iniziale opzionale a seconda del tipo. */
 /* ---------------------------------------------------------------------------
  * Token dei runner locali

@@ -3,6 +3,7 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import websocket from '@fastify/websocket';
+import multipart from '@fastify/multipart';
 import staticPlugin from '@fastify/static';
 import { ZodError } from 'zod';
 import { existsSync } from 'node:fs';
@@ -23,6 +24,7 @@ import { channelRoutes } from './routes/channels.js';
 import { agentRoutes } from './routes/agents.js';
 import { approvalRoutes } from './routes/approvals.js';
 import { artifactRoutes } from './routes/artifacts.js';
+import { documentRoutes } from './routes/documents.js';
 import { desktopRoutes } from './routes/desktop.js';
 import { runnerTokenRoutes } from './routes/runner.js';
 import { runnerApiRoutes } from './routes/runner-api.js';
@@ -54,6 +56,10 @@ await app.register(rateLimit, {
 });
 await app.register(websocket, {
   options: { maxPayload: 1024 * 1024 },
+});
+// Upload dei documenti (PDF, ecc.): fino a 25 MB per file.
+await app.register(multipart, {
+  limits: { fileSize: 25 * 1024 * 1024, files: 1 },
 });
 
 /* Risolve la sessione per ogni richiesta prima degli handler. */
@@ -116,6 +122,7 @@ await app.register(channelRoutes);
 await app.register(agentRoutes);
 await app.register(approvalRoutes);
 await app.register(artifactRoutes);
+await app.register(documentRoutes);
 await app.register(desktopRoutes);
 await app.register(runnerTokenRoutes);
 await app.register(runnerApiRoutes);

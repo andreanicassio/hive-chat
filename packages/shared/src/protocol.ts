@@ -4,6 +4,7 @@ import type {
   AgentStatus,
   Approval,
   Artifact,
+  DocumentNode,
   Channel,
   Message,
   Reaction,
@@ -104,7 +105,11 @@ export type ServerPacket =
   /* --- artifacts (checklist e documenti accanto alla chat) --- */
   | { t: 'artifact.new'; artifact: Artifact }
   | { t: 'artifact.updated'; artifact: Artifact }
-  | { t: 'artifact.deleted'; channelId: string; artifactId: string };
+  | { t: 'artifact.deleted'; channelId: string; artifactId: string }
+
+  /* --- documenti (base di conoscenza del progetto) --- */
+  | { t: 'document.changed'; workspaceId: string; document: DocumentNode }
+  | { t: 'document.deleted'; workspaceId: string; documentId: string };
 
 /* --------------------------------- Canali Redis -------------------------- */
 
