@@ -117,6 +117,24 @@ export const toolCatalog: ToolDef[] = [
     group: 'workspace',
     icon: 'brain',
   },
+  {
+    id: 'hive.artifacts',
+    label: 'Checklist e documenti',
+    description:
+      'Crea e aggiorna to-do list e documenti accanto alla chat: spunta le voci mentre lavora e tiene appunti condivisi, visibili in tempo reale.',
+    kind: 'hive',
+    sdkTools: [
+      'mcp__hive__list_artifacts',
+      'mcp__hive__create_artifact',
+      'mcp__hive__update_artifact',
+      'mcp__hive__add_checklist_item',
+      'mcp__hive__check_item',
+    ],
+    availableFor: ['assistant', 'developer'],
+    dangerous: false,
+    group: 'workspace',
+    icon: 'list-checks',
+  },
 
   /* --- Integrazioni ------------------------------------------------------ */
   {
@@ -230,7 +248,7 @@ export const toolById = new Map(toolCatalog.map((t) => [t.id, t]));
 
 /** Tool proposti di default alla creazione, per tipo di agente. */
 export const defaultToolIds: Record<AgentKind, string[]> = {
-  assistant: ['web.search', 'web.fetch', 'hive.search_messages', 'hive.memory'],
+  assistant: ['web.search', 'web.fetch', 'hive.search_messages', 'hive.memory', 'hive.artifacts'],
   developer: [
     'code.read',
     'code.write',
@@ -240,6 +258,7 @@ export const defaultToolIds: Record<AgentKind, string[]> = {
     'web.fetch',
     'hive.search_messages',
     'hive.memory',
+    'hive.artifacts',
   ],
 };
 

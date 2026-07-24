@@ -9,3 +9,21 @@ apps/web/dev-dist/
 coverage/
 .turbo/
 *.tsbuildinfo
+
+# Runner locale (contiene segreti del server)
+deploy/runner.env
+# Artefatti build Tauri / desktop
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/icons/
+apps/desktop/node_modules/
+*.dmg
+# Chiavi/segreti vari
+*.pem
+*.key
+!apps/desktop/src-tauri/*.rs
+.credentials.json
+
+# Artefatti di test/binari pesanti (non vanno nel repo)
+chrome-headless-shell/
+*.zip

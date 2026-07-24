@@ -87,7 +87,9 @@
   html,
   body,
   #root {
-    height: 100%;
+    /* 100dvh, non 100%: sui browser mobile la barra dinamica non lascia più
+       quella striscia vuota in fondo alla pagina. */
+    height: 100dvh;
   }
 
   body {
@@ -108,7 +110,7 @@
     background-attachment: fixed;
     color: var(--color-ink);
     font-family: var(--font-sans);
-    font-size: 15px;
+    font-size: 14px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;

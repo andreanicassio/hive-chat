@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "execution" varchar(8) DEFAULT 'server' NOT NULL;

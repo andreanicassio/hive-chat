@@ -1,0 +1,53 @@
+# Compila l'app desktop di Hive sui runner macOS di GitHub e pubblica il .dmg
+# in una Release — così scarichi l'app già pronta, senza installare Rust sul Mac.
+#
+# Come si lancia:
+#   • push di un tag  desktop-v*   (es. `git tag desktop-v0.1.0 && git push --tags`)
+#   • oppure a mano dalla tab "Actions" → "Run workflow"
+name: Desktop release
+
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    permissions:
+      contents: write   # per creare la Release e allegare il .dmg
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Cache dei crate Rust: la seconda build in poi è molto più veloce.
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Installa le dipendenze
+        run: npm install
+
+      - name: Genera le icone dell'app
+        run: npm run -w @hive/desktop icon
+
+      - name: Build + Release del .dmg
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Firma per l'aggiornamento automatico (opzionale, quando configurato):
+          # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'desktop-v0.0.0-dev' }}
+          releaseName: 'Hive Desktop ${{ github.ref_name }}'
+          releaseBody: 'App desktop di Hive. Scarica il .dmg qui sotto.'
+          releaseDraft: false
+          prerelease: false

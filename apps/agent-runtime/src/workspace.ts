@@ -18,6 +18,15 @@ export async function resolveWorkDir(args: {
   agentId: string;
   kind: 'assistant' | 'developer';
 }): Promise<string> {
+  // Runner locale con una cartella di codice "viva" configurata: gli agenti
+  // sviluppatore lavorano DIRETTAMENTE lì — è il tuo codice sul disco, come
+  // avere Claude Code aperto in quella cartella, ma dalla chat. Niente clone,
+  // niente sottocartelle per workspace.
+  if (args.kind === 'developer' && env.HIVE_RUNNER_WORKDIR) {
+    await mkdir(env.HIVE_RUNNER_WORKDIR, { recursive: true });
+    return env.HIVE_RUNNER_WORKDIR;
+  }
+
   const base = join(env.HIVE_WORKSPACE_ROOT, args.workspaceId);
   const dir =
     args.kind === 'developer' ? join(base, 'project') : join(base, 'scratch', args.agentId);
@@ -39,11 +48,18 @@ export function sandboxFor(args: {
   /** Domini che l'agente può contattare oltre a quelli dei modelli. */
   allowedDomains: string[];
 }): SandboxSettings {
+  // Il sandbox nativo dell'SDK (bubblewrap) si attiva SOLO in modalità
+  // `sandbox`. In modalità `docker` il confine è il container e qui dentro
+  // gira già confinato: attivare anche bwrap sarebbe ridondante e, su questa
+  // macchina, fallirebbe. In modalità `none` niente sandbox.
+  const isolated = env.AGENT_ISOLATION === 'sandbox';
   return {
-    enabled: true,
-    // Se il sandbox non è disponibile sulla macchina preferiamo saperlo
-    // subito invece di girare senza protezioni credendo di averle.
-    failIfUnavailable: env.AGENT_ISOLATION === 'local',
+    enabled: isolated,
+    // Per un agente sviluppatore (che ha la shell) il sandbox è essenziale:
+    // se non è disponibile sulla macchina, meglio fallire che eseguire
+    // comandi senza confine. Per un assistente, che non ha shell, è meno
+    // critico e lasciamo proseguire.
+    failIfUnavailable: isolated && args.kind === 'developer',
     // Dentro al sandbox i comandi di shell non hanno bisogno di conferma
     // uno per uno: il confine è già imposto dal sandbox stesso.
     autoAllowBashIfSandboxed: args.kind === 'developer',

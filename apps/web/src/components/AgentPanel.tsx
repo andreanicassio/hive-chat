@@ -13,6 +13,8 @@ import {
   Terminal,
   Trash2,
   X,
+  GitBranch,
+  Cpu,
 } from 'lucide-react';
 import { useStore } from '../store.js';
 import { api, ApiError } from '../lib/api.js';
@@ -224,6 +226,9 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
   const [toolIds, setToolIds] = useState<Set<string>>(new Set());
   const [channelIds, setChannelIds] = useState<Set<string>>(new Set());
   const [autoRespond, setAutoRespond] = useState(false);
+  const [repoUrl, setRepoUrl] = useState('');
+  const [repoBranch, setRepoBranch] = useState('main');
+  const [execution, setExecution] = useState<'server' | 'local'>('server');
 
   const [catalog, setCatalog] = useState<ToolDef[]>([]);
   const [defaults, setDefaults] = useState<Record<string, string[]>>({});
@@ -302,8 +307,18 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
         purpose: purpose.trim() || null,
         description: purpose.trim().slice(0, 200) || null,
         autoRespond,
+        execution,
         tools: [...toolIds].map((id) => ({ toolId: id, config: {}, requireApproval: false })),
         channelIds: [...channelIds],
+        repo:
+          kind === 'developer' && repoUrl.trim()
+            ? {
+                gitUrl: repoUrl.trim(),
+                branch: repoBranch.trim() || 'main',
+                credentialKey: 'GITHUB_TOKEN',
+                setupCommand: null,
+              }
+            : null,
       });
       // Le skill approvate si salvano dopo: hanno bisogno dell'id dell'agente.
       for (const s of skills) {
@@ -458,6 +473,68 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
               </p>
             )}
           </div>
+
+          {/* Repository (solo agenti sviluppatore) */}
+          {kind === 'developer' && (
+            <div>
+              <label className="mb-1.5 flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-ink-soft)]">
+                <GitBranch size={14} strokeWidth={2.1} /> Repository su cui lavorare
+              </label>
+              <div className="flex gap-2">
+                <input
+                  className="field flex-1 font-mono text-[13px]"
+                  value={repoUrl}
+                  onChange={(e) => setRepoUrl(e.target.value)}
+                  placeholder="https://github.com/tuo-utente/tuo-repo"
+                />
+                <input
+                  className="field w-[120px] font-mono text-[13px]"
+                  value={repoBranch}
+                  onChange={(e) => setRepoBranch(e.target.value)}
+                  placeholder="main"
+                />
+              </div>
+              <p className="mt-1.5 text-[12.5px] text-[var(--color-ink-faint)]">
+                L'agente clona questo repo in una cartella isolata e ci lavora dentro. Per
+                repo privati e per il push serve un <strong>Token GitHub</strong> in
+                Impostazioni → Credenziali. Ogni push passa da una tua conferma in chat.
+              </p>
+
+              {/* Dove gira: server o runner locale */}
+              <label className="mt-3 mb-1.5 flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-ink-soft)]">
+                <Cpu size={14} strokeWidth={2.1} /> Dove gira
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    { v: 'server', t: 'Sul server', d: 'Sempre attivo, isolato in container.' },
+                    { v: 'local', t: 'Sul mio computer', d: 'Runner locale: lavora sul tuo codice, con le tue credenziali.' },
+                  ] as const
+                ).map((o) => (
+                  <button
+                    key={o.v}
+                    type="button"
+                    onClick={() => setExecution(o.v)}
+                    className={
+                      'rounded-lg border p-2.5 text-left transition-colors ' +
+                      (execution === o.v
+                        ? 'border-[var(--color-honey)] bg-[var(--color-honey-soft)]'
+                        : 'border-[var(--color-line)] hover:bg-[var(--color-sunken)]')
+                    }
+                  >
+                    <div className="text-[13px] font-medium">{o.t}</div>
+                    <div className="mt-0.5 text-[11.5px] text-[var(--color-ink-faint)]">{o.d}</div>
+                  </button>
+                ))}
+              </div>
+              {execution === 'local' && (
+                <p className="mt-1.5 text-[12.5px] text-[var(--color-ink-faint)]">
+                  Questo agente risponderà solo quando il tuo <strong>runner locale</strong> è
+                  acceso su questa macchina (vedi <code>deploy/RUNNER.md</code>).
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Scopo */}
           <div>

@@ -215,6 +215,70 @@ export const postMessageSchema = z.object({
 export type PostMessageInput = z.infer<typeof postMessageSchema>;
 
 /* ---------------------------------------------------------------------------
+ * Artifacts: documenti vivi accanto alla chat (checklist e fogli markdown),
+ * manipolati sia dalle persone che dagli agenti, in tempo reale.
+ * ------------------------------------------------------------------------ */
+export const artifactTypes = ['checklist', 'doc'] as const;
+export type ArtifactType = (typeof artifactTypes)[number];
+export const artifactTypeSchema = z.enum(artifactTypes);
+
+export interface ChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+}
+export interface ChecklistContent {
+  items: ChecklistItem[];
+}
+export interface DocContent {
+  markdown: string;
+}
+export type ArtifactContent = ChecklistContent | DocContent;
+
+export interface Artifact {
+  id: string;
+  channelId: string;
+  type: ArtifactType;
+  title: string;
+  content: ArtifactContent;
+  /** Appuntato: compare nella striscia in cima alla chat. */
+  pinned: boolean;
+  createdBy: ActorRef;
+  updatedBy: ActorRef | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Creazione dal client umano: contenuto iniziale opzionale a seconda del tipo. */
+export const createArtifactSchema = z.object({
+  type: artifactTypeSchema,
+  title: z.string().max(200).default(''),
+  items: z
+    .array(z.object({ text: z.string().max(1000), done: z.boolean().default(false) }))
+    .max(200)
+    .optional(),
+  markdown: z.string().max(100_000).optional(),
+});
+export type CreateArtifactInput = z.infer<typeof createArtifactSchema>;
+
+/** Modifica dal client umano (titolo, pin, o contenuto intero secondo il tipo). */
+export const updateArtifactSchema = z.object({
+  title: z.string().max(200).optional(),
+  pinned: z.boolean().optional(),
+  content: z
+    .union([
+      z.object({
+        items: z
+          .array(z.object({ id: z.string(), text: z.string().max(1000), done: z.boolean() }))
+          .max(500),
+      }),
+      z.object({ markdown: z.string().max(100_000) }),
+    ])
+    .optional(),
+});
+export type UpdateArtifactInput = z.infer<typeof updateArtifactSchema>;
+
+/* ---------------------------------------------------------------------------
  * Agenti
  * ------------------------------------------------------------------------ */
 
@@ -252,6 +316,18 @@ export type EffortLevel = (typeof effortLevels)[number];
 export const agentRuntimes = ['claude-code', 'openrouter-tools', 'opencode'] as const;
 export type AgentRuntime = (typeof agentRuntimes)[number];
 export const agentRuntimeSchema = z.enum(agentRuntimes);
+
+/**
+ * Dove gira davvero l'agente:
+ *  `server` — sul server Hive (default): sempre attivo, isolato in container
+ *             per gli sviluppatori.
+ *  `local`  — sul computer del suo proprietario, tramite il runner locale:
+ *             lavora sul repo in locale con le credenziali di quella persona.
+ *             Attivo solo quando il suo runner è acceso.
+ */
+export const agentExecutions = ['server', 'local'] as const;
+export type AgentExecution = (typeof agentExecutions)[number];
+export const agentExecutionSchema = z.enum(agentExecutions);
 
 /** Runtime già utilizzabili. `opencode` è dichiarato ma non ancora attivo. */
 export const implementedRuntimes: AgentRuntime[] = ['claude-code', 'openrouter-tools'];
@@ -367,6 +443,10 @@ export interface Agent {
   tools: AgentToolGrant[];
   mcpServers: McpServerConfig[];
   repo: RepoConfig | null;
+  /** Dove gira: sul server o sul runner locale del proprietario. */
+  execution: AgentExecution;
+  /** Presente se l'agente gira in locale: il runner di questa persona è acceso? */
+  runnerOnline?: boolean;
   /** Risponde da solo quando qualcuno scrive nel canale senza taggarlo. */
   autoRespond: boolean;
   status: AgentStatus;
@@ -391,6 +471,7 @@ export const createAgentSchema = z.object({
   tools: z.array(agentToolGrantSchema).max(40).default([]),
   mcpServers: z.array(mcpServerConfigSchema).max(20).default([]),
   repo: repoConfigSchema.nullable().optional(),
+  execution: agentExecutionSchema.default('server'),
   autoRespond: z.boolean().default(false),
   channelIds: z.array(uuid).max(100).default([]),
 });

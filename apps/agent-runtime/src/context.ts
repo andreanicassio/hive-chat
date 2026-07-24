@@ -189,9 +189,24 @@ export async function buildContext(args: {
     );
   }
 
+  const grants = (agent.tools as Array<{ toolId: string }> | null) ?? [];
+  if (grants.some((g) => g.toolId === 'hive.artifacts')) {
+    sections.push(
+      `\n## Checklist e documenti`,
+      `Hai gli strumenti per creare e aggiornare checklist (to-do) e documenti che ` +
+        `compaiono nel pannello accanto alla chat. Quando ti chiedono una to-do, una ` +
+        `lista di task, un piano o un documento condiviso, USA questi strumenti ` +
+        `(create_artifact, add_checklist_item, check_item, update_artifact) invece di ` +
+        `scrivere la lista dentro il messaggio. Mentre lavori, spunta le voci man mano ` +
+        `con check_item, così il team vede i progressi in tempo reale. Prima di ` +
+        `modificarne uno esistente usa list_artifacts per prendere gli id giusti. ` +
+        `Nel messaggio di chat scrivi solo una riga di conferma, non ricopiare la lista.`,
+    );
+  }
+
   sections.push(
     `\n## Come rispondere`,
-    `- Scrivi in chat, non in un documento: vai al punto, niente preamboli.`,
+    `- Vai al punto, niente preamboli.`,
     `- Rispondi nella lingua di chi ti ha scritto.`,
     `- Se ti mancano informazioni per procedere, chiedile invece di inventarle.`,
     `- Usa il markdown per liste e codice, ma senza appesantire.`,

@@ -164,6 +164,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         tools: input.tools,
         mcpServers: input.mcpServers,
         repo: input.repo ?? null,
+        execution: input.execution,
         autoRespond: input.autoRespond,
         createdBy: user.id,
       })
@@ -257,6 +258,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         ...(input.tools !== undefined ? { tools: input.tools } : {}),
         ...(input.mcpServers !== undefined ? { mcpServers: input.mcpServers } : {}),
         ...(input.repo !== undefined ? { repo: input.repo } : {}),
+        ...(input.execution !== undefined ? { execution: input.execution } : {}),
         ...(input.autoRespond !== undefined ? { autoRespond: input.autoRespond } : {}),
       })
       .where(eq(schema.agents.id, agentId))

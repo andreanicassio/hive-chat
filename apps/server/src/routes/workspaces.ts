@@ -10,9 +10,11 @@ import {
   createInviteSchema,
   createWorkspaceSchema,
   createGroupSchema,
+  redisChannels,
   slugifyHandle,
   type Invite,
 } from '@hive/shared';
+import { redisPub } from '../lib/redis.js';
 import { env } from '../env.js';
 import { computeCapabilities } from '../services/capabilities.js';
 import { usageReport } from '../services/usage.js';
@@ -155,6 +157,25 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
       );
     const joined = new Set(myChannels.map((r) => r.channelId));
 
+    // Per gli agenti che girano in locale, segnaliamo se il runner del loro
+    // proprietario è acceso in questo momento: la UI lo mostra.
+    const localOwnerIds = [
+      ...new Set(
+        agentRows
+          .filter((a) => a.execution === 'local' && a.createdBy)
+          .map((a) => a.createdBy as string),
+      ),
+    ];
+    const onlineOwners = new Set<string>();
+    if (localOwnerIds.length > 0) {
+      const flags = await Promise.all(
+        localOwnerIds.map((id) => redisPub.exists(redisChannels.runnerPresence(id))),
+      );
+      localOwnerIds.forEach((id, i) => {
+        if (flags[i]) onlineOwners.add(id);
+      });
+    }
+
     return {
       workspace: {
         id: workspace.id,
@@ -184,7 +205,12 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
           }),
         ),
       agents: agentRows.map((a) =>
-        serializeAgent(a, { channelIds: agentChannels.get(a.id) ?? [] }),
+        serializeAgent(a, {
+          channelIds: agentChannels.get(a.id) ?? [],
+          ...(a.execution === 'local'
+            ? { runnerOnline: a.createdBy ? onlineOwners.has(a.createdBy) : false }
+            : {}),
+        }),
       ),
       members: memberRows.map((m) => ({
         id: m.id,

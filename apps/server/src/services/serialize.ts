@@ -90,7 +90,7 @@ export async function loadActors(
   return map;
 }
 
-function resolveActor(
+export function resolveActor(
   map: Map<string, ActorRef>,
   type: string,
   id: string | null,
@@ -334,6 +334,7 @@ export function serializeAgent(row: AgentRow, extra?: Partial<Agent>): Agent {
     tools: (row.tools as Agent['tools']) ?? [],
     mcpServers: (row.mcpServers as Agent['mcpServers']) ?? [],
     repo: (row.repo as Agent['repo']) ?? null,
+    execution: (row.execution as Agent['execution']) ?? 'server',
     autoRespond: row.autoRespond,
     status: row.status as Agent['status'],
     statusLabel: row.statusLabel,

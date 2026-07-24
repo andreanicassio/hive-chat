@@ -2,12 +2,15 @@ import type {
   Agent,
   AgentSkill,
   Approval,
+  Artifact,
   CatalogModel,
   Channel,
   ChannelGroup,
+  CreateArtifactInput,
   Invite,
   Message,
   PublicUser,
+  UpdateArtifactInput,
   Workspace,
   WorkspaceRole,
 } from '@hive/shared';
@@ -240,6 +243,18 @@ export const api = {
       `/api/workspaces/${workspaceId}/skills/generate`,
       input,
     ),
+
+  /* --- artifacts (checklist e documenti) --- */
+  listArtifacts: (channelId: string) =>
+    get<{ artifacts: Artifact[] }>(`/api/channels/${channelId}/artifacts`),
+
+  createArtifact: (channelId: string, input: CreateArtifactInput) =>
+    post<{ artifact: Artifact }>(`/api/channels/${channelId}/artifacts`, input),
+
+  updateArtifact: (artifactId: string, body: UpdateArtifactInput) =>
+    patch<{ artifact: Artifact }>(`/api/artifacts/${artifactId}`, body),
+
+  deleteArtifact: (artifactId: string) => del<{ ok: true }>(`/api/artifacts/${artifactId}`),
 
   /* --- approvazioni --- */
   pendingApprovals: (workspaceId: string) =>

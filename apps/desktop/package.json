@@ -1,0 +1,14 @@
+{
+  "name": "@hive/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "App nativa di Hive (Tauri): finestra della chat + runner locale integrato.",
+  "scripts": {
+    "icon": "tauri icon icon-source.png",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  }
+}

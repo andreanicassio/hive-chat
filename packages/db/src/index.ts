@@ -14,13 +14,36 @@ export interface DbOptions {
   max?: number;
 }
 
+/**
+ * Riconosce la forma «socket unix» della connessione, che `new URL` (usato
+ * internamente da postgres.js) non sa parsare per via dell'host vuoto:
+ *   postgres://utente:password@/database?host=/var/run/postgresql
+ * È quella usata dai container degli agenti sviluppatore, che raggiungono
+ * Postgres via socket montato invece che via rete.
+ */
+function parseSocketUrl(
+  url: string,
+): { username: string; password?: string; database: string; host: string } | null {
+  const m = /^postgres(?:ql)?:\/\/([^:@/]+)(?::([^@/]+))?@\/([^?]+)\?host=(.+)$/.exec(url);
+  if (!m) return null;
+  const [, username, password, database, host] = m;
+  return {
+    username: decodeURIComponent(username!),
+    password: password ? decodeURIComponent(password) : undefined,
+    database: decodeURIComponent(database!),
+    host: decodeURIComponent(host!),
+  };
+}
+
 export function createDb(opts: DbOptions) {
-  const sql = postgres(opts.url, {
+  const base = {
     max: opts.max ?? 10,
     idle_timeout: 30,
     connect_timeout: 10,
     onnotice: () => {},
-  });
+  };
+  const socket = parseSocketUrl(opts.url);
+  const sql = socket ? postgres({ ...socket, ...base }) : postgres(opts.url, base);
   const db = drizzle(sql, { schema });
   return {
     db,

@@ -87,7 +87,7 @@ const schema = z.object({
   AGENT_MAX_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(3),
   AGENT_CONTAINER_IDLE_TTL: z.coerce.number().int().min(60).default(900),
   AGENT_DEV_IMAGE: z.string().default('hive/dev-sandbox:latest'),
-  AGENT_ISOLATION: z.enum(['docker', 'local']).default('docker'),
+  AGENT_ISOLATION: z.enum(['docker', 'sandbox', 'none']).default('docker'),
 
   HIVE_WORKSPACE_ROOT: z.string().default('/srv/hive/workspaces'),
   HIVE_UPLOAD_ROOT: z.string().default('/srv/hive/uploads'),

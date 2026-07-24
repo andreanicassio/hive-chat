@@ -19,8 +19,10 @@ import {
   X,
   Reply,
   CornerUpLeft,
+  PanelRight,
 } from 'lucide-react';
 import { useStore, type RunState } from '../store.js';
+import { ArtifactPanel, ArtifactPinnedStrip } from './ArtifactPanel.js';
 import { api } from '../lib/api.js';
 import { realtime } from '../lib/ws.js';
 import { Avatar } from './Avatar.js';
@@ -282,7 +284,7 @@ function MessageRow({
 
   if (message.deletedAt) {
     return (
-      <div className="px-5 py-0.5 pl-[68px] text-[13.5px] italic text-[var(--color-ink-faint)]">
+      <div className="px-5 py-0.5 pl-[62px] text-[13px] italic text-[var(--color-ink-faint)]">
         Messaggio eliminato
       </div>
     );
@@ -293,7 +295,7 @@ function MessageRow({
       id={`msg-${message.id}`}
       className={clsx(
         'group relative px-5 transition-colors hover:bg-[color-mix(in_oklab,var(--color-ink)_2.5%,transparent)]',
-        grouped ? 'py-0.5' : 'pt-3 pb-0.5',
+        grouped ? 'py-0.5' : 'pt-2 pb-0.5',
       )}
     >
       {/* Azioni al passaggio del mouse: per ora, rispondi. */}
@@ -307,10 +309,10 @@ function MessageRow({
         </button>
       </div>
 
-      <div className="flex gap-3">
-        <div className="w-9 shrink-0">
+      <div className="flex gap-2.5">
+        <div className="w-8 shrink-0">
           {grouped ? (
-            <span className="mt-1 hidden text-[11px] text-[var(--color-ink-faint)] tabular-nums group-hover:block">
+            <span className="mt-0.5 hidden text-[10.5px] text-[var(--color-ink-faint)] tabular-nums group-hover:block">
               {time}
             </span>
           ) : (
@@ -318,7 +320,7 @@ function MessageRow({
               name={message.author.name}
               emoji={message.author.avatarEmoji}
               color={message.author.avatarColor}
-              size={36}
+              size={32}
               isAgent={isAgent}
               online={
                 message.author.type === 'user' ? onlineUserIds.has(message.author.id) : undefined
@@ -332,14 +334,14 @@ function MessageRow({
           {message.replyTo && <QuotedReply reply={message.replyTo} />}
 
           {!grouped && (
-            <div className="mb-0.5 flex items-baseline gap-2">
-              <span className="text-[14.5px] font-semibold">{message.author.name}</span>
+            <div className="mb-0.5 flex items-baseline gap-1.5">
+              <span className="text-[13px] font-semibold">{message.author.name}</span>
               {isAgent && (
-                <span className="rounded bg-[var(--color-sunken)] px-1.5 py-px text-[10.5px] font-medium tracking-wide text-[var(--color-ink-faint)] uppercase">
+                <span className="rounded bg-[var(--color-sunken)] px-1 py-px text-[9.5px] font-medium tracking-wide text-[var(--color-ink-faint)] uppercase">
                   agente
                 </span>
               )}
-              <span className="text-[12px] text-[var(--color-ink-faint)] tabular-nums">{time}</span>
+              <span className="text-[11px] text-[var(--color-ink-faint)] tabular-nums">{time}</span>
             </div>
           )}
 
@@ -640,6 +642,11 @@ export function Chat() {
   const loading = useStore((s) => s.loadingChannel);
   const typingByChannel = useStore((s) => s.typingByChannel);
   const loadOlder = useStore((s) => s.loadOlder);
+  const artifactPanelOpen = useStore((s) => s.artifactPanelOpen);
+  const setArtifactPanelOpen = useStore((s) => s.setArtifactPanelOpen);
+  const artifactCount = useStore((s) =>
+    activeChannelId ? (s.artifactsByChannel.get(activeChannelId)?.length ?? 0) : 0,
+  );
 
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -681,6 +688,7 @@ export function Chat() {
   const channelAgents = agents.filter((a) => (a.channelIds ?? []).includes(channel.id));
 
   return (
+    <div className="flex min-w-0 flex-1 gap-1">
     <div className="panel flex min-w-0 flex-1 flex-col overflow-hidden">
       {/* --- intestazione --- */}
       <header className="flex shrink-0 items-center gap-2 border-b border-[var(--color-line)] px-5 py-3">
@@ -716,8 +724,23 @@ export function Chat() {
             <Users size={14} strokeWidth={2.2} />
             <span className="tabular-nums">{useStore.getState().members.length}</span>
           </button>
+          <button
+            onClick={() => setArtifactPanelOpen(!artifactPanelOpen)}
+            className={
+              'hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] transition-colors lg:flex ' +
+              (artifactPanelOpen
+                ? 'bg-[var(--color-honey-soft)] text-[var(--color-ink)]'
+                : 'bg-[var(--color-sunken)] text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]')
+            }
+            title="Checklist e documenti"
+          >
+            <PanelRight size={14} strokeWidth={2.2} />
+            {artifactCount > 0 && <span className="tabular-nums">{artifactCount}</span>}
+          </button>
         </div>
       </header>
+
+      <ArtifactPinnedStrip channelId={channel.id} />
 
       {/* --- messaggi --- */}
       <div
@@ -778,6 +801,8 @@ export function Chat() {
       </div>
 
       <Composer channelId={channel.id} channelName={channel.name} />
+    </div>
+      {artifactPanelOpen && <ArtifactPanel channelId={channel.id} />}
     </div>
   );
 }

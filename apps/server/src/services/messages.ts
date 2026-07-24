@@ -252,6 +252,23 @@ async function triggerAgents(args: TriggerArgs): Promise<string[]> {
     );
 
   const mentionedIds = new Set(args.mentionedAgents.map((a) => a.id));
+
+  // Rispondere (con la funzione "rispondi") al messaggio DI un agente equivale
+  // a rivolgersi a quell'agente, anche senza taggarlo: in chat è il gesto
+  // naturale per proseguire un discorso con lui. Vale solo per le risposte
+  // umane: fra agenti restano i passaggi di consegne espliciti, altrimenti
+  // due bot potrebbero rimbalzarsi risposte all'infinito.
+  let repliedToAgentId: string | null = null;
+  if (args.message.replyToId && isHuman) {
+    const parent = await db
+      .select({ authorType: schema.messages.authorType, authorId: schema.messages.authorId })
+      .from(schema.messages)
+      .where(eq(schema.messages.id, args.message.replyToId))
+      .limit(1);
+    const p = parent[0];
+    if (p?.authorType === 'agent' && p.authorId) repliedToAgentId = p.authorId;
+  }
+
   const toRun: Array<{ id: string; handle: string }> = [];
 
   for (const m of members) {
@@ -261,6 +278,8 @@ async function triggerAgents(args: TriggerArgs): Promise<string[]> {
       continue;
     }
     if (mentionedIds.has(m.agentId)) {
+      toRun.push({ id: m.agentId, handle: m.handle });
+    } else if (repliedToAgentId === m.agentId) {
       toRun.push({ id: m.agentId, handle: m.handle });
     } else if (m.autoRespond && isHuman) {
       toRun.push({ id: m.agentId, handle: m.handle });
@@ -363,8 +382,66 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
     hop: args.hop + 1,
   };
 
-  // La coda è una lista Redis: i worker fanno BRPOP.
-  await redisPub.lpush(redisChannels.runQueue, JSON.stringify(job));
+  // Instradamento: un agente `local` gira sul computer del suo proprietario,
+  // tramite il runner. Gli altri sul server. La coda è una lista Redis su cui
+  // il consumatore giusto fa BRPOP.
+  const owner = await db
+    .select({ execution: schema.agents.execution, ownerId: schema.agents.createdBy })
+    .from(schema.agents)
+    .where(eq(schema.agents.id, args.agentId))
+    .limit(1);
+  const agentExec = owner[0];
+
+  if (agentExec?.execution === 'local' && agentExec.ownerId) {
+    const online = await redisPub.exists(redisChannels.runnerPresence(agentExec.ownerId));
+    if (online) {
+      await redisPub.lpush(redisChannels.runnerQueue(agentExec.ownerId), JSON.stringify(job));
+    } else {
+      await failRunnerOffline(runId, responseMessage.id, args.workspaceId, args.channelId);
+    }
+  } else {
+    await redisPub.lpush(redisChannels.runQueue, JSON.stringify(job));
+  }
 
   return runId;
+}
+
+/**
+ * Chiude subito il run con una nota chiara quando l'agente gira in locale ma
+ * il suo runner è spento: il turno non può partire da nessun'altra parte.
+ */
+async function failRunnerOffline(
+  runId: string,
+  responseMessageId: string,
+  workspaceId: string,
+  channelId: string,
+): Promise<void> {
+  const note =
+    '_Questo agente gira sul computer del suo proprietario e il runner locale è ' +
+    'spento in questo momento. Avvia il runner su quella macchina e riprova._';
+  await db
+    .update(schema.agentRuns)
+    .set({ status: 'error', error: 'runner offline', endedAt: new Date() })
+    .where(eq(schema.agentRuns.id, runId));
+  await db.update(schema.messages).set({ body: note }).where(eq(schema.messages.id, responseMessageId));
+
+  const rows = await db
+    .select()
+    .from(schema.messages)
+    .where(eq(schema.messages.id, responseMessageId))
+    .limit(1);
+  if (rows[0]) {
+    const message = await serializeMessage(rows[0], null);
+    await hub.publish(workspaceId, { packet: { t: 'message.updated', message }, channelId });
+  }
+  await hub.publish(workspaceId, {
+    packet: {
+      t: 'run.status',
+      runId,
+      messageId: responseMessageId,
+      status: 'error',
+      error: 'runner offline',
+    },
+    channelId,
+  });
 }

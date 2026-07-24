@@ -297,6 +297,8 @@ export const agents = pgTable(
     tools: jsonb('tools').notNull().default(sql`'[]'::jsonb`),
     mcpServers: jsonb('mcp_servers').notNull().default(sql`'[]'::jsonb`),
     repo: jsonb('repo'),
+    /** `server` (default) o `local`: dove gira il turno dell'agente. */
+    execution: varchar('execution', { length: 8 }).notNull().default('server'),
     autoRespond: boolean('auto_respond').notNull().default(false),
     /** Stato volatile mostrato nella barra in basso. */
     status: varchar('status', { length: 16 }).notNull().default('idle'),
@@ -470,3 +472,41 @@ export const workspaceContext = pgTable('workspace_context', {
   autoUpdatedAt: timestamp('auto_updated_at', { withTimezone: true }),
   manualUpdatedAt: timestamp('manual_updated_at', { withTimezone: true }),
 });
+
+/* ---------------------------------------------------------------------------
+ * Artifacts: documenti vivi accanto alla chat (checklist e fogli markdown).
+ * Li manipolano sia le persone (a mano, dal pannello) sia gli agenti (via
+ * tool), e ogni modifica si propaga in tempo reale come i messaggi.
+ * ------------------------------------------------------------------------ */
+export const artifacts = pgTable(
+  'artifacts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    /** checklist | doc */
+    type: varchar('type', { length: 16 }).notNull(),
+    title: text('title').notNull().default(''),
+    /**
+     * Forma dipendente dal tipo:
+     *   checklist → { items: [{ id, text, done }] }
+     *   doc       → { markdown: string }
+     */
+    content: jsonb('content').notNull().default(sql`'{}'::jsonb`),
+    /** Appuntato: compare nella striscia in cima alla chat. */
+    pinned: boolean('pinned').notNull().default(true),
+    createdByType: varchar('created_by_type', { length: 8 }).notNull(), // user | agent
+    createdById: uuid('created_by_id'),
+    /** Chi ha toccato per ultimo l'artifact (per la riga "aggiornato da"). */
+    updatedByType: varchar('updated_by_type', { length: 8 }),
+    updatedById: uuid('updated_by_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+  },
+  (t) => [index('artifacts_channel_idx').on(t.channelId, t.updatedAt)],
+);

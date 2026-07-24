@@ -3,6 +3,7 @@ import type {
   Agent,
   AgentStatus,
   Approval,
+  Artifact,
   Channel,
   Message,
   Reaction,
@@ -98,20 +99,38 @@ export type ServerPacket =
 
   /* --- approvazioni umane --- */
   | { t: 'approval.requested'; approval: Approval }
-  | { t: 'approval.resolved'; approval: Approval };
+  | { t: 'approval.resolved'; approval: Approval }
+
+  /* --- artifacts (checklist e documenti accanto alla chat) --- */
+  | { t: 'artifact.new'; artifact: Artifact }
+  | { t: 'artifact.updated'; artifact: Artifact }
+  | { t: 'artifact.deleted'; channelId: string; artifactId: string };
 
 /* --------------------------------- Canali Redis -------------------------- */
 
 export const redisChannels = {
   /** Fanout di tutti gli eventi di un workspace verso i nodi API. */
   workspace: (workspaceId: string) => `hive:ws:${workspaceId}`,
-  /** Coda dei run da eseguire, consumata dai worker. */
+  /** Coda dei run eseguiti sul server, consumata dal worker del server. */
   runQueue: 'hive:runs:queue',
+  /**
+   * Coda dei run affidati al runner locale di un utente (esecuzione sul suo
+   * computer). Il runner fa BRPOP su questa chiave.
+   */
+  runnerQueue: (userId: string) => `hive:runs:runner:${userId}`,
+  /**
+   * Presenza del runner di un utente: chiave con TTL che il runner rinnova a
+   * intervalli. Se manca, il runner è considerato offline.
+   */
+  runnerPresence: (userId: string) => `hive:runner:${userId}`,
   /** Richieste di annullamento run. */
   runCancel: (runId: string) => `hive:runs:cancel:${runId}`,
   /** Risposta a una richiesta di approvazione, attesa dal worker. */
   approvalReply: (approvalId: string) => `hive:approval:${approvalId}`,
 } as const;
+
+/** Secondi di validità della presenza del runner (rinnovata più spesso). */
+export const RUNNER_PRESENCE_TTL_SEC = 30;
 
 /** Payload messo in coda per far girare un agente. */
 export const runJobSchema = z.object({

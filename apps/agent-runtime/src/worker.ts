@@ -6,6 +6,8 @@ import { env } from './env.js';
 import { RunEmitter } from './emitter.js';
 import { buildContext } from './context.js';
 import { resolveWorkDir } from './workspace.js';
+import { prepareRepo } from './repo.js';
+import { runInContainer } from './container.js';
 import { ClaudeCodeRunner } from './runners/claude-code.js';
 import { OpenRouterRunner } from './runners/openrouter.js';
 import type { Runner } from './runners/types.js';
@@ -14,6 +16,7 @@ import {
   MAX_HANDOFF_HOPS,
   redisChannels,
   runJobSchema,
+  RUNNER_PRESENCE_TTL_SEC,
   type RunJob,
 } from '@hive/shared';
 
@@ -34,11 +37,43 @@ const runners: Record<string, Runner> = {
 let active = 0;
 let stopping = false;
 
+/**
+ * In modalità runner questo processo gira sul computer di un utente: prende i
+ * turni solo dalla sua coda dedicata e annuncia la propria presenza, così il
+ * server sa che è raggiungibile.
+ */
+const runnerUserId = env.HIVE_RUNNER_USER_ID ?? null;
+const queueKey = runnerUserId
+  ? redisChannels.runnerQueue(runnerUserId)
+  : redisChannels.runQueue;
+
+/** Rinnova la chiave di presenza del runner finché il processo è vivo. */
+function startPresenceHeartbeat(userId: string): NodeJS.Timeout {
+  const key = redisChannels.runnerPresence(userId);
+  const beat = () => {
+    void redis
+      .set(key, env.HIVE_RUNNER_NAME || '1', 'EX', RUNNER_PRESENCE_TTL_SEC)
+      .catch(() => {});
+  };
+  beat();
+  // Rinnoviamo ben prima della scadenza per non lasciare buchi.
+  return setInterval(beat, (RUNNER_PRESENCE_TTL_SEC * 1000) / 3);
+}
+
 export async function startWorker(): Promise<void> {
-  console.log(
-    `[worker] avviato — concorrenza max ${env.AGENT_MAX_CONCURRENCY}, ` +
-      `isolamento ${env.AGENT_ISOLATION}`,
-  );
+  if (runnerUserId) {
+    console.log(
+      `[runner] avviato per l'utente ${runnerUserId}` +
+        (env.HIVE_RUNNER_NAME ? ` («${env.HIVE_RUNNER_NAME}»)` : '') +
+        ` — coda ${queueKey}, concorrenza max ${env.AGENT_MAX_CONCURRENCY}`,
+    );
+    startPresenceHeartbeat(runnerUserId);
+  } else {
+    console.log(
+      `[worker] avviato — concorrenza max ${env.AGENT_MAX_CONCURRENCY}, ` +
+        `isolamento ${env.AGENT_ISOLATION}`,
+    );
+  }
 
   while (!stopping) {
     if (active >= env.AGENT_MAX_CONCURRENCY) {
@@ -50,7 +85,7 @@ export async function startWorker(): Promise<void> {
     let payload: [string, string] | null = null;
     try {
       // BRPOP con timeout: permette di controllare `stopping` periodicamente.
-      payload = (await redisBlocking.brpop(redisChannels.runQueue, 5)) as
+      payload = (await redisBlocking.brpop(queueKey, 5)) as
         | [string, string]
         | null;
     } catch (err) {
@@ -69,7 +104,7 @@ export async function startWorker(): Promise<void> {
     }
 
     active++;
-    void execute(parsed.data)
+    void dispatch(parsed.data)
       .catch((err) => console.error('[worker] errore non gestito nel run:', err))
       .finally(() => {
         active--;
@@ -81,7 +116,40 @@ export function stopWorker(): void {
   stopping = true;
 }
 
-async function execute(job: RunJob): Promise<void> {
+/**
+ * Sceglie DOVE far girare il turno. Gli agenti sviluppatore, in modalità
+ * `docker`, vengono eseguiti dentro un container che monta solo la cartella
+ * del progetto: è lì che vive il confine forte. Tutti gli altri (assistenti,
+ * o qualunque agente in modalità `sandbox`/`none`) girano in-process.
+ *
+ * Il container esegue *lo stesso* `executeJob`, semplicemente dall'interno:
+ * per questo il worker principale gira con AGENT_ISOLATION=docker mentre il
+ * processo dentro al container riceve AGENT_ISOLATION=none e non ricorsa.
+ */
+async function dispatch(job: RunJob): Promise<void> {
+  // Il runner locale gira sul computer dell'utente, dove non c'è (né serve) il
+  // container: l'agente lavora sul repo in locale, nel perimetro di fiducia di
+  // quella persona. L'isolamento in container vale solo per il server.
+  if (!runnerUserId && env.AGENT_ISOLATION === 'docker') {
+    const kind = await agentKind(job.agentId);
+    if (kind === 'developer') {
+      return runInContainer(job);
+    }
+  }
+  return executeJob(job);
+}
+
+/** Tipo dell'agente, per decidere l'instradamento senza caricarlo tutto. */
+async function agentKind(agentId: string): Promise<'assistant' | 'developer' | null> {
+  const rows = await db
+    .select({ kind: schema.agents.kind })
+    .from(schema.agents)
+    .where(eq(schema.agents.id, agentId))
+    .limit(1);
+  return (rows[0]?.kind as 'assistant' | 'developer' | undefined) ?? null;
+}
+
+export async function executeJob(job: RunJob): Promise<void> {
   const emitter = new RunEmitter({
     runId: job.runId,
     workspaceId: job.workspaceId,
@@ -130,6 +198,20 @@ async function execute(job: RunJob): Promise<void> {
       agentId: agent.id,
       kind,
     });
+
+    // Per gli agenti sviluppatore con un repo configurato, prepariamo il
+    // codebase (clone o aggiornamento) prima di far partire l'agente.
+    // Con una cartella di codice viva (HIVE_RUNNER_WORKDIR) NON cloniamo nulla:
+    // l'agente lavora sul codice che è già lì. Il clone da GitHub serve solo
+    // quando non c'è codice locale a cui puntare.
+    const repo = (agent.repo as import('@hive/shared').RepoConfig | null) ?? null;
+    if (kind === 'developer' && repo?.gitUrl && !env.HIVE_RUNNER_WORKDIR) {
+      await emitter.status('working', 'Preparo il repository…');
+      const status = await prepareRepo({ workspaceId: job.workspaceId, workDir, repo });
+      if (!status.ready) {
+        throw new Error(status.detail);
+      }
+    }
 
     const context = await buildContext({
       workspaceId: job.workspaceId,

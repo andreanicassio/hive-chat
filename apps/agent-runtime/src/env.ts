@@ -52,8 +52,36 @@ const schema = z.object({
   AGENT_MAX_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(3),
   AGENT_CONTAINER_IDLE_TTL: z.coerce.number().int().min(60).default(900),
   AGENT_DEV_IMAGE: z.string().default('hive/dev-sandbox:latest'),
-  AGENT_ISOLATION: z.enum(['docker', 'local']).default('docker'),
+  /**
+   * Isolamento degli agenti SVILUPPATORE (quelli con shell e filesystem):
+   *  `docker` (default) — ogni turno gira dentro un container che monta solo
+   *     la cartella del progetto: l'agente non vede né `~/.claude`, né `.env`,
+   *     né gli altri progetti. È il confine forte, consigliato in produzione.
+   *  `sandbox` — sandbox nativo dell'SDK (bubblewrap su Linux). Più leggero,
+   *     ma su Ubuntu con `apparmor_restrict_unprivileged_userns=1` non parte e
+   *     comunque non confina le letture. Tenuto solo per macchine non blindate.
+   *  `none` — nessun isolamento. Solo se ti fidi di tutto il codice eseguito.
+   */
+  AGENT_ISOLATION: z.enum(['docker', 'sandbox', 'none']).default('docker'),
   HIVE_WORKSPACE_ROOT: z.string().default('/srv/hive/workspaces'),
+
+  /**
+   * Se impostato, questo processo è il RUNNER LOCALE di quell'utente: gira sul
+   * suo computer, prende in carico solo i turni degli agenti `local` di sua
+   * proprietà (coda dedicata), e annuncia la propria presenza. Lasciandolo
+   * vuoto, il processo è il normale worker del server.
+   */
+  HIVE_RUNNER_USER_ID: z.string().uuid().optional(),
+  /** Nome mostrato per questo runner (facoltativo, solo per i log). */
+  HIVE_RUNNER_NAME: z.string().default(''),
+  /**
+   * Cartella di codice "viva" su cui far lavorare gli agenti sviluppatore di
+   * questo runner: è il TUO codice già sul disco (dove di solito apri Claude
+   * Code), non un clone. Se impostata, l'agente lavora direttamente lì e non
+   * viene clonato nulla da GitHub. È il modo per replicare in chat il flusso
+   * "SSH nel server → Claude Code nella cartella → lavoro live".
+   */
+  HIVE_RUNNER_WORKDIR: z.string().optional(),
 
   /** Timeout di un singolo turno di agente. */
   AGENT_RUN_TIMEOUT_MS: z.coerce.number().int().min(30_000).default(20 * 60_000),

@@ -3,12 +3,15 @@ import type {
   Agent,
   AgentStatus,
   Approval,
+  Artifact,
   Channel,
   ChannelGroup,
+  CreateArtifactInput,
   Message,
   PublicUser,
   RunEvent,
   RunStatus,
+  UpdateArtifactInput,
   Workspace,
   WorkspaceRole,
 } from '@hive/shared';
@@ -69,6 +72,11 @@ interface State {
   loadingChannel: boolean;
   hasMoreByChannel: Map<string, boolean>;
 
+  /* --- artifacts (checklist e documenti accanto alla chat) --- */
+  artifactsByChannel: Map<string, Artifact[]>;
+  /** Pannello laterale aperto/chiuso, e quale artifact è a fuoco. */
+  artifactPanelOpen: boolean;
+
   /* --- realtime --- */
   connected: boolean;
   typingByChannel: Map<string, Map<string, { name: string; at: number }>>;
@@ -87,6 +95,11 @@ interface State {
   loadOlder: (channelId: string) => Promise<void>;
   sendMessage: (channelId: string, body: string) => Promise<void>;
   setReplyingTo: (message: Message | null) => void;
+  loadArtifacts: (channelId: string) => Promise<void>;
+  createArtifact: (channelId: string, input: CreateArtifactInput) => Promise<Artifact | null>;
+  updateArtifactRemote: (artifactId: string, patch: UpdateArtifactInput) => Promise<void>;
+  deleteArtifact: (artifactId: string, channelId: string) => Promise<void>;
+  setArtifactPanelOpen: (open: boolean) => void;
   handlePacket: (packet: unknown) => void;
   reset: () => void;
 }
@@ -104,6 +117,19 @@ function randomId(): string {
   const bytes = new Uint8Array(16);
   c.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Inserisce o sostituisce un artifact, tenendo i più recenti in cima. */
+function upsertArtifact(
+  byChannel: Map<string, Artifact[]>,
+  artifact: Artifact,
+): { artifactsByChannel: Map<string, Artifact[]> } {
+  const next = new Map(byChannel);
+  const list = (next.get(artifact.channelId) ?? []).filter((a) => a.id !== artifact.id);
+  list.push(artifact);
+  list.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+  next.set(artifact.channelId, list);
+  return { artifactsByChannel: next };
 }
 
 /** Inserisce o sostituisce un messaggio mantenendo l'ordine cronologico. */
@@ -141,6 +167,9 @@ export const useStore = create<State>((set, get) => ({
   loadingChannel: false,
   hasMoreByChannel: new Map(),
 
+  artifactsByChannel: new Map(),
+  artifactPanelOpen: false,
+
   connected: false,
   typingByChannel: new Map(),
   onlineUserIds: new Set(),
@@ -168,6 +197,8 @@ export const useStore = create<State>((set, get) => ({
       joinedChannelIds: new Set(data.joinedChannelIds),
       capabilities: data.capabilities,
       messagesByChannel: new Map(),
+      artifactsByChannel: new Map(),
+      artifactPanelOpen: false,
       runs: new Map(),
     });
 
@@ -202,6 +233,8 @@ export const useStore = create<State>((set, get) => ({
   async openChannel(channelId) {
     set({ activeChannelId: channelId, loadingChannel: true, replyingTo: null });
     realtime.subscribe([channelId]);
+    // Gli artifact del canale li carichiamo dietro le quinte.
+    void get().loadArtifacts(channelId);
 
     // Se abbiamo già la cronologia mostriamola subito e aggiorniamo dietro.
     const cached = get().messagesByChannel.get(channelId);
@@ -262,6 +295,51 @@ export const useStore = create<State>((set, get) => ({
 
   setReplyingTo(message) {
     set({ replyingTo: message });
+  },
+
+  async loadArtifacts(channelId) {
+    try {
+      const { artifacts } = await api.listArtifacts(channelId);
+      set((s) => {
+        const next = new Map(s.artifactsByChannel);
+        next.set(channelId, artifacts);
+        return { artifactsByChannel: next };
+      });
+    } catch {
+      /* un canale senza artifact non è un errore da mostrare */
+    }
+  },
+
+  async createArtifact(channelId, input) {
+    try {
+      const { artifact } = await api.createArtifact(channelId, input);
+      // Lo stato arriva anche dal websocket; lo mettiamo subito per reattività.
+      set((s) => upsertArtifact(s.artifactsByChannel, artifact));
+      set({ artifactPanelOpen: true });
+      return artifact;
+    } catch {
+      return null;
+    }
+  },
+
+  async updateArtifactRemote(artifactId, patch) {
+    // Ottimistico dove ha senso (spunte, titolo, pin): aggiorniamo subito e
+    // lasciamo che il websocket confermi. Per il testo dei doc pensa il componente.
+    const { artifact } = await api.updateArtifact(artifactId, patch);
+    set((s) => upsertArtifact(s.artifactsByChannel, artifact));
+  },
+
+  async deleteArtifact(artifactId, channelId) {
+    await api.deleteArtifact(artifactId);
+    set((s) => {
+      const next = new Map(s.artifactsByChannel);
+      next.set(channelId, (next.get(channelId) ?? []).filter((a) => a.id !== artifactId));
+      return { artifactsByChannel: next };
+    });
+  },
+
+  setArtifactPanelOpen(open) {
+    set({ artifactPanelOpen: open });
   },
 
   handlePacket(raw) {
@@ -510,6 +588,26 @@ export const useStore = create<State>((set, get) => ({
         break;
       }
 
+      case 'artifact.new':
+      case 'artifact.updated': {
+        const artifact = packet.artifact as Artifact;
+        set((s) => upsertArtifact(s.artifactsByChannel, artifact));
+        break;
+      }
+
+      case 'artifact.deleted': {
+        const p = packet as unknown as { channelId: string; artifactId: string };
+        set((s) => {
+          const next = new Map(s.artifactsByChannel);
+          next.set(
+            p.channelId,
+            (next.get(p.channelId) ?? []).filter((a) => a.id !== p.artifactId),
+          );
+          return { artifactsByChannel: next };
+        });
+        break;
+      }
+
       default:
         break;
     }
@@ -527,6 +625,8 @@ export const useStore = create<State>((set, get) => ({
       members: [],
       activeChannelId: null,
       messagesByChannel: new Map(),
+      artifactsByChannel: new Map(),
+      artifactPanelOpen: false,
       runs: new Map(),
       agentActivity: new Map(),
       approvals: [],

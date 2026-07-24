@@ -22,6 +22,20 @@
       "when": 1784830111642,
       "tag": "0002_lumpy_reavers",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784841582324,
+      "tag": "0003_flimsy_smiling_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784843252765,
+      "tag": "0004_real_phalanx",
+      "breakpoints": true
     }
   ]
 }

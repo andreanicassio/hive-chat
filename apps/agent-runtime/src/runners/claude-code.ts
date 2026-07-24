@@ -10,6 +10,7 @@ import { resolveClaudeAuth } from '../auth.js';
 import { requestApproval } from '../approvals.js';
 import { materializeSkills } from '../skills.js';
 import { buildHiveMcpServer } from '../tools/hive-tools.js';
+import { sandboxFor } from '../workspace.js';
 import { env } from '../env.js';
 import {
   assistantDeniedTools,
@@ -153,6 +154,8 @@ export class ClaudeCodeRunner implements Runner {
       runId: input.runId,
       grants,
       emitter,
+      workDir: input.workDir,
+      repo: (agent.repo as import('@hive/shared').RepoConfig | null) ?? null,
     });
 
     /**
@@ -207,6 +210,13 @@ export class ClaudeCodeRunner implements Runner {
       allowedTools,
       disallowedTools,
       canUseTool,
+      // Isolamento a livello processo (bubblewrap su Linux): l'agente vede
+      // solo la sua working directory e può contattare solo i domini permessi.
+      sandbox: sandboxFor({
+        kind,
+        workDir: input.workDir,
+        allowedDomains: [],
+      }),
       mcpServers: { hive: hiveServer },
       // Le skill le scriviamo noi nella cwd: leggiamo solo quelle di progetto,
       // non la configurazione personale dell'utente che ospita il server.
