@@ -197,7 +197,9 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
       ],
     },
     mcpServers: {},
-    settingSources: [],
+    // Parità totale con Claude Code da terminale su questa macchina: carica
+    // CLAUDE.md, skill, server MCP e impostazioni dell'utente e del progetto.
+    settingSources: ['user', 'project', 'local'],
     includePartialMessages: true,
     maxTurns: kind === 'developer' ? 60 : 20,
     abortController: controller,
