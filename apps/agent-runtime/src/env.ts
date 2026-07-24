@@ -72,6 +72,8 @@ const schema = z.object({
    * vuoto, il processo è il normale worker del server.
    */
   HIVE_RUNNER_USER_ID: z.string().uuid().optional(),
+  /** Progetto servito dal runner "storico" a DB: le code sono per progetto. */
+  HIVE_RUNNER_WORKSPACE_ID: z.string().uuid().optional(),
   /** Nome mostrato per questo runner (facoltativo, solo per i log). */
   HIVE_RUNNER_NAME: z.string().default(''),
   /**

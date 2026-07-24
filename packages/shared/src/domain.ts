@@ -211,6 +211,8 @@ export const postMessageSchema = z.object({
   replyToId: uuid.nullable().optional(),
   /** Idempotenza lato client per evitare doppi invii. */
   clientNonce: z.string().max(64).optional(),
+  /** Allegati già caricati da agganciare a questo messaggio. */
+  attachmentIds: z.array(uuid).max(10).optional(),
 });
 export type PostMessageInput = z.infer<typeof postMessageSchema>;
 

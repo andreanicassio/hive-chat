@@ -2,6 +2,7 @@ import { and, desc, eq, isNull, ne } from 'drizzle-orm';
 import { toPlainText } from '@hive/shared';
 import * as schema from './schema.js';
 import { renderDocumentTree } from './documents-index.js';
+import { channelAttachments, describeAttachments } from './attachments.js';
 import type { Database } from './index.js';
 
 /**
@@ -218,6 +219,10 @@ export async function buildAgentContext(
         `Nel messaggio di chat scrivi solo una riga di conferma, non ricopiare la lista.`,
     );
   }
+
+  // File condivisi in chat: l'agente deve sapere che ci sono e dove stanno.
+  const attachments = await channelAttachments(db, args.channelId);
+  if (attachments.length > 0) sections.push(describeAttachments(attachments));
 
   sections.push(
     `\n## Come rispondere`,

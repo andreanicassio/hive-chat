@@ -241,6 +241,7 @@ export async function channelRoutes(app: FastifyInstance): Promise<void> {
       body: input.body,
       threadRootId: input.threadRootId ?? null,
       replyToId: input.replyToId ?? null,
+      attachmentIds: input.attachmentIds,
       clientNonce: input.clientNonce ?? null,
     });
 

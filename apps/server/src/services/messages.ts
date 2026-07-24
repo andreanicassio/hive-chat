@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql as raw } from 'drizzle-orm';
+import { and, eq, inArray, sql as raw, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { db, schema } from '../db/index.js';
 import { badRequest } from '../lib/errors.js';
@@ -128,6 +128,8 @@ export interface PostMessageArgs {
   skipTriggers?: boolean;
   /** Profondità nella catena di handoff fra agenti. */
   hop?: number;
+  /** Allegati caricati prima dell'invio, da agganciare a questo messaggio. */
+  attachmentIds?: string[];
 }
 
 export async function postMessage(args: PostMessageArgs) {
@@ -199,6 +201,23 @@ export async function postMessage(args: PostMessageArgs) {
       .update(schema.messages)
       .set({ replyCount: raw`${schema.messages.replyCount} + 1` })
       .where(eq(schema.messages.id, args.threadRootId));
+  }
+
+  // Aggancia gli allegati caricati prima dell'invio. Solo i propri e solo
+  // quelli ancora liberi: così non ci si appropria dei file di altri.
+  const uploader = args.author.type === 'user' ? args.author.id : null;
+  if (args.attachmentIds?.length && uploader) {
+    await db
+      .update(schema.attachments)
+      .set({ messageId: row.id })
+      .where(
+        and(
+          inArray(schema.attachments.id, args.attachmentIds),
+          eq(schema.attachments.workspaceId, args.workspaceId),
+          eq(schema.attachments.uploadedBy, uploader),
+          isNull(schema.attachments.messageId),
+        ),
+      );
   }
 
   const message = await serializeMessage(row, null);

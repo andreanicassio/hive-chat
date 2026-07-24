@@ -98,7 +98,7 @@ interface State {
   createWorkspace: (name: string, icon: string) => Promise<string>;
   openChannel: (channelId: string) => Promise<void>;
   loadOlder: (channelId: string) => Promise<void>;
-  sendMessage: (channelId: string, body: string) => Promise<void>;
+  sendMessage: (channelId: string, body: string, attachmentIds?: string[]) => Promise<void>;
   setReplyingTo: (message: Message | null) => void;
   loadArtifacts: (channelId: string) => Promise<void>;
   createArtifact: (channelId: string, input: CreateArtifactInput) => Promise<Artifact | null>;
@@ -317,13 +317,18 @@ export const useStore = create<State>((set, get) => ({
     });
   },
 
-  async sendMessage(channelId, body) {
+  async sendMessage(channelId, body, attachmentIds) {
     // Nonce di idempotenza: se la rete inciampa e il client ritenta,
     // il server non crea un doppione.
     const clientNonce = randomId();
     const replyToId = get().replyingTo?.id ?? null;
     set({ replyingTo: null });
-    const { message } = await api.postMessage(channelId, { body, clientNonce, replyToId });
+    const { message } = await api.postMessage(channelId, {
+      body,
+      clientNonce,
+      replyToId,
+      ...(attachmentIds?.length ? { attachmentIds } : {}),
+    });
     // Lo mostriamo subito invece di aspettare il websocket: se la socket è
     // giù il messaggio non comparirebbe affatto. `upsertMessage` è per id,
     // quindi il pacchetto che arriverà dopo lo sostituisce senza duplicati.

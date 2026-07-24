@@ -172,7 +172,13 @@ export const api = {
 
   postMessage: (
     channelId: string,
-    input: { body: string; threadRootId?: string | null; replyToId?: string | null; clientNonce?: string },
+    input: {
+      body: string;
+      threadRootId?: string | null;
+      replyToId?: string | null;
+      clientNonce?: string;
+      attachmentIds?: string[];
+    },
   ) =>
     post<{ message: Message; triggeredRuns: string[] }>(
       `/api/channels/${channelId}/messages`,
@@ -280,6 +286,24 @@ export const api = {
       `/api/agents/${agentId}/claude-md`,
       { content },
     ),
+
+  /* --- allegati dei messaggi (immagini trascinate in chat) --- */
+  uploadFile: async (workspaceId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`/api/workspaces/${workspaceId}/files`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new ApiError(res.status, err?.error?.code ?? 'upload_failed', err?.error?.message ?? 'Caricamento fallito');
+    }
+    return (await res.json()) as {
+      attachment: { id: string; filename: string; mime: string; size: number; url: string };
+    };
+  },
 
   /* --- documenti (base di conoscenza del progetto) --- */
   listDocuments: (workspaceId: string) =>

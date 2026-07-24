@@ -7,6 +7,7 @@ import { RunEmitter } from './emitter.js';
 import { buildContext } from './context.js';
 import { resolveWorkDir } from './workspace.js';
 import { prepareRepo } from './repo.js';
+import { materializeAttachments } from './attachments.js';
 import { runInContainer } from './container.js';
 import { ClaudeCodeRunner } from './runners/claude-code.js';
 import { OpenRouterRunner } from './runners/openrouter.js';
@@ -43,13 +44,18 @@ let stopping = false;
  * server sa che è raggiungibile.
  */
 const runnerUserId = env.HIVE_RUNNER_USER_ID ?? null;
-const queueKey = runnerUserId
-  ? redisChannels.runnerQueue(runnerUserId)
-  : redisChannels.runQueue;
+const runnerWorkspaceId = env.HIVE_RUNNER_WORKSPACE_ID ?? null;
+if (runnerUserId && !runnerWorkspaceId) {
+  throw new Error('In modalità runner serve anche HIVE_RUNNER_WORKSPACE_ID');
+}
+const queueKey =
+  runnerUserId && runnerWorkspaceId
+    ? redisChannels.runnerQueue(runnerUserId, runnerWorkspaceId)
+    : redisChannels.runQueue;
 
 /** Rinnova la chiave di presenza del runner finché il processo è vivo. */
 function startPresenceHeartbeat(userId: string): NodeJS.Timeout {
-  const key = redisChannels.runnerPresence(userId);
+  const key = redisChannels.runnerPresence(userId, runnerWorkspaceId!);
   const beat = () => {
     void redis
       .set(key, env.HIVE_RUNNER_NAME || '1', 'EX', RUNNER_PRESENCE_TTL_SEC)
@@ -130,11 +136,22 @@ async function dispatch(job: RunJob): Promise<void> {
   // Il runner locale gira sul computer dell'utente, dove non c'è (né serve) il
   // container: l'agente lavora sul repo in locale, nel perimetro di fiducia di
   // quella persona. L'isolamento in container vale solo per il server.
-  if (!runnerUserId && env.AGENT_ISOLATION === 'docker') {
-    const kind = await agentKind(job.agentId);
-    if (kind === 'developer') {
-      return runInContainer(job);
-    }
+  const kind = await agentKind(job.agentId);
+
+  // Immagini e file condivisi in chat: vanno copiati QUI, sull'host, perché
+  // dentro al container la cartella degli upload non è montata e la copia
+  // fallirebbe in silenzio. Finiscono nella working dir, che invece è montata.
+  if (kind) {
+    const workDir = await resolveWorkDir({
+      workspaceId: job.workspaceId,
+      agentId: job.agentId,
+      kind,
+    });
+    await materializeAttachments(job.channelId, workDir).catch(() => []);
+  }
+
+  if (!runnerUserId && env.AGENT_ISOLATION === 'docker' && kind === 'developer') {
+    return runInContainer(job);
   }
   return executeJob(job);
 }

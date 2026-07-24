@@ -7,6 +7,12 @@ export * from './schema.js';
 export { buildAgentContext, type AgentContext } from './agent-context.js';
 export { renderDocumentTree, docPath, type DocNode } from './documents-index.js';
 export {
+  channelAttachments,
+  describeAttachments,
+  ATTACH_DIR,
+  type AgentAttachment,
+} from './attachments.js';
+export {
   listDocNodes,
   documentTreeText,
   readDocByPath,

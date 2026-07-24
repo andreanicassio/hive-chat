@@ -52,6 +52,36 @@ function renderMentions(text: string, isAgentHandle: (h: string) => boolean) {
   return parts;
 }
 
+/** Allegati di un messaggio: le immagini si vedono, il resto si scarica. */
+function Attachments({ items }: { items: Message['attachments'] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-2">
+      {items.map((a) =>
+        a.mime.startsWith('image/') ? (
+          <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer" title={a.filename}>
+            <img
+              src={a.url}
+              alt={a.filename}
+              loading="lazy"
+              className="max-h-[300px] max-w-[420px] rounded-[10px] border border-[var(--color-line)] object-contain"
+            />
+          </a>
+        ) : (
+          <a
+            key={a.id}
+            href={a.url}
+            download={a.filename}
+            className="flex items-center gap-1.5 rounded-lg border border-[var(--color-line)] px-2.5 py-1.5 text-[13px] transition-colors hover:bg-[var(--color-sunken)]"
+          >
+            <Paperclip size={13} /> {a.filename}
+          </a>
+        ),
+      )}
+    </div>
+  );
+}
+
 function MessageBody({ body, streaming }: { body: string; streaming: boolean }) {
   const agents = useStore((s) => s.agents);
   const agentHandles = useMemo(() => new Set(agents.map((a) => a.handle)), [agents]);
@@ -367,6 +397,8 @@ function MessageRow({
             </div>
           )}
 
+          <Attachments items={message.attachments} />
+
           {run && <RunActivity run={run} />}
 
           {waiting &&
@@ -425,10 +457,23 @@ function DayDivider({ date }: { date: Date }) {
 /*  Composer                                                                   */
 /* ========================================================================== */
 
+/** Allegato in attesa: mostrato subito, caricato in sottofondo. */
+interface PendingAttachment {
+  key: string;
+  file: File;
+  preview: string | null;
+  /** Id assegnato dal server quando il caricamento finisce. */
+  id: string | null;
+}
+
 function Composer({ channelId, channelName }: { channelId: string; channelName: string }) {
   const [value, setValue] = useState('');
   const [sending, setSending] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  /* Allegati trascinati o incollati, in attesa di partire col messaggio. */
+  const [pending, setPending] = useState<PendingAttachment[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const workspaceId = useStore((s) => s.workspace?.id ?? null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const sendMessage = useStore((s) => s.sendMessage);
   const replyingTo = useStore((s) => s.replyingTo);
@@ -498,16 +543,43 @@ function Composer({ channelId, channelName }: { channelId: string; channelName: 
 
   async function send() {
     const body = value.trim();
-    if (!body || sending) return;
+    const ready = pending.filter((p) => p.id);
+    // Con un'immagine ha senso inviare anche senza testo.
+    if ((!body && ready.length === 0) || sending) return;
     setSending(true);
     setValue('');
+    setPending([]);
     try {
-      await sendMessage(channelId, body);
+      await sendMessage(channelId, body || '(immagine)', ready.map((p) => p.id!));
     } catch {
-      // Rimettiamo il testo nel campo: perderlo sarebbe imperdonabile.
+      // Rimettiamo tutto nel campo: perderlo sarebbe imperdonabile.
       setValue(body);
+      setPending(ready);
     } finally {
       setSending(false);
+    }
+  }
+
+  /** Carica subito i file scelti: quando premi invio sono già pronti. */
+  async function addFiles(files: File[]) {
+    if (!workspaceId || files.length === 0) return;
+    const accepted = files.slice(0, 10);
+    const locals: PendingAttachment[] = accepted.map((f) => ({
+      key: `${f.name}-${f.size}-${Math.random().toString(36).slice(2)}`,
+      file: f,
+      preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : null,
+      id: null,
+    }));
+    setPending((prev) => [...prev, ...locals]);
+    for (const local of locals) {
+      try {
+        const { attachment } = await api.uploadFile(workspaceId, local.file);
+        setPending((prev) =>
+          prev.map((p) => (p.key === local.key ? { ...p, id: attachment.id } : p)),
+        );
+      } catch {
+        setPending((prev) => prev.filter((p) => p.key !== local.key));
+      }
     }
   }
 
@@ -530,7 +602,64 @@ function Composer({ channelId, channelName }: { channelId: string; channelName: 
   }
 
   return (
-    <div className="relative px-4 pb-4">
+    <div
+      className="relative px-4 pb-4"
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('Files')) {
+          e.preventDefault();
+          setDragging(true);
+        }
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setDragging(false);
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files.length) return;
+        e.preventDefault();
+        setDragging(false);
+        void addFiles(Array.from(e.dataTransfer.files));
+      }}
+    >
+      {/* Riquadro di rilascio: compare mentre trascini un file sulla chat. */}
+      {dragging && (
+        <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-[var(--color-honey)] bg-[var(--color-honey-soft)]/85 text-[14px] font-medium">
+          Lascia qui: immagini e file finiscono nel messaggio
+        </div>
+      )}
+
+      {/* Anteprime di ciò che sta per partire. */}
+      {pending.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {pending.map((p) => (
+            <div
+              key={p.key}
+              className="group relative overflow-hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)]"
+            >
+              {p.preview ? (
+                <img src={p.preview} alt={p.file.name} className="h-16 w-16 object-cover" />
+              ) : (
+                <div className="flex h-16 w-28 items-center gap-1.5 px-2 text-[12px]">
+                  <Paperclip size={12} />
+                  <span className="truncate">{p.file.name}</span>
+                </div>
+              )}
+              {!p.id && (
+                <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-panel)]/70">
+                  <Loader2 size={14} className="animate-spin" />
+                </div>
+              )}
+              <button
+                onClick={() => setPending((prev) => prev.filter((x) => x.key !== p.key))}
+                className="absolute top-0.5 right-0.5 rounded bg-[var(--color-ink)]/70 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                title="Togli"
+              >
+                <X size={11} strokeWidth={2.6} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {suggestions.length > 0 && (
         <div className="absolute bottom-full left-4 right-4 mb-2 overflow-hidden rounded-[11px] border border-[var(--color-line)] bg-[var(--color-panel)] shadow-[var(--shadow-pop)]">
           {suggestions.map((s, i) => (
