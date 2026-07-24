@@ -1,6 +1,7 @@
 import { and, desc, eq, isNull, ne } from 'drizzle-orm';
 import { toPlainText } from '@hive/shared';
 import * as schema from './schema.js';
+import { renderDocumentTree } from './documents-index.js';
 import type { Database } from './index.js';
 
 /**
@@ -169,6 +170,41 @@ export async function buildAgentContext(
   }
 
   const grants = (agent.tools as Array<{ toolId: string }> | null) ?? [];
+
+  // Indice dei Documenti del progetto: solo l'albero (percorsi + descrizioni),
+  // MAI il contenuto — l'agente apre i file on-demand con read_document.
+  if (grants.some((g) => g.toolId === 'hive.documents')) {
+    const docs = await db
+      .select({
+        id: schema.documents.id,
+        parentId: schema.documents.parentId,
+        kind: schema.documents.kind,
+        name: schema.documents.name,
+        description: schema.documents.description,
+        mime: schema.documents.mime,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.workspaceId, args.workspaceId))
+      .limit(1000);
+    const tree = renderDocumentTree(docs);
+    if (tree) {
+      sections.push(
+        `\n## Documenti del progetto`,
+        `Questa è la base di conoscenza del progetto. Qui sotto vedi solo l'INDICE: ` +
+          `apri un file quando ti serve con \`read_document(percorso)\` — non serve (e non ` +
+          `puoi) tenere tutto in testa. Per aggiungere o aggiornare una nota usa ` +
+          `\`write_document(percorso, contenuto)\`; per rivedere l'elenco aggiornato ` +
+          `\`list_documents\`.\n\n${tree}`,
+      );
+    } else {
+      sections.push(
+        `\n## Documenti del progetto`,
+        `La base di conoscenza è vuota. Se produci qualcosa che vale la pena conservare ` +
+          `(specifiche, decisioni, guide), salvalo con \`write_document(percorso, contenuto)\`.`,
+      );
+    }
+  }
+
   if (grants.some((g) => g.toolId === 'hive.artifacts')) {
     sections.push(
       `\n## Checklist e documenti`,

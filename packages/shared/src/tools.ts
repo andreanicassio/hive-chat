@@ -135,6 +135,22 @@ export const toolCatalog: ToolDef[] = [
     group: 'workspace',
     icon: 'list-checks',
   },
+  {
+    id: 'hive.documents',
+    label: 'Documenti del progetto',
+    description:
+      'La base di conoscenza del progetto: cartelle e file (note in markdown, PDF caricati). L\'agente vede l\'indice di cosa esiste e apre solo ciò che serve, quando serve.',
+    kind: 'hive',
+    sdkTools: [
+      'mcp__hive__list_documents',
+      'mcp__hive__read_document',
+      'mcp__hive__write_document',
+    ],
+    availableFor: ['assistant', 'developer'],
+    dangerous: false,
+    group: 'workspace',
+    icon: 'folder-open',
+  },
 
   /* --- Integrazioni ------------------------------------------------------ */
   {
@@ -248,7 +264,13 @@ export const toolById = new Map(toolCatalog.map((t) => [t.id, t]));
 
 /** Tool proposti di default alla creazione, per tipo di agente. */
 export const defaultToolIds: Record<AgentKind, string[]> = {
-  assistant: ['web.search', 'web.fetch', 'hive.search_messages', 'hive.memory', 'hive.artifacts'],
+  assistant: [
+    'web.search',
+    'web.fetch',
+    'hive.search_messages',
+    'hive.documents',
+    'hive.artifacts',
+  ],
   developer: [
     'code.read',
     'code.write',
@@ -257,7 +279,7 @@ export const defaultToolIds: Record<AgentKind, string[]> = {
     'web.search',
     'web.fetch',
     'hive.search_messages',
-    'hive.memory',
+    'hive.documents',
     'hive.artifacts',
   ],
 };

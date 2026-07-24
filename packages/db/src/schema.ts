@@ -514,6 +514,54 @@ export const artifacts = pgTable(
 );
 
 /* ---------------------------------------------------------------------------
+ * Documenti: la base di conoscenza del progetto. Un albero di cartelle e file
+ * a livello di workspace. I file sono di due nature:
+ *   - testo modificabile (markdown/txt): il `content` vive qui, editabile in
+ *     Hive o dagli agenti — come una wiki di progetto.
+ *   - caricati (PDF, ecc.): il binario sta su disco (`storageKey`) e ne
+ *     estraiamo il testo (`extractedText`) così gli agenti lo possono leggere.
+ * Gestione "alla Claude Code": nel contesto degli agenti finisce solo l'INDICE
+ * (percorsi + descrizioni); il contenuto lo leggono on-demand con un tool.
+ * ------------------------------------------------------------------------ */
+export const documents = pgTable(
+  'documents',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** Cartella genitore (null = radice). Autoreferenza per l'albero. */
+    parentId: uuid('parent_id'),
+    /** `folder` | `file`. */
+    kind: varchar('kind', { length: 8 }).notNull(),
+    /** Nome mostrato / nome file, es. `auth.md`. Unico fra i fratelli. */
+    name: varchar('name', { length: 200 }).notNull(),
+    /** Riga di sintesi mostrata nell'indice (aiuta l'agente a decidere se aprire). */
+    description: varchar('description', { length: 500 }),
+    /** MIME dei file: `text/markdown`, `application/pdf`, … */
+    mime: varchar('mime', { length: 100 }),
+    /** Contenuto testuale editabile (markdown/txt). */
+    content: text('content'),
+    /** Chiave su disco per i binari caricati (PDF, immagini, …). */
+    storageKey: text('storage_key'),
+    /** Testo estratto dai binari, per lettura e ricerca degli agenti. */
+    extractedText: text('extracted_text'),
+    /** Byte del contenuto/binario, per la UI. */
+    size: integer('size'),
+    createdByType: varchar('created_by_type', { length: 8 }).notNull(), // user | agent
+    createdById: uuid('created_by_id'),
+    updatedByType: varchar('updated_by_type', { length: 8 }),
+    updatedById: uuid('updated_by_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('documents_ws_parent_idx').on(t.workspaceId, t.parentId),
+    uniqueIndex('documents_sibling_name_idx').on(t.workspaceId, t.parentId, t.name),
+  ],
+);
+
+/* ---------------------------------------------------------------------------
  * Token dei runner locali: legano un runner (sul computer di una persona) al
  * suo account e al suo progetto. Il runner si autentica col token via HTTPS,
  * senza mai toccare il database né i segreti del server.
