@@ -1,13 +1,36 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, schema } from '../db/index.js';
 import { redisPub } from '../lib/redis.js';
+import { hub } from '../realtime/hub.js';
 import { unauthorized, forbidden, notFound } from '../lib/errors.js';
 import { hashToken } from './runner.js';
 import { applyRunnerOps, type RunnerOp, type RunSinkContext } from '../services/runner-sink.js';
 import { buildAgentContext } from '@hive/db';
-import { redisChannels, runJobSchema, RUNNER_PRESENCE_TTL_SEC } from '@hive/shared';
+import { redisChannels, runJobSchema, RUNNER_PRESENCE_TTL_SEC, type Approval } from '@hive/shared';
+
+/** Verifica che il run sia di un agente `local` di questo utente. */
+async function resolveRun(userId: string, runId: string) {
+  const runRows = await db
+    .select()
+    .from(schema.agentRuns)
+    .where(eq(schema.agentRuns.id, runId))
+    .limit(1);
+  const run = runRows[0];
+  if (!run) throw notFound('Run non trovato');
+  const agentRows = await db
+    .select({ createdBy: schema.agents.createdBy, execution: schema.agents.execution })
+    .from(schema.agents)
+    .where(eq(schema.agents.id, run.agentId))
+    .limit(1);
+  const agent = agentRows[0];
+  if (!agent || agent.createdBy !== userId || agent.execution !== 'local') {
+    throw forbidden('Questo run non appartiene al tuo runner.');
+  }
+  return run;
+}
 
 /** Autentica il runner dal token bearer e ne ricava utente + progetto. */
 async function requireRunner(
@@ -135,5 +158,97 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
     };
     await applyRunnerOps(ctx, ops as RunnerOp[]);
     return { ok: true };
+  });
+
+  /* --------------------------- approvazione inline in chat (dal runner) */
+  // Il runner chiede il permesso per un'azione: creiamo la card in chat.
+  app.post('/api/runner/approval', async (request) => {
+    const { userId } = await requireRunner(request);
+    const body = z
+      .object({
+        runId: z.uuid(),
+        toolName: z.string().max(128),
+        title: z.string().max(280),
+        detail: z.string().max(20_000).default(''),
+        input: z.any(),
+      })
+      .parse(request.body);
+    const run = await resolveRun(userId, body.runId);
+
+    const id = randomUUID();
+    const expiresAt = new Date(Date.now() + 30 * 60_000);
+    const inserted = await db
+      .insert(schema.approvals)
+      .values({
+        id,
+        runId: run.id,
+        workspaceId: run.workspaceId,
+        channelId: run.channelId,
+        agentId: run.agentId,
+        toolName: body.toolName,
+        title: body.title.slice(0, 280),
+        detail: body.detail.slice(0, 20_000),
+        input: (body.input ?? {}) as object,
+        status: 'pending',
+        expiresAt,
+      })
+      .returning();
+    const row = inserted[0]!;
+
+    const approval: Approval = {
+      id: row.id,
+      runId: row.runId,
+      channelId: row.channelId,
+      agentId: row.agentId,
+      toolName: row.toolName,
+      title: row.title,
+      detail: row.detail,
+      input: row.input,
+      status: 'pending',
+      decidedBy: null,
+      decidedByName: null,
+      decidedAt: null,
+      reason: null,
+      createdAt: row.createdAt.toISOString(),
+      expiresAt: row.expiresAt.toISOString(),
+    };
+    await hub.publish(run.workspaceId, {
+      packet: { t: 'approval.requested', approval },
+      channelId: run.channelId,
+    });
+    await db
+      .update(schema.agentRuns)
+      .set({ status: 'awaiting_approval' })
+      .where(eq(schema.agentRuns.id, run.id));
+
+    return { approvalId: id };
+  });
+
+  // Il runner attende la decisione (long-poll ~25s, poi ripete).
+  app.get('/api/runner/approval/:id', async (request, reply) => {
+    const { userId } = await requireRunner(request);
+    const { id } = z.object({ id: z.uuid() }).parse(request.params);
+    const deadline = Date.now() + 25_000;
+    while (Date.now() < deadline) {
+      const rows = await db
+        .select()
+        .from(schema.approvals)
+        .where(eq(schema.approvals.id, id))
+        .limit(1);
+      const row = rows[0];
+      if (!row) throw notFound('Richiesta non trovata');
+      // (la verifica utente è implicita: solo il proprietario vede il runId)
+      void userId;
+      if (row.status !== 'pending') {
+        // riportiamo il run in esecuzione mentre il runner prosegue
+        await db
+          .update(schema.agentRuns)
+          .set({ status: 'running' })
+          .where(eq(schema.agentRuns.id, row.runId));
+        return { decided: true, allowed: row.status === 'allowed', reason: row.reason ?? null };
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    return { decided: false };
   });
 }

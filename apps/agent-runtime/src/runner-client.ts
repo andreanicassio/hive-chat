@@ -2,13 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { mkdir } from 'node:fs/promises';
 import { basename } from 'node:path';
-import {
-  resolveAllowedTools,
-  resolveDisallowedTools,
-  assistantDeniedTools,
-  type AgentToolGrant,
-  type EffortLevel,
-} from '@hive/shared';
+import { dangerousToolNames, type AgentToolGrant, type EffortLevel } from '@hive/shared';
 import { toAnthropicModelId } from './models.js';
 import { RemoteEmitter } from './remote-emitter.js';
 
@@ -96,6 +90,50 @@ function summarizeResult(content: unknown): string {
   return lines.length > 1 ? `${first} (+${lines.length - 1} righe)` : first;
 }
 
+/** Titolo + dettaglio della card di conferma. */
+function describeApproval(name: string, input: unknown): { title: string; detail: string } {
+  const i = (input ?? {}) as Record<string, unknown>;
+  if (name === 'Bash') {
+    const cmd = typeof i.command === 'string' ? i.command : JSON.stringify(i);
+    return { title: 'Vuole eseguire un comando', detail: cmd };
+  }
+  if (name === 'Write' || name === 'Edit' || name === 'MultiEdit') {
+    const p = typeof i.file_path === 'string' ? basename(i.file_path) : 'un file';
+    return { title: `Vuole modificare ${p}`, detail: JSON.stringify(input, null, 2).slice(0, 4000) };
+  }
+  return { title: `Vuole usare ${name}`, detail: JSON.stringify(input, null, 2).slice(0, 4000) };
+}
+
+/** Chiede conferma inline in chat al server e aspetta la decisione. */
+async function askApproval(
+  cfg: Config,
+  runId: string,
+  toolName: string,
+  title: string,
+  detail: string,
+  input: unknown,
+): Promise<{ allowed: boolean; reason: string | null }> {
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${cfg.token}` };
+  try {
+    const res = await fetch(`${cfg.serverUrl}/api/runner/approval`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ runId, toolName, title, detail, input }),
+    });
+    if (!res.ok) return { allowed: false, reason: 'approvazione non disponibile' };
+    const { approvalId } = (await res.json()) as { approvalId: string };
+    // Long-poll finché qualcuno decide in chat.
+    for (;;) {
+      const p = await fetch(`${cfg.serverUrl}/api/runner/approval/${approvalId}`, { headers });
+      if (!p.ok) return { allowed: false, reason: 'errore approvazione' };
+      const d = (await p.json()) as { decided: boolean; allowed?: boolean; reason?: string | null };
+      if (d.decided) return { allowed: Boolean(d.allowed), reason: d.reason ?? null };
+    }
+  } catch {
+    return { allowed: false, reason: 'errore di rete durante l’approvazione' };
+  }
+}
+
 interface PollResult {
   job: { runId: string; workspaceId: string; channelId: string; agentId: string };
   agent: Record<string, unknown>;
@@ -113,14 +151,11 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
   await mkdir(cfg.workdir, { recursive: true });
   await emitter.markStarted();
 
-  // Solo tool di codice/web: i tool hive (che vogliono il DB) qui non ci sono.
-  const allowedTools = resolveAllowedTools(grants, kind).filter((t) => !t.startsWith('mcp__hive__'));
-  const disallowedTools = [
-    ...new Set([
-      ...resolveDisallowedTools(grants, kind),
-      ...(kind === 'assistant' ? assistantDeniedTools : []),
-    ]),
-  ];
+  // Piena capacità di Claude Code: l'agente gira SUL computer dell'utente, nel
+  // suo perimetro di fiducia — non limitiamo gli strumenti. Le sole azioni che
+  // chiedono conferma inline in chat sono quelle che l'agente ha marcato come
+  // "richiede approvazione".
+  const needApproval = dangerousToolNames(grants);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20 * 60_000);
@@ -133,13 +168,34 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
       kind === 'developer'
         ? { type: 'preset', preset: 'claude_code', append: context.systemPrompt }
         : context.systemPrompt,
-    allowedTools,
-    disallowedTools,
-    canUseTool: async (toolName) => ({
-      behavior: 'deny',
-      message: `Il tool ${toolName} non è fra quelli concessi a questo agente.`,
-    }),
     sandbox: { enabled: false }, // il computer dell'utente È il perimetro
+    // Gate delle azioni via hook PreToolUse: passa tutto, tranne gli strumenti
+    // marcati "richiede approvazione" → card di conferma inline in chat.
+    hooks: {
+      PreToolUse: [
+        {
+          hooks: [
+            async (input) => {
+              const i = input as unknown as { tool_name?: string; tool_input?: unknown };
+              const toolName = i.tool_name ?? '';
+              if (!needApproval.has(toolName)) return { continue: true };
+              const { title, detail } = describeApproval(toolName, i.tool_input);
+              await emitter.status('waiting', `In attesa di conferma: ${title}`);
+              const outcome = await askApproval(cfg, job.runId, toolName, title, detail, i.tool_input);
+              await emitter.status('working', null);
+              return {
+                hookSpecificOutput: {
+                  hookEventName: 'PreToolUse',
+                  permissionDecision: outcome.allowed ? 'allow' : 'deny',
+                  permissionDecisionReason:
+                    outcome.reason ?? (outcome.allowed ? 'approvato' : 'rifiutato in chat'),
+                },
+              };
+            },
+          ],
+        },
+      ],
+    },
     mcpServers: {},
     settingSources: [],
     includePartialMessages: true,
