@@ -222,11 +222,54 @@ function buildHiveProxyServer(cfg: Config, runId: string, grants: AgentToolGrant
   return createSdkMcpServer({ name: 'hive', version: '0.1.0', tools });
 }
 
+interface PollAttachment {
+  id: string;
+  filename: string;
+  mime: string;
+  size: number;
+  /** Dove va scritto, relativo alla cartella di lavoro. */
+  relPath: string;
+}
+
 interface PollResult {
   job: { runId: string; workspaceId: string; channelId: string; agentId: string };
   agent: Record<string, unknown>;
   context: { systemPrompt: string; prompt: string };
+  attachments?: PollAttachment[];
   resumeSessionId: string | null;
+}
+
+/**
+ * Porta nella cartella di lavoro i file condivisi nel canale.
+ *
+ * Sul server lo fa il worker copiandoli da disco; qui siamo su un'altra
+ * macchina, quindi li scarichiamo via HTTPS. Va fatto PRIMA di far partire il
+ * turno: il contesto dice all'agente che i file sono già lì, e se non ci sono
+ * l'agente prova ad aprirli, fallisce, e riporta un errore che sembra suo.
+ */
+async function downloadAttachments(
+  cfg: Config,
+  runId: string,
+  items: PollAttachment[],
+): Promise<number> {
+  let done = 0;
+  for (const item of items) {
+    const dest = join(cfg.workdir, item.relPath);
+    try {
+      const res = await fetch(
+        `${cfg.serverUrl}/api/runner/files/${item.id}?runId=${encodeURIComponent(runId)}`,
+        { headers: { authorization: `Bearer ${cfg.token}` } },
+      );
+      if (!res.ok) continue;
+      await mkdir(dirname(dest), { recursive: true });
+      await writeFile(dest, Buffer.from(await res.arrayBuffer()));
+      done++;
+    } catch {
+      // Un allegato che non arriva non deve far saltare il turno: l'agente
+      // se ne accorgerà aprendo il file, ed è comunque meglio che non partire.
+    }
+  }
+  return done;
 }
 
 async function runOne(cfg: Config, data: PollResult): Promise<void> {
@@ -238,6 +281,11 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
 
   await mkdir(cfg.workdir, { recursive: true });
   await emitter.markStarted();
+
+  if (data.attachments?.length) {
+    const n = await downloadAttachments(cfg, job.runId, data.attachments);
+    if (n > 0) console.log(`[runner] ${n} allegat${n === 1 ? 'o' : 'i'} pronti per l'agente`);
+  }
 
   // Piena capacità di Claude Code: l'agente gira SUL computer dell'utente, nel
   // suo perimetro di fiducia — non limitiamo gli strumenti. Le sole azioni che

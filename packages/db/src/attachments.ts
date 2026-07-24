@@ -86,7 +86,9 @@ export function describeAttachments(items: AgentAttachment[]): string {
   });
   return (
     `\n## File condivisi in questo canale\n` +
-    `Sono già nella tua cartella di lavoro. Se la richiesta riguarda un'immagine, ` +
-    `**aprila con Read**: la vedi per davvero, non solo il nome.\n${lines.join('\n')}`
+    `Sono già nella tua cartella di lavoro, con qualsiasi estensione abbiano. ` +
+    `**Aprili con Read** invece di tirare a indovinare dal nome: le immagini le ` +
+    `vedi davvero, e testo, codice e PDF li leggi. Per i formati che Read non ` +
+    `apre (archivi, fogli di calcolo, binari) usa la shell.\n${lines.join('\n')}`
   );
 }

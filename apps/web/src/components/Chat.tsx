@@ -475,6 +475,9 @@ function Composer({ channelId, channelName }: { channelId: string; channelName: 
   const [dragging, setDragging] = useState(false);
   const workspaceId = useStore((s) => s.workspace?.id ?? null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  // Il trascinamento non basta: da telefono o tablet non esiste, e sul desktop
+  // non lo scopri se non ci provi. La graffetta apre il selettore di sistema.
+  const filePicker = useRef<HTMLInputElement>(null);
   const sendMessage = useStore((s) => s.sendMessage);
   const replyingTo = useStore((s) => s.replyingTo);
   const setReplyingTo = useStore((s) => s.setReplyingTo);
@@ -731,9 +734,24 @@ function Composer({ channelId, channelName }: { channelId: string; channelName: 
           <button
             className="rounded-md p-1.5 text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)] hover:text-[var(--color-ink-soft)]"
             title="Allega un file"
+            onClick={() => filePicker.current?.click()}
           >
             <Paperclip size={16} strokeWidth={2} />
           </button>
+          {/* Nessun `accept`: qualsiasi tipo di file è benvenuto. */}
+          <input
+            ref={filePicker}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              const chosen = Array.from(e.target.files ?? []);
+              // Azzeriamo il campo, altrimenti riscegliere lo stesso file non
+              // fa scattare un altro change e sembra che il bottone sia rotto.
+              e.target.value = '';
+              void addFiles(chosen);
+            }}
+          />
           <button
             className="rounded-md p-1.5 text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)] hover:text-[var(--color-ink-soft)]"
             title="Emoji"

@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, schema } from '../db/index.js';
@@ -8,7 +9,13 @@ import { hub } from '../realtime/hub.js';
 import { unauthorized, forbidden, notFound } from '../lib/errors.js';
 import { hashToken } from './runner.js';
 import { applyRunnerOps, type RunnerOp, type RunSinkContext } from '../services/runner-sink.js';
-import { buildAgentContext, documentTreeText, readDocByPath, writeDocByPath } from '@hive/db';
+import {
+  buildAgentContext,
+  channelAttachments,
+  documentTreeText,
+  readDocByPath,
+  writeDocByPath,
+} from '@hive/db';
 import { toDocumentNode } from '../services/documents.js';
 import { redisChannels, runJobSchema, RUNNER_PRESENCE_TTL_SEC, type Approval } from '@hive/shared';
 
@@ -155,16 +162,60 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
           rawPrompt: job.prompt,
           fromAgentHandle: job.fromAgentHandle,
         });
+        // Gli allegati del canale: il runner sta su un'altra macchina e il
+        // disco del server non ce l'ha, quindi qui gli diciamo solo COSA
+        // scaricare e dove metterlo. I byte se li prende dalla rotta apposita.
+        // `storagePath` (percorso sul server) resta fuori: a lui non serve.
+        const attachments = (await channelAttachments(db, job.channelId)).map((a) => ({
+          id: a.id,
+          filename: a.filename,
+          mime: a.mime,
+          size: a.size,
+          relPath: a.relPath,
+        }));
+
         return {
           job,
           agent,
           context: { systemPrompt: context.systemPrompt, prompt: context.prompt },
+          attachments,
           resumeSessionId: await lastSessionId(job.agentId),
         };
       }
       await new Promise((r) => setTimeout(r, 1000));
     }
     return reply.code(204).send();
+  });
+
+  /* ------------------------------------------- allegati del turno in corso */
+  /**
+   * Scarica il binario di un allegato per il runner.
+   *
+   * Perimetro stretto, di proposito: il token del runner sta sul computer di
+   * una persona, quindi questa rotta non permette di pescare un allegato
+   * qualsiasi per id. Si passa dal `runId`, `resolveRun` verifica che quel run
+   * sia di un agente `local` di questo utente, e l'allegato deve comparire fra
+   * quelli che quel canale mostrerebbe comunque all'agente. In pratica: puoi
+   * scaricare solo ciò che il turno che stai eseguendo vedrebbe lo stesso.
+   */
+  app.get('/api/runner/files/:id', async (request, reply) => {
+    const { userId } = await requireRunner(request);
+    const { id } = z.object({ id: z.uuid() }).parse(request.params);
+    const { runId } = z.object({ runId: z.uuid() }).parse(request.query);
+
+    const run = await resolveRun(userId, runId);
+    const allowed = await channelAttachments(db, run.channelId);
+    const att = allowed.find((a) => a.id === id);
+    if (!att || !att.storagePath) throw notFound('Allegato non disponibile');
+
+    let buffer: Buffer;
+    try {
+      buffer = await readFile(att.storagePath);
+    } catch {
+      throw notFound('Allegato non più disponibile');
+    }
+    reply.header('content-type', att.mime);
+    return reply.send(buffer);
   });
 
   /* --------------------------------------- eventi di esecuzione dal runner */
