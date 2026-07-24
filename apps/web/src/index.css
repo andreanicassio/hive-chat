@@ -305,6 +305,64 @@
     opacity: 0.45;
     cursor: not-allowed;
   }
+  .btn-sm {
+    height: 28px;
+    padding: 0 0.6rem;
+    font-size: 12.5px;
+    border-radius: 7px;
+  }
+  /* Bottone icona compatto (toolbar Documenti). */
+  .btn-icon-sm {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 28px;
+    border-radius: 7px;
+    color: var(--color-ink-soft);
+    transition: all 120ms ease;
+  }
+  .btn-icon-sm:hover {
+    background: color-mix(in oklab, var(--color-ink) 7%, transparent);
+    color: var(--color-ink);
+  }
+  /* Markdown reso nell'editor dei Documenti. */
+  .doc-prose {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--color-ink);
+  }
+  .doc-prose h1 { font-size: 1.5em; font-weight: 700; margin: 0.6em 0 0.4em; }
+  .doc-prose h2 { font-size: 1.25em; font-weight: 700; margin: 0.8em 0 0.35em; }
+  .doc-prose h3 { font-size: 1.08em; font-weight: 600; margin: 0.7em 0 0.3em; }
+  .doc-prose p { margin: 0.5em 0; }
+  .doc-prose ul { list-style: disc; padding-left: 1.4em; margin: 0.5em 0; }
+  .doc-prose ol { list-style: decimal; padding-left: 1.4em; margin: 0.5em 0; }
+  .doc-prose li { margin: 0.2em 0; }
+  .doc-prose code {
+    font-family: ui-monospace, monospace;
+    font-size: 0.88em;
+    background: var(--color-sunken);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+  }
+  .doc-prose pre {
+    background: var(--color-sunken);
+    padding: 0.8em 1em;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 0.6em 0;
+  }
+  .doc-prose pre code { background: none; padding: 0; }
+  .doc-prose a { color: var(--color-honey-strong, var(--color-honey)); text-decoration: underline; }
+  .doc-prose blockquote {
+    border-left: 3px solid var(--color-line-strong);
+    padding-left: 0.9em;
+    color: var(--color-ink-soft);
+    margin: 0.6em 0;
+  }
+  .doc-prose table { border-collapse: collapse; margin: 0.6em 0; }
+  .doc-prose th, .doc-prose td { border: 1px solid var(--color-line); padding: 0.35em 0.6em; }
 
   /* --- Campo di testo --- */
   .field {

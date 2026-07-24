@@ -7,6 +7,7 @@ import type {
   Channel,
   ChannelGroup,
   CreateArtifactInput,
+  DocumentNode,
   Message,
   PublicUser,
   RunEvent,
@@ -77,6 +78,10 @@ interface State {
   /** Pannello laterale aperto/chiuso, e quale artifact è a fuoco. */
   artifactPanelOpen: boolean;
 
+  /* --- documenti (base di conoscenza del progetto) --- */
+  documentsByWorkspace: Map<string, DocumentNode[]>;
+  documentsPanelOpen: boolean;
+
   /* --- realtime --- */
   connected: boolean;
   typingByChannel: Map<string, Map<string, { name: string; at: number }>>;
@@ -100,6 +105,8 @@ interface State {
   updateArtifactRemote: (artifactId: string, patch: UpdateArtifactInput) => Promise<void>;
   deleteArtifact: (artifactId: string, channelId: string) => Promise<void>;
   setArtifactPanelOpen: (open: boolean) => void;
+  loadDocuments: (workspaceId: string) => Promise<void>;
+  setDocumentsPanelOpen: (open: boolean) => void;
   handlePacket: (packet: unknown) => void;
   reset: () => void;
 }
@@ -133,6 +140,19 @@ function upsertArtifact(
 }
 
 /** Inserisce o sostituisce un messaggio mantenendo l'ordine cronologico. */
+/** Inserisce o sostituisce un nodo documento nell'albero del workspace. */
+function upsertDocument(
+  byWorkspace: Map<string, DocumentNode[]>,
+  workspaceId: string,
+  doc: DocumentNode,
+): { documentsByWorkspace: Map<string, DocumentNode[]> } {
+  const next = new Map(byWorkspace);
+  const list = (next.get(workspaceId) ?? []).filter((d) => d.id !== doc.id);
+  list.push(doc);
+  next.set(workspaceId, list);
+  return { documentsByWorkspace: next };
+}
+
 function upsertMessage(list: Message[], message: Message): Message[] {
   const index = list.findIndex((m) => m.id === message.id);
   if (index !== -1) {
@@ -169,6 +189,8 @@ export const useStore = create<State>((set, get) => ({
 
   artifactsByChannel: new Map(),
   artifactPanelOpen: false,
+  documentsByWorkspace: new Map(),
+  documentsPanelOpen: false,
 
   connected: false,
   typingByChannel: new Map(),
@@ -199,6 +221,8 @@ export const useStore = create<State>((set, get) => ({
       messagesByChannel: new Map(),
       artifactsByChannel: new Map(),
       artifactPanelOpen: false,
+      documentsByWorkspace: new Map(),
+      documentsPanelOpen: false,
       runs: new Map(),
     });
 
@@ -340,6 +364,23 @@ export const useStore = create<State>((set, get) => ({
 
   setArtifactPanelOpen(open) {
     set({ artifactPanelOpen: open });
+  },
+
+  async loadDocuments(workspaceId) {
+    try {
+      const { documents } = await api.listDocuments(workspaceId);
+      set((s) => {
+        const next = new Map(s.documentsByWorkspace);
+        next.set(workspaceId, documents);
+        return { documentsByWorkspace: next };
+      });
+    } catch {
+      /* un progetto senza documenti non è un errore da mostrare */
+    }
+  },
+
+  setDocumentsPanelOpen(open) {
+    set({ documentsPanelOpen: open });
   },
 
   handlePacket(raw) {
@@ -608,6 +649,25 @@ export const useStore = create<State>((set, get) => ({
         break;
       }
 
+      case 'document.changed': {
+        const p = packet as unknown as { workspaceId: string; document: DocumentNode };
+        set((s) => upsertDocument(s.documentsByWorkspace, p.workspaceId, p.document));
+        break;
+      }
+
+      case 'document.deleted': {
+        const p = packet as unknown as { workspaceId: string; documentId: string };
+        set((s) => {
+          const next = new Map(s.documentsByWorkspace);
+          next.set(
+            p.workspaceId,
+            (next.get(p.workspaceId) ?? []).filter((d) => d.id !== p.documentId),
+          );
+          return { documentsByWorkspace: next };
+        });
+        break;
+      }
+
       default:
         break;
     }
@@ -627,6 +687,8 @@ export const useStore = create<State>((set, get) => ({
       messagesByChannel: new Map(),
       artifactsByChannel: new Map(),
       artifactPanelOpen: false,
+      documentsByWorkspace: new Map(),
+      documentsPanelOpen: false,
       runs: new Map(),
       agentActivity: new Map(),
       approvals: [],

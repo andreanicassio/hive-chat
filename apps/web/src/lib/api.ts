@@ -7,7 +7,11 @@ import type {
   Channel,
   ChannelGroup,
   CreateArtifactInput,
+  CreateDocumentInput,
   CreateRunnerTokenInput,
+  DocumentNode,
+  DocumentFull,
+  UpdateDocumentInput,
   Invite,
   Message,
   PublicUser,
@@ -257,6 +261,43 @@ export const api = {
     patch<{ artifact: Artifact }>(`/api/artifacts/${artifactId}`, body),
 
   deleteArtifact: (artifactId: string) => del<{ ok: true }>(`/api/artifacts/${artifactId}`),
+
+  /* --- documenti (base di conoscenza del progetto) --- */
+  listDocuments: (workspaceId: string) =>
+    get<{ documents: DocumentNode[] }>(`/api/workspaces/${workspaceId}/documents`),
+
+  getDocument: (workspaceId: string, id: string) =>
+    get<{ document: DocumentFull }>(`/api/workspaces/${workspaceId}/documents/${id}`),
+
+  createDocument: (workspaceId: string, input: CreateDocumentInput) =>
+    post<{ document: DocumentNode }>(`/api/workspaces/${workspaceId}/documents`, input),
+
+  updateDocument: (workspaceId: string, id: string, body: UpdateDocumentInput) =>
+    patch<{ document: DocumentNode }>(`/api/workspaces/${workspaceId}/documents/${id}`, body),
+
+  deleteDocument: (workspaceId: string, id: string) =>
+    del<{ ok: true }>(`/api/workspaces/${workspaceId}/documents/${id}`),
+
+  /** URL diretto al binario (per <iframe>/download del PDF). */
+  documentBlobUrl: (workspaceId: string, id: string) =>
+    `/api/workspaces/${workspaceId}/documents/${id}/blob`,
+
+  /** Upload di un file (PDF, ecc.) via multipart. */
+  uploadDocument: async (workspaceId: string, file: File, parentId: string | null) => {
+    const form = new FormData();
+    if (parentId) form.append('parentId', parentId);
+    form.append('file', file);
+    const res = await fetch(`/api/workspaces/${workspaceId}/documents/upload`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new ApiError(res.status, err?.error?.code ?? 'upload_failed', err?.error?.message ?? 'Upload fallito');
+    }
+    return (await res.json()) as { document: DocumentNode };
+  },
 
   /* --- token dei runner locali --- */
   createRunnerToken: (workspaceId: string, input: CreateRunnerTokenInput) =>

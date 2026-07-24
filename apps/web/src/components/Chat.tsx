@@ -20,9 +20,11 @@ import {
   Reply,
   CornerUpLeft,
   PanelRight,
+  FolderOpen,
 } from 'lucide-react';
 import { useStore, type RunState } from '../store.js';
 import { ArtifactPanel, ArtifactPinnedStrip } from './ArtifactPanel.js';
+import { DocumentsPanel } from './DocumentsPanel.js';
 import { api } from '../lib/api.js';
 import { realtime } from '../lib/ws.js';
 import { Avatar } from './Avatar.js';
@@ -647,6 +649,13 @@ export function Chat() {
   const artifactCount = useStore((s) =>
     activeChannelId ? (s.artifactsByChannel.get(activeChannelId)?.length ?? 0) : 0,
   );
+  const documentsPanelOpen = useStore((s) => s.documentsPanelOpen);
+  const setDocumentsPanelOpen = useStore((s) => s.setDocumentsPanelOpen);
+  const workspaceId = useStore((s) => s.workspace?.id ?? null);
+  const docCount = useStore((s) => {
+    const wid = s.workspace?.id;
+    return wid ? (s.documentsByWorkspace.get(wid)?.filter((d) => d.kind === 'file').length ?? 0) : 0;
+  });
 
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -737,6 +746,14 @@ export function Chat() {
             <PanelRight size={14} strokeWidth={2.2} />
             {artifactCount > 0 && <span className="tabular-nums">{artifactCount}</span>}
           </button>
+          <button
+            onClick={() => setDocumentsPanelOpen(true)}
+            className="flex items-center gap-1.5 rounded-full bg-[var(--color-sunken)] px-2.5 py-1 text-[13px] text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-ink)]"
+            title="Documenti del progetto"
+          >
+            <FolderOpen size={14} strokeWidth={2.2} />
+            {docCount > 0 && <span className="tabular-nums">{docCount}</span>}
+          </button>
         </div>
       </header>
 
@@ -803,6 +820,7 @@ export function Chat() {
       <Composer channelId={channel.id} channelName={channel.name} />
     </div>
       {artifactPanelOpen && <ArtifactPanel channelId={channel.id} />}
+      {documentsPanelOpen && workspaceId && <DocumentsPanel workspaceId={workspaceId} />}
     </div>
   );
 }
