@@ -127,12 +127,24 @@ export class ClaudeCodeRunner implements Runner {
     const grants = (agent.tools as AgentToolGrant[]) ?? [];
     const kind = agent.kind as 'assistant' | 'developer';
 
-    const auth = await resolveClaudeAuth(input.workspaceId);
+    // Sul runner locale l'auth arriva dalle credenziali di quella macchina
+    // (niente lettura dei segreti del workspace, che vivono nel DB del server).
+    const auth = input.authEnvOverride
+      ? { envVars: input.authEnvOverride }
+      : await resolveClaudeAuth(input.workspaceId);
     const { model } = toAnthropicModelId(agent.model);
 
-    const skillCount = await materializeSkills(agent.id, input.workDir);
+    // Le skill vivono nel DB: il runner locale non ce l'ha, quindi lì le
+    // saltiamo (arriveranno via proxy in una versione successiva).
+    const skillCount = input.disableHiveTools
+      ? 0
+      : await materializeSkills(agent.id, input.workDir);
 
-    const allowedTools = resolveAllowedTools(grants, kind);
+    // Sul runner locale i tool hive (che richiedono il DB) non ci sono ancora:
+    // l'agente usa gli strumenti di codice, che girano in locale.
+    const allowedTools = resolveAllowedTools(grants, kind).filter(
+      (t) => !input.disableHiveTools || !t.startsWith('mcp__hive__'),
+    );
     const dangerous = dangerousToolNames(grants);
 
     // Neghiamo esplicitamente ogni tool built-in NON concesso, così l'SDK non
@@ -146,17 +158,19 @@ export class ClaudeCodeRunner implements Runner {
       ]),
     ];
 
-    const hiveServer = buildHiveMcpServer({
-      workspaceId: input.workspaceId,
-      channelId: input.channelId,
-      agentId: agent.id,
-      agentHandle: agent.handle,
-      runId: input.runId,
-      grants,
-      emitter,
-      workDir: input.workDir,
-      repo: (agent.repo as import('@hive/shared').RepoConfig | null) ?? null,
-    });
+    const hiveServer = input.disableHiveTools
+      ? null
+      : buildHiveMcpServer({
+          workspaceId: input.workspaceId,
+          channelId: input.channelId,
+          agentId: agent.id,
+          agentHandle: agent.handle,
+          runId: input.runId,
+          grants,
+          emitter,
+          workDir: input.workDir,
+          repo: (agent.repo as import('@hive/shared').RepoConfig | null) ?? null,
+        });
 
     /**
      * Gate umano. L'SDK lo invoca quando un tool non è pre-approvato.
@@ -217,7 +231,7 @@ export class ClaudeCodeRunner implements Runner {
         workDir: input.workDir,
         allowedDomains: [],
       }),
-      mcpServers: { hive: hiveServer },
+      mcpServers: hiveServer ? { hive: hiveServer } : {},
       // Le skill le scriviamo noi nella cwd: leggiamo solo quelle di progetto,
       // non la configurazione personale dell'utente che ospita il server.
       settingSources: skillCount > 0 ? ['project'] : [],

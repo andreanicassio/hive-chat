@@ -36,6 +36,13 @@
       "when": 1784843252765,
       "tag": "0004_real_phalanx",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784909678109,
+      "tag": "0005_bright_domino",
+      "breakpoints": true
     }
   ]
 }

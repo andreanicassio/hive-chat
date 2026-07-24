@@ -4,6 +4,7 @@ import * as schema from './schema.js';
 
 export * as schema from './schema.js';
 export * from './schema.js';
+export { buildAgentContext, type AgentContext } from './agent-context.js';
 
 export interface DbOptions {
   url: string;

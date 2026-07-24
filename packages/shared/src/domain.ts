@@ -250,6 +250,21 @@ export interface Artifact {
 }
 
 /** Creazione dal client umano: contenuto iniziale opzionale a seconda del tipo. */
+/* ---------------------------------------------------------------------------
+ * Token dei runner locali
+ * ------------------------------------------------------------------------ */
+export interface RunnerToken {
+  id: string;
+  label: string | null;
+  createdAt: string;
+  lastSeenAt: string | null;
+  revoked: boolean;
+}
+export const createRunnerTokenSchema = z.object({
+  label: z.string().max(80).optional(),
+});
+export type CreateRunnerTokenInput = z.infer<typeof createRunnerTokenSchema>;
+
 export const createArtifactSchema = z.object({
   type: artifactTypeSchema,
   title: z.string().max(200).default(''),

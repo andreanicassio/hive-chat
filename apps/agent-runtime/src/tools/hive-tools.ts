@@ -5,7 +5,7 @@ import { and, desc, eq, ilike, isNull, or } from 'drizzle-orm';
 import { schema } from '@hive/db';
 import { db } from '../db.js';
 import { decryptSecret } from '../crypto.js';
-import type { RunEmitter } from '../emitter.js';
+import type { EmitterLike } from '../emitter.js';
 import { grantedHiveToolNames, toolById, type AgentToolGrant, type RepoConfig } from '@hive/shared';
 import { pushBranch } from '../repo.js';
 import { normalizeContent, publishArtifact } from './artifact-store.js';
@@ -25,7 +25,7 @@ export interface HiveToolContext {
   agentHandle: string;
   runId: string;
   grants: AgentToolGrant[];
-  emitter: RunEmitter;
+  emitter: EmitterLike;
   /** Directory di lavoro dell'agente (per i tool git). */
   workDir?: string;
   /** Config del repository, per push e PR. */

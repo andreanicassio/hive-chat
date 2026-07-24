@@ -10,7 +10,7 @@ import {
   type Approval,
   type ServerPacket,
 } from '@hive/shared';
-import type { RunEmitter } from './emitter.js';
+import type { EmitterLike } from './emitter.js';
 
 /**
  * Chiede a un umano il permesso di eseguire un'azione irreversibile.
@@ -43,7 +43,7 @@ export interface ApprovalOutcome {
 
 export async function requestApproval(
   req: ApprovalRequest,
-  emitter: RunEmitter,
+  emitter: EmitterLike,
 ): Promise<ApprovalOutcome> {
   const id = randomUUID();
   const expiresAt = new Date(Date.now() + env.APPROVAL_TIMEOUT_MS);

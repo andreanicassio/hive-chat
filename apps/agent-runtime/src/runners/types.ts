@@ -1,4 +1,4 @@
-import type { RunEmitter } from '../emitter.js';
+import type { EmitterLike } from '../emitter.js';
 import type { AgentContext } from '../context.js';
 import type { schema } from '@hive/db';
 
@@ -15,7 +15,7 @@ export type AgentRow = typeof schema.agents.$inferSelect;
 export interface RunnerInput {
   agent: AgentRow;
   context: AgentContext;
-  emitter: RunEmitter;
+  emitter: EmitterLike;
   runId: string;
   workspaceId: string;
   channelId: string;
@@ -25,6 +25,12 @@ export interface RunnerInput {
   resumeSessionId: string | null;
   /** Segnalato quando l'utente annulla il run. */
   signal: AbortSignal;
+  /**
+   * Runner locale (HTTP): niente server MCP hive (che richiede il DB) e auth
+   * dalle credenziali locali invece che dai segreti del workspace.
+   */
+  disableHiveTools?: boolean;
+  authEnvOverride?: Record<string, string>;
 }
 
 export interface RunnerResult {

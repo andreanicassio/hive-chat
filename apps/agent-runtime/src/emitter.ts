@@ -5,6 +5,31 @@ import { redis } from './redis.js';
 import { redisChannels, type AgentStatus, type RunEvent, type RunStatus, type ServerPacket } from '@hive/shared';
 
 /**
+ * Interfaccia minima che un runner/harness usa per emettere.
+ * La implementano sia RunEmitter (scrive su DB+Redis, per il server) sia il
+ * RemoteEmitter dei runner locali (manda gli eventi al server via HTTPS).
+ */
+export interface EmitterLike {
+  readonly text: string;
+  markStarted(): Promise<void>;
+  status(status: AgentStatus, label: string | null): Promise<void>;
+  runStatus(status: RunStatus, error?: string | null, queuePosition?: number): Promise<void>;
+  delta(text: string): Promise<void>;
+  event(event: RunEvent): Promise<void>;
+  bumpTurns(): Promise<void>;
+  finish(result: {
+    status: RunStatus;
+    error?: string | null;
+    finalText?: string;
+    numTurns?: number;
+    costUsd?: number | null;
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+    sdkSessionId?: string | null;
+  }): Promise<void>;
+}
+
+/**
  * Canale d'uscita di un run.
  *
  * Ha due compiti: mandare gli aggiornamenti ai client in tempo reale e

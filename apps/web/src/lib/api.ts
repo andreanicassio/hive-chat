@@ -7,9 +7,11 @@ import type {
   Channel,
   ChannelGroup,
   CreateArtifactInput,
+  CreateRunnerTokenInput,
   Invite,
   Message,
   PublicUser,
+  RunnerToken,
   UpdateArtifactInput,
   Workspace,
   WorkspaceRole,
@@ -255,6 +257,16 @@ export const api = {
     patch<{ artifact: Artifact }>(`/api/artifacts/${artifactId}`, body),
 
   deleteArtifact: (artifactId: string) => del<{ ok: true }>(`/api/artifacts/${artifactId}`),
+
+  /* --- token dei runner locali --- */
+  createRunnerToken: (workspaceId: string, input: CreateRunnerTokenInput) =>
+    post<{ token: string; runnerToken: RunnerToken }>(
+      `/api/workspaces/${workspaceId}/runner-tokens`,
+      input,
+    ),
+  listRunnerTokens: (workspaceId: string) =>
+    get<{ runnerTokens: RunnerToken[] }>(`/api/workspaces/${workspaceId}/runner-tokens`),
+  revokeRunnerToken: (id: string) => del<{ ok: true }>(`/api/runner-tokens/${id}`),
 
   /* --- approvazioni --- */
   pendingApprovals: (workspaceId: string) =>

@@ -510,3 +510,31 @@ export const artifacts = pgTable(
   },
   (t) => [index('artifacts_channel_idx').on(t.channelId, t.updatedAt)],
 );
+
+/* ---------------------------------------------------------------------------
+ * Token dei runner locali: legano un runner (sul computer di una persona) al
+ * suo account e al suo progetto. Il runner si autentica col token via HTTPS,
+ * senza mai toccare il database né i segreti del server.
+ * ------------------------------------------------------------------------ */
+export const runnerTokens = pgTable(
+  'runner_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** SHA-256 del token: il valore in chiaro si mostra una volta sola. */
+    tokenHash: text('token_hash').notNull(),
+    label: varchar('label', { length: 80 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('runner_tokens_hash_idx').on(t.tokenHash),
+    index('runner_tokens_user_idx').on(t.userId),
+  ],
+);

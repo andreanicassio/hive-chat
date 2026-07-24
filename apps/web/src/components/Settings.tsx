@@ -13,9 +13,11 @@ import {
   UserPlus,
   X,
   BarChart3,
+  Cpu,
 } from 'lucide-react';
 import { useStore } from '../store.js';
 import { Usage } from './Usage.js';
+import { RunnerTab } from './RunnerTab.js';
 import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
 
@@ -28,7 +30,7 @@ import { Avatar } from './Avatar.js';
  * server — si vede solo un troncone per riconoscerlo.
  */
 
-type Tab = 'credenziali' | 'contesto' | 'persone' | 'utilizzo';
+type Tab = 'credenziali' | 'contesto' | 'runner' | 'persone' | 'utilizzo';
 
 interface SecretRow {
   key: string;
@@ -236,6 +238,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
             [
               ['credenziali', 'Credenziali', KeyRound],
               ['contesto', 'Contesto condiviso', Brain],
+              ['runner', 'Runner locale', Cpu],
               ['persone', 'Persone', UserPlus],
               ['utilizzo', 'Utilizzo', BarChart3],
             ] as const
@@ -382,6 +385,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
             </div>
           ) : tab === 'utilizzo' ? (
             <Usage />
+          ) : tab === 'runner' ? (
+            <RunnerTab workspaceId={workspace!.id} />
           ) : (
             <div>
               <div className="mb-4">
