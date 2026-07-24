@@ -165,6 +165,17 @@ export const redisChannels = {
    * su richiesta, questo canale no).
    */
   runFinished: 'hive:runs:finished',
+  /**
+   * Messaggi iniettati DENTRO un turno già in corso ("steering"): l'agente li
+   * legge subito e decide se cambiare rotta, come quando scrivi mentre Claude
+   * Code sta lavorando nel terminale.
+   */
+  steer: (runId: string) => `hive:steer:${runId}`,
+  /**
+   * Marcatore con TTL: presente finché quel turno è in grado di ricevere
+   * messaggi a caldo. Se manca, il messaggio va nella coda normale.
+   */
+  steerable: (runId: string) => `hive:steerable:${runId}`,
   /** Richieste di annullamento run. */
   runCancel: (runId: string) => `hive:runs:cancel:${runId}`,
   /** Risposta a una richiesta di approvazione, attesa dal worker. */

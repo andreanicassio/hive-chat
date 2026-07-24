@@ -449,10 +449,17 @@ async function activeRunFor(agentId: string, channelId: string): Promise<string 
 export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
   // Se l'agente sta già lavorando qui, il messaggio si accoda: lo riprenderà
   // appena finito, senza perdere nulla e senza turni sovrapposti.
-  // Se l'agente sta già lavorando qui, creiamo comunque il turno (così in
-  // chat compare subito «In coda…») ma non lo mandiamo in esecuzione: partirà
-  // appena quello in corso avrà finito.
+  // Se l'agente sta già lavorando qui, ci sono due strade:
+  //  - il turno in corso accetta input a caldo → il messaggio entra LÌ, e
+  //    l'agente lo legge subito (come scrivere nel terminale mentre lavora);
+  //  - altrimenti creiamo il turno ma lo lasciamo in coda.
   const queueBehind = await activeRunFor(args.agentId, args.channelId);
+  if (queueBehind && (await redisPub.exists(redisChannels.steerable(queueBehind)))) {
+    const delivered = await redisPub.publish(redisChannels.steer(queueBehind), args.prompt);
+    // `publish` dice a quanti è arrivato: se a nessuno, il turno non stava
+    // più ascoltando e ripieghiamo sulla coda.
+    if (delivered > 0) return queueBehind;
+  }
 
   const runId = randomUUID();
   // Tetto di spesa: se il progetto ha finito il budget del mese, il turno

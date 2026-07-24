@@ -9,6 +9,7 @@ import { basename } from 'node:path';
 import { resolveClaudeAuth } from '../auth.js';
 import { requestApproval } from '../approvals.js';
 import { materializeSkills } from '../skills.js';
+import { createSteering } from '../steering.js';
 import { buildHiveMcpServer } from '../tools/hive-tools.js';
 import { sandboxFor } from '../workspace.js';
 import { env } from '../env.js';
@@ -271,7 +272,12 @@ export class ClaudeCodeRunner implements Runner {
     const openTools = new Map<string, string>();
     let thinkingOpen = false;
 
-    for await (const message of query({ prompt: context.prompt, options })) {
+    // Input a caldo: la chat può iniettare messaggi DENTRO questo turno, come
+    // scrivere nel terminale mentre Claude Code lavora.
+    const steering = createSteering(input.runId, context.prompt);
+
+    try {
+    for await (const message of query({ prompt: steering.prompt, options })) {
       if (input.signal.aborted) break;
 
       const msg = message as SDKMessage & Record<string, unknown>;
@@ -375,12 +381,19 @@ export class ClaudeCodeRunner implements Runner {
               message: r.result ?? 'esecuzione terminata con errore',
             });
           }
+          // Giro concluso: se nel frattempo è arrivato altro dalla chat il
+          // turno prosegue con quello, altrimenti si chiude qui.
+          steering.turnFinished();
           break;
         }
 
         default:
           break;
       }
+    }
+
+    } finally {
+      await steering.stop();
     }
 
     if (thinkingOpen) await emitter.event({ type: 'thinking.end' });
