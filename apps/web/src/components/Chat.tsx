@@ -25,6 +25,7 @@ import {
 import { useStore, type RunState } from '../store.js';
 import { ArtifactPanel, ArtifactPinnedStrip } from './ArtifactPanel.js';
 import { DocumentsPanel } from './DocumentsPanel.js';
+import { ChannelMembers } from './ChannelMembers.js';
 import { api } from '../lib/api.js';
 import { realtime } from '../lib/ws.js';
 import { Avatar } from './Avatar.js';
@@ -649,6 +650,13 @@ export function Chat() {
   const artifactCount = useStore((s) =>
     activeChannelId ? (s.artifactsByChannel.get(activeChannelId)?.length ?? 0) : 0,
   );
+  const [membersOpen, setMembersOpen] = useState(false);
+  const channelMemberCount = useStore((s) =>
+    activeChannelId
+      ? s.agents.filter((a) => (a.channelIds ?? []).includes(activeChannelId)).length +
+        s.members.length
+      : s.members.length,
+  );
   const documentsPanelOpen = useStore((s) => s.documentsPanelOpen);
   const setDocumentsPanelOpen = useStore((s) => s.setDocumentsPanelOpen);
   const workspaceId = useStore((s) => s.workspace?.id ?? null);
@@ -727,11 +735,12 @@ export function Chat() {
             </div>
           )}
           <button
+            onClick={() => setMembersOpen(true)}
             className="flex items-center gap-1.5 rounded-full bg-[var(--color-sunken)] px-2.5 py-1 text-[13px] text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-ink)]"
-            title="Membri del canale"
+            title="Chi c'è in questo canale e quali agenti rispondono qui"
           >
             <Users size={14} strokeWidth={2.2} />
-            <span className="tabular-nums">{useStore.getState().members.length}</span>
+            <span className="tabular-nums">{channelMemberCount}</span>
           </button>
           <button
             onClick={() => setArtifactPanelOpen(!artifactPanelOpen)}
@@ -821,6 +830,9 @@ export function Chat() {
     </div>
       {artifactPanelOpen && <ArtifactPanel channelId={channel.id} />}
       {documentsPanelOpen && workspaceId && <DocumentsPanel workspaceId={workspaceId} />}
+      {membersOpen && (
+        <ChannelMembers channelId={channel.id} onClose={() => setMembersOpen(false)} />
+      )}
     </div>
   );
 }
