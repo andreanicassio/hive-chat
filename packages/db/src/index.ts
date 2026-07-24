@@ -6,6 +6,14 @@ export * as schema from './schema.js';
 export * from './schema.js';
 export { buildAgentContext, type AgentContext } from './agent-context.js';
 export { renderDocumentTree, docPath, type DocNode } from './documents-index.js';
+export {
+  listDocNodes,
+  documentTreeText,
+  readDocByPath,
+  writeDocByPath,
+  splitDocPath,
+  type DocActor,
+} from './documents-store.js';
 
 export interface DbOptions {
   url: string;

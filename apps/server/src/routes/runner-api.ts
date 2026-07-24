@@ -8,7 +8,8 @@ import { hub } from '../realtime/hub.js';
 import { unauthorized, forbidden, notFound } from '../lib/errors.js';
 import { hashToken } from './runner.js';
 import { applyRunnerOps, type RunnerOp, type RunSinkContext } from '../services/runner-sink.js';
-import { buildAgentContext } from '@hive/db';
+import { buildAgentContext, documentTreeText, readDocByPath, writeDocByPath } from '@hive/db';
+import { toDocumentNode } from '../services/documents.js';
 import { redisChannels, runJobSchema, RUNNER_PRESENCE_TTL_SEC, type Approval } from '@hive/shared';
 
 /** Verifica che il run sia di un agente `local` di questo utente. */
@@ -250,5 +251,49 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
       await new Promise((r) => setTimeout(r, 1000));
     }
     return { decided: false };
+  });
+
+  /* ------------------------ tool hive proxati: DOCUMENTI (base di conoscenza) */
+  // Il runner locale non ha il DB: gli strumenti dei documenti passano di qui.
+  app.post('/api/runner/documents/list', async (request) => {
+    const { userId } = await requireRunner(request);
+    const { runId } = z.object({ runId: z.uuid() }).parse(request.body);
+    const run = await resolveRun(userId, runId);
+    const tree = await documentTreeText(db, run.workspaceId);
+    return { tree };
+  });
+
+  app.post('/api/runner/documents/read', async (request) => {
+    const { userId } = await requireRunner(request);
+    const { runId, path } = z
+      .object({ runId: z.uuid(), path: z.string().min(1).max(1000) })
+      .parse(request.body);
+    const run = await resolveRun(userId, runId);
+    return readDocByPath(db, run.workspaceId, path);
+  });
+
+  app.post('/api/runner/documents/write', async (request) => {
+    const { userId } = await requireRunner(request);
+    const { runId, path, content, description } = z
+      .object({
+        runId: z.uuid(),
+        path: z.string().min(1).max(1000),
+        content: z.string().max(200_000),
+        description: z.string().max(300).optional(),
+      })
+      .parse(request.body);
+    const run = await resolveRun(userId, runId);
+    const r = await writeDocByPath(db, run.workspaceId, path, content, {
+      description,
+      actor: { type: 'agent', id: run.agentId },
+    });
+    // Realtime: fai comparire la modifica nel pannello Documenti.
+    const rows = await db.select().from(schema.documents).where(eq(schema.documents.id, r.id)).limit(1);
+    if (rows[0]) {
+      await hub.publish(run.workspaceId, {
+        packet: { t: 'document.changed', workspaceId: run.workspaceId, document: toDocumentNode(rows[0]) },
+      });
+    }
+    return { text: `${r.created ? 'Creato' : 'Aggiornato'} ${r.path}.` };
   });
 }

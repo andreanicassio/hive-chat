@@ -2,7 +2,7 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { and, desc, eq, ilike, isNull, or } from 'drizzle-orm';
-import { schema, renderDocumentTree, type DocNode } from '@hive/db';
+import { schema, documentTreeText, readDocByPath, writeDocByPath } from '@hive/db';
 import { db } from '../db.js';
 import { decryptSecret } from '../crypto.js';
 import type { EmitterLike } from '../emitter.js';
@@ -595,48 +595,9 @@ export function buildHiveTools(ctx: HiveToolContext) {
   );
 
   /* ---------------------------------------- documenti: base di conoscenza */
-  // Tutti i documenti del progetto (albero piatto), per indice e risoluzione
-  // dei percorsi. Il workspace tipico ne ha pochi: una query sola basta.
-  const allDocs = async (): Promise<
-    Array<DocNode & { content: string | null; extractedText: string | null; storageKey: string | null }>
-  > =>
-    db
-      .select({
-        id: schema.documents.id,
-        parentId: schema.documents.parentId,
-        kind: schema.documents.kind,
-        name: schema.documents.name,
-        description: schema.documents.description,
-        mime: schema.documents.mime,
-        content: schema.documents.content,
-        extractedText: schema.documents.extractedText,
-        storageKey: schema.documents.storageKey,
-      })
-      .from(schema.documents)
-      .where(eq(schema.documents.workspaceId, ctx.workspaceId))
-      .limit(1000);
-
-  const splitPath = (p: string) =>
-    p.trim().replace(/^\/+|\/+$/g, '').split('/').map((s) => s.trim()).filter(Boolean);
-
-  // Risolve un percorso ("specs/auth.md") sul nodo corrispondente.
-  const resolvePath = (
-    nodes: Array<DocNode>,
-    parts: string[],
-  ): DocNode | null => {
-    let parentId: string | null = null;
-    let node: DocNode | null = null;
-    for (const part of parts) {
-      node =
-        nodes.find(
-          (n) => (n.parentId ?? null) === parentId && n.name.toLowerCase() === part.toLowerCase(),
-        ) ?? null;
-      if (!node) return null;
-      parentId = node.id;
-    }
-    return node;
-  };
-
+  // La logica dei percorsi vive in @hive/db (documents-store), condivisa con
+  // gli endpoint del runner: una sola implementazione, semantica identica.
+  const docActor = { type: 'agent' as const, id: ctx.agentId };
   tools.push(
     tool(
       'list_documents',
@@ -644,8 +605,7 @@ export function buildHiveTools(ctx: HiveToolContext) {
         'PDF caricati) con i loro percorsi. Mostra solo l’indice — apri i file con read_document.',
       {},
       async () => {
-        const nodes = await allDocs();
-        const tree = renderDocumentTree(nodes);
+        const tree = await documentTreeText(db, ctx.workspaceId);
         return ok(tree ? `Documenti del progetto:\n\n${tree}` : 'Nessun documento ancora.');
       },
     ),
@@ -656,33 +616,8 @@ export function buildHiveTools(ctx: HiveToolContext) {
         '(es. "specs/auth.md").',
       { path: z.string().min(1).describe('Percorso del file, es. specs/auth.md') },
       async ({ path }) => {
-        const nodes = await allDocs();
-        const parts = splitPath(path);
-        if (parts.length === 0) return fail('Percorso vuoto.');
-        const node = resolvePath(nodes, parts);
-        if (!node) {
-          const tree = renderDocumentTree(nodes);
-          return fail(
-            `Non trovo "${path}".` + (tree ? ` Documenti disponibili:\n\n${tree}` : ' La base è vuota.'),
-          );
-        }
-        if (node.kind === 'folder') {
-          const childNodes = nodes.filter((n) => n.parentId === node.id);
-          const tree = renderDocumentTree(nodes.filter((n) => n.id === node.id || n.parentId === node.id));
-          return ok(
-            childNodes.length
-              ? `"${path}" è una cartella. Contenuto:\n\n${tree}`
-              : `"${path}" è una cartella vuota.`,
-          );
-        }
-        const full = nodes.find((n) => n.id === node.id) as
-          | (DocNode & { content: string | null; extractedText: string | null; storageKey: string | null })
-          | undefined;
-        const body = full?.content ?? full?.extractedText ?? '';
-        if (!body.trim() && full?.storageKey) {
-          return ok(`(${path} è un file caricato ma non ne è ancora stato estratto il testo.)`);
-        }
-        return ok(body || `(${path} è vuoto.)`);
+        const res = await readDocByPath(db, ctx.workspaceId, path);
+        return res.ok ? ok(res.text) : fail(res.text);
       },
     ),
     tool(
@@ -696,75 +631,12 @@ export function buildHiveTools(ctx: HiveToolContext) {
         description: z.string().max(300).optional().describe('Riga di sintesi per l’indice'),
       },
       async ({ path, content, description }) => {
-        const parts = splitPath(path);
-        if (parts.length === 0) return fail('Percorso vuoto.');
-        const fileName = parts[parts.length - 1]!;
-        const folderParts = parts.slice(0, -1);
-
-        // Assicura la catena di cartelle, creando quelle mancanti.
-        let nodes = await allDocs();
-        let parentId: string | null = null;
-        for (const folder of folderParts) {
-          let existing = nodes.find(
-            (n) =>
-              (n.parentId ?? null) === parentId &&
-              n.kind === 'folder' &&
-              n.name.toLowerCase() === folder.toLowerCase(),
-          );
-          if (!existing) {
-            const ins: Array<{ id: string }> = await db
-              .insert(schema.documents)
-              .values({
-                workspaceId: ctx.workspaceId,
-                parentId,
-                kind: 'folder',
-                name: folder,
-                createdByType: 'agent',
-                createdById: ctx.agentId,
-              })
-              .returning({ id: schema.documents.id });
-            parentId = ins[0]!.id;
-            nodes = await allDocs();
-          } else {
-            parentId = existing.id;
-          }
+        try {
+          const r = await writeDocByPath(db, ctx.workspaceId, path, content, { description, actor: docActor });
+          return ok(`${r.created ? 'Creato' : 'Aggiornato'} ${r.path}.`);
+        } catch (err) {
+          return fail(err instanceof Error ? err.message : 'Scrittura fallita.');
         }
-
-        const size = Buffer.byteLength(content, 'utf8');
-        const existingFile = nodes.find(
-          (n) =>
-            (n.parentId ?? null) === parentId &&
-            n.kind === 'file' &&
-            n.name.toLowerCase() === fileName.toLowerCase(),
-        );
-        if (existingFile) {
-          await db
-            .update(schema.documents)
-            .set({
-              content,
-              size,
-              mime: 'text/markdown',
-              ...(description !== undefined ? { description } : {}),
-              updatedByType: 'agent',
-              updatedById: ctx.agentId,
-              updatedAt: new Date(),
-            })
-            .where(eq(schema.documents.id, existingFile.id));
-          return ok(`Aggiornato ${path}.`);
-        }
-        await db.insert(schema.documents).values({
-          workspaceId: ctx.workspaceId,
-          parentId,
-          kind: 'file',
-          name: fileName,
-          mime: 'text/markdown',
-          content,
-          size,
-          description: description ?? null,
-          createdByType: 'agent',
-          createdById: ctx.agentId,
-        });
-        return ok(`Creato ${path}.`);
       },
     ),
   );

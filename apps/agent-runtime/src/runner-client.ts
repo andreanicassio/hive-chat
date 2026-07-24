@@ -1,8 +1,14 @@
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { mkdir } from 'node:fs/promises';
 import { basename } from 'node:path';
-import { dangerousToolNames, type AgentToolGrant, type EffortLevel } from '@hive/shared';
+import { z } from 'zod';
+import {
+  dangerousToolNames,
+  grantedHiveToolNames,
+  type AgentToolGrant,
+  type EffortLevel,
+} from '@hive/shared';
 import { toAnthropicModelId } from './models.js';
 import { RemoteEmitter } from './remote-emitter.js';
 
@@ -134,6 +140,86 @@ async function askApproval(
   }
 }
 
+/**
+ * Tool hive proxati sul server via HTTPS col token.
+ *
+ * Il runner non ha il DB: gli strumenti "hive" (per ora i Documenti, la base
+ * di conoscenza del progetto) chiamano gli endpoint del server, che eseguono
+ * l'operazione col contesto del run. Così l'agente locale ha gli stessi tool
+ * di quello sul server.
+ */
+function buildHiveProxyServer(cfg: Config, runId: string, grants: AgentToolGrant[]) {
+  const granted = grantedHiveToolNames(grants);
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${cfg.token}` };
+  const ok = (text: string) => ({ content: [{ type: 'text' as const, text }] });
+  const call = async (op: string, body: Record<string, unknown>): Promise<string> => {
+    try {
+      const res = await fetch(`${cfg.serverUrl}/api/runner/documents/${op}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ runId, ...body }),
+      });
+      if (!res.ok) return `Operazione non riuscita (HTTP ${res.status}).`;
+      return (await res.json()) as never;
+    } catch {
+      return 'Errore di rete verso il server.';
+    }
+  };
+
+  const tools = [];
+  if (granted.has('list_documents')) {
+    tools.push(
+      tool(
+        'list_documents',
+        'Elenca la base di conoscenza del progetto: cartelle e file (note markdown, PDF ' +
+          'caricati). Mostra solo l’indice — apri i file con read_document.',
+        {},
+        async () => {
+          const r = (await call('list', {})) as unknown as { tree?: string } | string;
+          const tree = typeof r === 'object' ? r.tree : r;
+          return ok(tree ? `Documenti del progetto:\n\n${tree}` : 'Nessun documento ancora.');
+        },
+      ),
+    );
+  }
+  if (granted.has('read_document')) {
+    tools.push(
+      tool(
+        'read_document',
+        'Apre un documento del progetto e ne restituisce il contenuto (per i PDF, il testo ' +
+          'estratto). Percorso come in list_documents, es. "specs/auth.md".',
+        { path: z.string().min(1).describe('Percorso del file') },
+        async ({ path }) => {
+          const r = (await call('read', { path })) as unknown as { text?: string } | string;
+          return ok(typeof r === 'object' ? (r.text ?? '') : r);
+        },
+      ),
+    );
+  }
+  if (granted.has('write_document')) {
+    tools.push(
+      tool(
+        'write_document',
+        'Crea o aggiorna una nota di progetto (markdown), creando le cartelle mancanti. Per ' +
+          'conservare specifiche, decisioni, guide: restano nell’indice visibile a tutti gli agenti.',
+        {
+          path: z.string().min(1).describe('Percorso del file, es. specs/auth.md'),
+          content: z.string().max(200_000).describe('Contenuto markdown completo'),
+          description: z.string().max(300).optional().describe('Riga di sintesi per l’indice'),
+        },
+        async ({ path, content, description }) => {
+          const r = (await call('write', { path, content, description })) as unknown as
+            | { text?: string }
+            | string;
+          return ok(typeof r === 'object' ? (r.text ?? 'Fatto.') : r);
+        },
+      ),
+    );
+  }
+  if (tools.length === 0) return null;
+  return createSdkMcpServer({ name: 'hive', version: '0.1.0', tools });
+}
+
 interface PollResult {
   job: { runId: string; workspaceId: string; channelId: string; agentId: string };
   agent: Record<string, unknown>;
@@ -160,6 +246,9 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
   // conferma solo gli strumenti marcati "richiede approvazione".
   const bypass = agent.permissionMode === 'bypass';
   const needApproval = bypass ? new Set<string>() : dangerousToolNames(grants);
+
+  // Tool hive proxati (Documenti): l'agente locale li usa via HTTPS sul server.
+  const hiveServer = buildHiveProxyServer(cfg, job.runId, grants);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20 * 60_000);
@@ -205,7 +294,7 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
         },
       ],
     },
-    mcpServers: {},
+    mcpServers: hiveServer ? { hive: hiveServer } : {},
     // Parità totale con Claude Code da terminale su questa macchina: carica
     // CLAUDE.md, skill, server MCP e impostazioni dell'utente e del progetto.
     settingSources: ['user', 'project', 'local'],
