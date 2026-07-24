@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useStore } from './store.js';
 import { AuthPage } from './pages/Auth.js';
+import { Landing } from './pages/Landing.js';
 import { Sidebar } from './components/Sidebar.js';
 import { Chat, AgentStatusBar } from './components/Chat.js';
 import { AgentPanel, AgentList } from './components/AgentPanel.js';
@@ -221,7 +222,7 @@ export function App() {
           path="/*"
           element={
             !user ? (
-              <Navigate to="/accedi" replace />
+              <Landing />
             ) : workspaces.length === 0 ? (
               <FirstWorkspace />
             ) : (
