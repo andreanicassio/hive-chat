@@ -61,6 +61,7 @@ class Hub {
         return;
       }
       this.deliverLocal(workspaceId, envelope);
+
     });
   }
 

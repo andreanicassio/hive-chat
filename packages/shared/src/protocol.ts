@@ -151,6 +151,20 @@ export const redisChannels = {
   runnerCommandsById: (tokenId: string) => `hive:runner:cmd:t:${tokenId}`,
   /** Risultato di un comando, atteso dal server (chiave con TTL). */
   runnerCommandResult: (commandId: string) => `hive:runner:cmdres:${commandId}`,
+  /**
+   * Messaggi arrivati mentre l'agente stava già lavorando in quel canale:
+   * restano qui e partono appena il turno in corso finisce, invece di far
+   * partire un secondo turno in parallelo sulla stessa sessione.
+   */
+  pendingPrompts: (agentId: string, channelId: string) =>
+    `hive:pending:${agentId}:${channelId}`,
+  /**
+   * Segnale «questo agente ha finito qui»: lo pubblica chi esegue il turno.
+   * Serve a far ripartire i messaggi in coda SEMPRE, anche quando nessuno
+   * è collegato in quel momento (il fanout dei client è sottoscritto solo
+   * su richiesta, questo canale no).
+   */
+  runFinished: 'hive:runs:finished',
   /** Richieste di annullamento run. */
   runCancel: (runId: string) => `hive:runs:cancel:${runId}`,
   /** Risposta a una richiesta di approvazione, attesa dal worker. */

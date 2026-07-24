@@ -2,6 +2,8 @@ import { and, eq, inArray, lt, isNotNull } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { hub } from '../realtime/hub.js';
 import { serializeMessage } from './serialize.js';
+import { redisPub } from '../lib/redis.js';
+import { flushPendingPrompts } from './messages.js';
 
 /**
  * Raccoglitore dei turni rimasti appesi.
@@ -101,6 +103,27 @@ async function reapState(state: keyof typeof LIMITS): Promise<number> {
   return stale.length;
 }
 
+/** Code di messaggi rimaste in attesa senza più un turno attivo. */
+async function sweepPendingQueues(): Promise<void> {
+  const keys = await redisPub.keys('hive:pending:*');
+  for (const key of keys) {
+    const [, , agentId, channelId] = key.split(':');
+    if (!agentId || !channelId) continue;
+    const active = await db
+      .select({ id: schema.agentRuns.id })
+      .from(schema.agentRuns)
+      .where(
+        and(
+          eq(schema.agentRuns.agentId, agentId),
+          eq(schema.agentRuns.channelId, channelId),
+          inArray(schema.agentRuns.status, ['queued', 'running', 'awaiting_approval']),
+        ),
+      )
+      .limit(1);
+    if (active.length === 0) await flushPendingPrompts(agentId, channelId).catch(() => {});
+  }
+}
+
 export function startRunReaper(): void {
   const tick = async () => {
     try {
@@ -109,6 +132,9 @@ export function startRunReaper(): void {
         total += await reapState(state);
       }
       if (total > 0) console.log(`[reaper] chiusi ${total} turni rimasti appesi`);
+      // Rete di sicurezza: se un segnale di fine si è perso, i messaggi in
+      // coda ripartono comunque entro un minuto invece di restare fermi.
+      await sweepPendingQueues();
     } catch (err) {
       console.error('[reaper] giro fallito:', (err as Error).message);
     }

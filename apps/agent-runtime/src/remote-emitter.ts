@@ -103,6 +103,7 @@ export class RemoteEmitter implements EmitterLike {
     costUsd?: number | null;
     inputTokens?: number | null;
     outputTokens?: number | null;
+    usesSubscription?: boolean;
     sdkSessionId?: string | null;
   }): Promise<void> {
     if (this.timer) {

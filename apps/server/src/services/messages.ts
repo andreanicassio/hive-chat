@@ -361,7 +361,91 @@ export interface EnqueueRunArgs {
  * Crea subito la bolla del messaggio vuota così l'utente vede comparire
  * l'agente con lo stato "in coda" e il testo poi ci scorre dentro.
  */
+/**
+ * Fa partire i messaggi rimasti in attesa per un agente in un canale.
+ *
+ * Si chiama quando un turno finisce: se nel frattempo sono arrivati altri
+ * messaggi, li uniamo in un solo turno nuovo — l'agente li legge tutti
+ * insieme, come farebbe una persona che torna e trova due righe.
+ */
+export async function flushPendingPrompts(agentId: string, channelId: string): Promise<void> {
+  const key = redisChannels.pendingPrompts(agentId, channelId);
+  const raw = await redisPub.lrange(key, 0, -1);
+  if (raw.length === 0) return;
+  await redisPub.del(key);
+
+  // lrange dà i più recenti per primi (lpush): rimettiamoli in ordine.
+  const items = raw
+    .map((r) => {
+      try {
+        return JSON.parse(r) as EnqueueRunArgs;
+      } catch {
+        return null;
+      }
+    })
+    .filter((x): x is EnqueueRunArgs => x !== null)
+    .reverse();
+  if (items.length === 0) return;
+
+  const first = items[0]!;
+  const prompt =
+    items.length === 1
+      ? first.prompt
+      : items.map((i) => i.prompt).join('\n\n');
+
+  await enqueueRun({
+    ...first,
+    prompt,
+    // L'ultimo messaggio è quello a cui la risposta si aggancia.
+    triggerMessageId: items[items.length - 1]!.triggerMessageId,
+  }).catch(() => undefined);
+}
+
+/** Stati in cui un turno è ancora vivo. */
+const ACTIVE_RUN_STATES = ['queued', 'running', 'awaiting_approval'];
+
+/**
+ * Turno già in corso per questo agente in questo canale?
+ *
+ * Serve per non far partire due turni in parallelo sulla stessa sessione:
+ * si pesterebbero i piedi a vicenda. Il secondo messaggio va in coda.
+ */
+async function activeRunFor(agentId: string, channelId: string): Promise<string | null> {
+  const rows = await db
+    .select({ id: schema.agentRuns.id })
+    .from(schema.agentRuns)
+    .where(
+      and(
+        eq(schema.agentRuns.agentId, agentId),
+        eq(schema.agentRuns.channelId, channelId),
+        inArray(schema.agentRuns.status, ACTIVE_RUN_STATES),
+      ),
+    )
+    .limit(1);
+  return rows[0]?.id ?? null;
+}
+
 export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
+  // Se l'agente sta già lavorando qui, il messaggio si accoda: lo riprenderà
+  // appena finito, senza perdere nulla e senza turni sovrapposti.
+  const busy = await activeRunFor(args.agentId, args.channelId);
+  if (busy) {
+    await redisPub.lpush(
+      redisChannels.pendingPrompts(args.agentId, args.channelId),
+      JSON.stringify({
+        workspaceId: args.workspaceId,
+        channelId: args.channelId,
+        agentId: args.agentId,
+        triggerMessageId: args.triggerMessageId,
+        prompt: args.prompt,
+        fromAgentHandle: args.fromAgentHandle ?? null,
+        hop: args.hop,
+      }),
+    );
+    await redisPub.expire(redisChannels.pendingPrompts(args.agentId, args.channelId), 3600);
+    return busy;
+  }
+
   const runId = randomUUID();
 
   const placeholder = await db

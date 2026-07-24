@@ -130,7 +130,12 @@ export class ClaudeCodeRunner implements Runner {
     // Sul runner locale l'auth arriva dalle credenziali di quella macchina
     // (niente lettura dei segreti del workspace, che vivono nel DB del server).
     const auth = input.authEnvOverride
-      ? { envVars: input.authEnvOverride }
+      ? {
+          envVars: input.authEnvOverride,
+          // Sul runner locale l'abbonamento è la norma: una API key compare
+          // solo se la macchina ne ha una impostata di proposito.
+          usesSubscription: !input.authEnvOverride.ANTHROPIC_API_KEY,
+        }
       : await resolveClaudeAuth(input.workspaceId);
     const { model } = toAnthropicModelId(agent.model);
 
@@ -387,6 +392,7 @@ export class ClaudeCodeRunner implements Runner {
       costUsd,
       inputTokens,
       outputTokens,
+      usesSubscription: auth.usesSubscription,
       sessionId,
       handoffs: mentionedHandles(text).filter((h) => h !== agent.handle),
     };

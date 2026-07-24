@@ -262,6 +262,7 @@ export async function executeJob(job: RunJob): Promise<void> {
       costUsd: result.costUsd,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
+      usesSubscription: result.usesSubscription,
       sdkSessionId: result.sessionId,
     });
 

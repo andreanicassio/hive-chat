@@ -18,6 +18,7 @@ import { closeRedis } from './lib/redis.js';
 import { hub } from './realtime/hub.js';
 import { startModelSync } from './services/models.js';
 import { startRunReaper } from './services/reaper.js';
+import { startPendingFlusher } from './services/pending-flusher.js';
 
 import { authRoutes } from './routes/auth.js';
 import { workspaceRoutes } from './routes/workspaces.js';
@@ -142,6 +143,8 @@ if (existsSync(webDist)) {
 /* ------------------------------------------------------------- avvio */
 
 startModelSync();
+// Quando un agente torna libero, partono i messaggi ricevuti mentre lavorava.
+startPendingFlusher();
 // Chiude i turni rimasti appesi (macchina morta, conferma mai data).
 startRunReaper();
 

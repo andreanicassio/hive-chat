@@ -402,6 +402,9 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
       costUsd,
       inputTokens,
       outputTokens,
+      // Su questa macchina si va di abbonamento, a meno che non ci sia una
+      // API key impostata apposta: solo allora i dollari sono spesa vera.
+      usesSubscription: !localAuthEnv().ANTHROPIC_API_KEY,
       sdkSessionId: sessionId,
     });
   } catch (err) {

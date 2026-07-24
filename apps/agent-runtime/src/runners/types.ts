@@ -39,6 +39,11 @@ export interface RunnerResult {
   costUsd: number | null;
   inputTokens: number | null;
   outputTokens: number | null;
+  /**
+   * Il turno è girato su un abbonamento? Serve alla pagina Utilizzo per
+   * mostrare in euro solo quello che paghi davvero, a token.
+   */
+  usesSubscription: boolean;
   sessionId: string | null;
   /** Handle degli agenti a cui passare la palla, estratti dalla risposta. */
   handoffs: string[];

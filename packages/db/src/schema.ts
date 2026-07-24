@@ -362,9 +362,20 @@ export const agentRuns = pgTable(
     status: varchar('status', { length: 20 }).notNull().default('queued'),
     error: text('error'),
     numTurns: integer('num_turns').notNull().default(0),
+    /**
+     * Costo che l'harness attribuisce al run, a listino. Per i run in
+     * abbonamento è un equivalente teorico: non lo paghi.
+     */
     costUsd: numeric('cost_usd', { precision: 12, scale: 6 }),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
+    /**
+     * Il run è passato da un abbonamento (OAuth) invece che da una chiave a
+     * consumo? Registrato al momento del run perché l'auth può cambiare, e
+     * dedurlo a posteriori riscriverebbe anche il passato. NULL sui run
+     * storici, precedenti a questa colonna.
+     */
+    usesSubscription: boolean('uses_subscription'),
     hop: integer('hop').notNull().default(0),
     queuedAt: timestamp('queued_at', { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp('started_at', { withTimezone: true }),

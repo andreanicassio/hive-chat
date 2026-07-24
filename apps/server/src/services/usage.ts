@@ -2,32 +2,43 @@ import { sql as raw } from 'drizzle-orm';
 import { db } from '../db/index.js';
 
 /**
- * Aggregazioni di costo e consumo per un workspace.
+ * Aggregazioni di consumo per un workspace.
  *
- * Ogni run salva il costo reale riportato dall'harness (l'SDK per i modelli
- * Claude, il campo usage.cost per OpenRouter) più i token. Qui li sommiamo
- * lungo tre assi — agente, canale, modello — più l'andamento giornaliero.
+ * Ogni run salva i token più il costo che l'harness gli attribuisce, e se è
+ * passato da un abbonamento o da una chiave a consumo.
  *
- * Nota onesta sui costi: i modelli Claude che girano sull'abbonamento
- * riportano un costo "equivalente a consumo" (quanto costerebbero a listino),
- * non un addebito reale. I modelli via OpenRouter sono invece pay-per-use
- * effettivo. La UI lo distingue per non dare numeri fuorvianti.
+ * **I due numeri non si sommano.** Un run in abbonamento riporta un costo
+ * "equivalente a listino": quanto sarebbe costato pagandolo a token. Non è un
+ * addebito — l'abbonamento è a canone fisso. Un run a consumo (OpenRouter, o
+ * Claude con una API key) riporta invece spesa vera. Qui li teniamo in due
+ * colonne separate per tutta la lunghezza del report, così la UI non deve
+ * ricostruire la distinzione e nessuno somma dollari veri con dollari finti.
+ *
+ * Per i run precedenti alla colonna `uses_subscription` ripieghiamo sul
+ * criterio vecchio (runtime `claude-code` = abbonamento): è ciò che era vero
+ * quando sono stati registrati.
  */
 
 const n = (v: unknown): number => (v == null ? 0 : Number(v));
 
+/** Predicato "questo run è andato sull'abbonamento", con fallback storico. */
+const IS_SUB = raw`coalesce(r.uses_subscription, a.runtime = 'claude-code')`;
+
 export interface UsageReport {
   periodDays: number;
   total: {
-    costUsd: number;
+    /** Spesa reale: solo i run fatturati a token. È il numero che paghi. */
+    billedCostUsd: number;
+    /** Quanto costerebbero a listino i run in abbonamento. Non lo paghi. */
+    subscriptionEquivalentUsd: number;
     runs: number;
     inputTokens: number;
     outputTokens: number;
+    /** Token dei run a consumo e di quelli in abbonamento, separati. */
+    billedTokens: number;
+    subscriptionTokens: number;
     errorRuns: number;
   };
-  /** Split fra costo su abbonamento (teorico) e a consumo reale. */
-  subscriptionCostUsd: number;
-  payPerUseCostUsd: number;
   byAgent: Array<{
     agentId: string;
     name: string;
@@ -35,7 +46,8 @@ export interface UsageReport {
     color: string;
     model: string;
     runtime: string;
-    costUsd: number;
+    billedCostUsd: number;
+    subscriptionEquivalentUsd: number;
     runs: number;
     inputTokens: number;
     outputTokens: number;
@@ -43,17 +55,27 @@ export interface UsageReport {
   byChannel: Array<{
     channelId: string;
     name: string;
-    costUsd: number;
+    billedCostUsd: number;
+    subscriptionEquivalentUsd: number;
+    tokens: number;
     runs: number;
   }>;
   byModel: Array<{
     model: string;
     runtime: string;
-    costUsd: number;
+    /** Tutti i run del periodo su questo modello sono passati da abbonamento. */
+    subscription: boolean;
+    billedCostUsd: number;
+    subscriptionEquivalentUsd: number;
     runs: number;
     tokens: number;
   }>;
-  daily: Array<{ date: string; costUsd: number; runs: number }>;
+  daily: Array<{
+    date: string;
+    billedCostUsd: number;
+    subscriptionEquivalentUsd: number;
+    runs: number;
+  }>;
 }
 
 export async function usageReport(workspaceId: string, days: number): Promise<UsageReport> {
@@ -61,22 +83,37 @@ export async function usageReport(workspaceId: string, days: number): Promise<Us
   // che tipo associare a un oggetto Date e fallisce il bind. La castiamo lato SQL.
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
+  // Le somme separate per valuta si scrivono sempre uguale: il costo va nella
+  // colonna "abbonamento" o in quella "a consumo" a seconda del predicato.
+  const billed = raw`coalesce(sum(r.cost_usd) filter (where not ${IS_SUB}), 0)`;
+  const subEquiv = raw`coalesce(sum(r.cost_usd) filter (where ${IS_SUB}), 0)`;
+  const tokens = raw`coalesce(sum(r.input_tokens), 0) + coalesce(sum(r.output_tokens), 0)`;
+
   const [totalRows, agentRows, channelRows, modelRows, dailyRows] = await Promise.all([
     db.execute<{
-      cost: string;
+      billed: string;
+      sub_equiv: string;
       runs: number;
       in_tok: string;
       out_tok: string;
+      billed_tok: string;
+      sub_tok: string;
       errors: number;
     }>(raw`
       select
-        coalesce(sum(cost_usd), 0) as cost,
-        count(*) filter (where status = 'done') as runs,
-        coalesce(sum(input_tokens), 0) as in_tok,
-        coalesce(sum(output_tokens), 0) as out_tok,
-        count(*) filter (where status = 'error') as errors
-      from agent_runs
-      where workspace_id = ${workspaceId} and queued_at >= ${since}::timestamptz
+        ${billed} as billed,
+        ${subEquiv} as sub_equiv,
+        count(*) filter (where r.status = 'done') as runs,
+        coalesce(sum(r.input_tokens), 0) as in_tok,
+        coalesce(sum(r.output_tokens), 0) as out_tok,
+        coalesce(sum(coalesce(r.input_tokens, 0) + coalesce(r.output_tokens, 0))
+          filter (where not ${IS_SUB}), 0) as billed_tok,
+        coalesce(sum(coalesce(r.input_tokens, 0) + coalesce(r.output_tokens, 0))
+          filter (where ${IS_SUB}), 0) as sub_tok,
+        count(*) filter (where r.status = 'error') as errors
+      from agent_runs r
+      join agents a on a.id = r.agent_id
+      where r.workspace_id = ${workspaceId} and r.queued_at >= ${since}::timestamptz
     `),
 
     db.execute<{
@@ -86,7 +123,8 @@ export async function usageReport(workspaceId: string, days: number): Promise<Us
       color: string;
       model: string;
       runtime: string;
-      cost: string;
+      billed: string;
+      sub_equiv: string;
       runs: number;
       in_tok: string;
       out_tok: string;
@@ -94,7 +132,8 @@ export async function usageReport(workspaceId: string, days: number): Promise<Us
       select
         a.id as agent_id, a.name, a.avatar_emoji as emoji, a.avatar_color as color,
         a.model, a.runtime,
-        coalesce(sum(r.cost_usd), 0) as cost,
+        ${billed} as billed,
+        ${subEquiv} as sub_equiv,
         count(r.id) filter (where r.status = 'done') as runs,
         coalesce(sum(r.input_tokens), 0) as in_tok,
         coalesce(sum(r.output_tokens), 0) as out_tok
@@ -102,41 +141,63 @@ export async function usageReport(workspaceId: string, days: number): Promise<Us
       join agents a on a.id = r.agent_id
       where r.workspace_id = ${workspaceId} and r.queued_at >= ${since}::timestamptz
       group by a.id
-      order by cost desc
+      order by billed desc, sub_equiv desc
     `),
 
-    db.execute<{ channel_id: string; name: string; cost: string; runs: number }>(raw`
+    db.execute<{
+      channel_id: string;
+      name: string;
+      billed: string;
+      sub_equiv: string;
+      tokens: string;
+      runs: number;
+    }>(raw`
       select
         c.id as channel_id, c.name,
-        coalesce(sum(r.cost_usd), 0) as cost,
+        ${billed} as billed,
+        ${subEquiv} as sub_equiv,
+        ${tokens} as tokens,
         count(r.id) filter (where r.status = 'done') as runs
       from agent_runs r
+      join agents a on a.id = r.agent_id
       join channels c on c.id = r.channel_id
       where r.workspace_id = ${workspaceId} and r.queued_at >= ${since}::timestamptz
       group by c.id
-      order by cost desc
+      order by billed desc, sub_equiv desc
     `),
 
-    db.execute<{ model: string; runtime: string; cost: string; runs: number; tokens: string }>(raw`
+    db.execute<{
+      model: string;
+      runtime: string;
+      subscription: boolean;
+      billed: string;
+      sub_equiv: string;
+      runs: number;
+      tokens: string;
+    }>(raw`
       select
         a.model, a.runtime,
-        coalesce(sum(r.cost_usd), 0) as cost,
+        bool_and(${IS_SUB}) as subscription,
+        ${billed} as billed,
+        ${subEquiv} as sub_equiv,
         count(r.id) filter (where r.status = 'done') as runs,
-        coalesce(sum(r.input_tokens) + sum(r.output_tokens), 0) as tokens
+        ${tokens} as tokens
       from agent_runs r
       join agents a on a.id = r.agent_id
       where r.workspace_id = ${workspaceId} and r.queued_at >= ${since}::timestamptz
       group by a.model, a.runtime
-      order by cost desc
+      order by billed desc, tokens desc
     `),
 
-    db.execute<{ day: string; cost: string; runs: number }>(raw`
+    db.execute<{ day: string; billed: string; sub_equiv: string; runs: number }>(raw`
       select
-        to_char(date_trunc('day', queued_at), 'YYYY-MM-DD') as day,
-        coalesce(sum(cost_usd), 0) as cost,
-        count(*) filter (where status = 'done') as runs
-      from agent_runs
-      where workspace_id = ${workspaceId} and queued_at >= ${since}::timestamptz
+        to_char(date_trunc('day', r.queued_at), 'YYYY-MM-DD') as day,
+        ${billed} as billed,
+        ${subEquiv} as sub_equiv,
+        count(*) filter (where r.status = 'done') as runs
+      from agent_runs r
+      join agents a on a.id = r.agent_id
+      where r.workspace_id = ${workspaceId} and r.queued_at >= ${since}::timestamptz
       group by day
       order by day
     `),
@@ -144,25 +205,18 @@ export async function usageReport(workspaceId: string, days: number): Promise<Us
 
   const t = totalRows[0];
 
-  // Costo su abbonamento (claude-code) vs a consumo (tutto il resto).
-  let subscriptionCost = 0;
-  let payPerUse = 0;
-  for (const m of modelRows) {
-    if (m.runtime === 'claude-code') subscriptionCost += n(m.cost);
-    else payPerUse += n(m.cost);
-  }
-
   return {
     periodDays: days,
     total: {
-      costUsd: n(t?.cost),
+      billedCostUsd: n(t?.billed),
+      subscriptionEquivalentUsd: n(t?.sub_equiv),
       runs: n(t?.runs),
       inputTokens: n(t?.in_tok),
       outputTokens: n(t?.out_tok),
+      billedTokens: n(t?.billed_tok),
+      subscriptionTokens: n(t?.sub_tok),
       errorRuns: n(t?.errors),
     },
-    subscriptionCostUsd: subscriptionCost,
-    payPerUseCostUsd: payPerUse,
     byAgent: agentRows.map((r) => ({
       agentId: r.agent_id,
       name: r.name,
@@ -170,7 +224,8 @@ export async function usageReport(workspaceId: string, days: number): Promise<Us
       color: r.color,
       model: r.model,
       runtime: r.runtime,
-      costUsd: n(r.cost),
+      billedCostUsd: n(r.billed),
+      subscriptionEquivalentUsd: n(r.sub_equiv),
       runs: n(r.runs),
       inputTokens: n(r.in_tok),
       outputTokens: n(r.out_tok),
@@ -178,16 +233,25 @@ export async function usageReport(workspaceId: string, days: number): Promise<Us
     byChannel: channelRows.map((r) => ({
       channelId: r.channel_id,
       name: r.name,
-      costUsd: n(r.cost),
+      billedCostUsd: n(r.billed),
+      subscriptionEquivalentUsd: n(r.sub_equiv),
+      tokens: n(r.tokens),
       runs: n(r.runs),
     })),
     byModel: modelRows.map((r) => ({
       model: r.model,
       runtime: r.runtime,
-      costUsd: n(r.cost),
+      subscription: Boolean(r.subscription),
+      billedCostUsd: n(r.billed),
+      subscriptionEquivalentUsd: n(r.sub_equiv),
       runs: n(r.runs),
       tokens: n(r.tokens),
     })),
-    daily: dailyRows.map((r) => ({ date: r.day, costUsd: n(r.cost), runs: n(r.runs) })),
+    daily: dailyRows.map((r) => ({
+      date: r.day,
+      billedCostUsd: n(r.billed),
+      subscriptionEquivalentUsd: n(r.sub_equiv),
+      runs: n(r.runs),
+    })),
   };
 }

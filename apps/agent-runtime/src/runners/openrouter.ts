@@ -178,6 +178,8 @@ export class OpenRouterRunner implements Runner {
       costUsd,
       inputTokens: inputTokens || null,
       outputTokens: outputTokens || null,
+      // OpenRouter è sempre a consumo: qui i dollari sono spesa vera.
+      usesSubscription: false,
       // OpenRouter non ha un concetto di sessione ripristinabile: il filo lo
       // ricostruiamo ogni volta dallo storico del canale.
       sessionId: null,

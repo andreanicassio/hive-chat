@@ -5,7 +5,12 @@ import { useStore } from '../store.js';
 import { api, type UsageReport } from '../lib/api.js';
 
 /**
- * Scheda "Utilizzo": quanto sta costando il progetto, dove va il costo.
+ * Scheda "Utilizzo": quanto stai spendendo davvero, e dove va la spesa.
+ *
+ * La regola della pagina: **in dollari compare solo quello che è fatturato a
+ * token.** I run coperti dall'abbonamento si misurano in token, e il loro
+ * equivalente a listino resta un'informazione di contorno — sommarlo alla
+ * spesa vera darebbe una cifra che non paghi.
  *
  * Barre orizzontali semplici invece di una libreria di grafici: sono chiare,
  * accessibili e non aggiungono peso al bundle. I colori seguono la palette
@@ -67,6 +72,18 @@ function Bar({
   );
 }
 
+function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="mb-1.5 text-[13px] font-medium text-[var(--color-ink-soft)]">
+        {title}
+        {hint && <span className="ml-1.5 font-normal text-[11.5px] text-[var(--color-ink-faint)]">{hint}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export function Usage() {
   const workspace = useStore((s) => s.workspace);
   const [days, setDays] = useState(30);
@@ -83,15 +100,17 @@ export function Usage() {
       .finally(() => setLoading(false));
   }, [workspace, days]);
 
-  // Andamento giornaliero riempito: anche i giorni senza spesa compaiono.
+  // Andamento giornaliero riempito: anche i giorni senza attività compaiono.
   const dailySeries = useMemo(() => {
     if (!report) return [];
     const byDate = new Map(report.daily.map((d) => [d.date, d]));
-    const out: Array<{ date: string; costUsd: number; runs: number }> = [];
+    const out: UsageReport['daily'] = [];
     const span = Math.min(days, 30); // il grafico mostra al più 30 barre
     for (let i = span - 1; i >= 0; i--) {
       const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
-      out.push(byDate.get(d) ?? { date: d, costUsd: 0, runs: 0 });
+      out.push(
+        byDate.get(d) ?? { date: d, billedCostUsd: 0, subscriptionEquivalentUsd: 0, runs: 0 },
+      );
     }
     return out;
   }, [report, days]);
@@ -107,11 +126,26 @@ export function Usage() {
     return <p className="py-8 text-center text-[13.5px] text-[var(--color-ink-soft)]">Nessun dato.</p>;
   }
 
-  const maxAgent = Math.max(...report.byAgent.map((a) => a.costUsd), 0.0001);
-  const maxChannel = Math.max(...report.byChannel.map((c) => c.costUsd), 0.0001);
-  const maxDay = Math.max(...dailySeries.map((d) => d.costUsd), 0.0001);
-  const activeAgents = report.byAgent.filter((a) => a.runs > 0 || a.costUsd > 0);
-  const activeChannels = report.byChannel.filter((c) => c.runs > 0);
+  const { total } = report;
+
+  // Gli agenti a consumo si classificano in dollari, quelli in abbonamento in
+  // token: due valute diverse, due liste diverse. Un agente che ha entrambi i
+  // tipi di run (l'auth è cambiata nel periodo) compare in tutte e due.
+  const paidAgents = report.byAgent.filter((a) => a.billedCostUsd > 0);
+  const subAgents = report.byAgent.filter(
+    (a) => a.billedCostUsd === 0 && (a.runs > 0 || a.inputTokens + a.outputTokens > 0),
+  );
+  const paidChannels = report.byChannel.filter((c) => c.billedCostUsd > 0);
+
+  const maxPaidAgent = Math.max(...paidAgents.map((a) => a.billedCostUsd), 0.0001);
+  const maxSubAgent = Math.max(...subAgents.map((a) => a.inputTokens + a.outputTokens), 1);
+  const maxChannel = Math.max(...paidChannels.map((c) => c.billedCostUsd), 0.0001);
+
+  // Se non c'è spesa reale nel periodo, un grafico di dollari sarebbe una
+  // fascia di zeri: in quel caso l'andamento mostra le esecuzioni.
+  const chartOnCost = total.billedCostUsd > 0;
+  const chartValue = (d: UsageReport['daily'][number]) => (chartOnCost ? d.billedCostUsd : d.runs);
+  const maxDay = Math.max(...dailySeries.map(chartValue), chartOnCost ? 0.0001 : 1);
 
   const AGENT_COLORS = ['#C8922F', '#C0663C', '#6B7F56', '#4E7C6B', '#7A5C8E', '#A65160'];
 
@@ -139,20 +173,23 @@ export function Usage() {
       <div className="grid grid-cols-3 gap-2.5">
         <div className="rounded-[11px] bg-[var(--color-panel-alt)] px-3.5 py-3">
           <div className="text-[11.5px] font-medium tracking-wide text-[var(--color-ink-faint)] uppercase">
-            Costo totale
+            Spesa reale
           </div>
           <div className="mt-0.5 text-[22px] font-semibold tabular-nums">
-            {money(report.total.costUsd)}
+            {money(total.billedCostUsd)}
+          </div>
+          <div className="text-[11.5px] text-[var(--color-ink-faint)]">
+            {tokens(total.billedTokens)} token fatturati
           </div>
         </div>
         <div className="rounded-[11px] bg-[var(--color-panel-alt)] px-3.5 py-3">
           <div className="text-[11.5px] font-medium tracking-wide text-[var(--color-ink-faint)] uppercase">
             Esecuzioni
           </div>
-          <div className="mt-0.5 text-[22px] font-semibold tabular-nums">{report.total.runs}</div>
-          {report.total.errorRuns > 0 && (
+          <div className="mt-0.5 text-[22px] font-semibold tabular-nums">{total.runs}</div>
+          {total.errorRuns > 0 && (
             <div className="text-[11.5px] text-[var(--color-error)]">
-              {report.total.errorRuns} con errore
+              {total.errorRuns} con errore
             </div>
           )}
         </div>
@@ -161,37 +198,37 @@ export function Usage() {
             Token
           </div>
           <div className="mt-0.5 text-[22px] font-semibold tabular-nums">
-            {tokens(report.total.inputTokens + report.total.outputTokens)}
+            {tokens(total.inputTokens + total.outputTokens)}
           </div>
           <div className="text-[11.5px] text-[var(--color-ink-faint)]">
-            {tokens(report.total.inputTokens)} in · {tokens(report.total.outputTokens)} out
+            {tokens(total.inputTokens)} in · {tokens(total.outputTokens)} out
           </div>
         </div>
       </div>
 
-      {/* nota abbonamento vs consumo */}
-      {report.subscriptionCostUsd > 0 && (
+      {/* quello che l'abbonamento copre: token veri, dollari solo come metro */}
+      {total.subscriptionTokens > 0 && (
         <div className="flex items-start gap-2 rounded-[10px] bg-[color-mix(in_oklab,var(--color-honey)_9%,transparent)] px-3 py-2.5 text-[12.5px] text-[var(--color-ink-soft)]">
           <Info size={14} className="mt-px shrink-0 text-[var(--color-honey)]" />
           <div>
-            <strong>{money(report.subscriptionCostUsd)}</strong> di questo costo viene dai modelli
-            Claude sul tuo <strong>abbonamento</strong>: è il valore equivalente a consumo, non un
-            addebito reale — l'abbonamento è a canone fisso.
-            {report.payPerUseCostUsd > 0 && (
-              <>
-                {' '}I <strong>{money(report.payPerUseCostUsd)}</strong> via OpenRouter sono invece
-                spesa reale a consumo.
-              </>
-            )}
+            Altri <strong>{tokens(total.subscriptionTokens)} token</strong> sono coperti
+            dall'<strong>abbonamento</strong> e non compaiono qui sopra: il canone è fisso, quei
+            token non li paghi a consumo.
+            <span className="text-[var(--color-ink-faint)]">
+              {' '}
+              Se fossero fatturati a token costerebbero circa{' '}
+              {money(total.subscriptionEquivalentUsd)}.
+            </span>
           </div>
         </div>
       )}
 
-      {/* andamento giornaliero */}
-      {dailySeries.some((d) => d.costUsd > 0) && (
+      {/* andamento */}
+      {dailySeries.some((d) => chartValue(d) > 0) && (
         <div>
           <div className="mb-1.5 flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-ink-soft)]">
-            <TrendingUp size={14} strokeWidth={2.1} /> Andamento
+            <TrendingUp size={14} strokeWidth={2.1} />{' '}
+            {chartOnCost ? 'Andamento della spesa' : 'Andamento delle esecuzioni'}
           </div>
           <div className="flex h-24 items-end gap-[3px]">
             {dailySeries.map((d) => (
@@ -199,10 +236,11 @@ export function Usage() {
                 key={d.date}
                 className="group relative flex-1"
                 style={{ height: '100%' }}
-                title={`${d.date}: ${money(d.costUsd)} · ${d.runs} run`}
+                title={`${d.date}: ${money(d.billedCostUsd)} di spesa reale · ${d.runs} run`}
               >
-                <div className="absolute bottom-0 w-full rounded-t-[3px] bg-[var(--color-honey)] transition-all group-hover:bg-[var(--color-terracotta)]"
-                  style={{ height: `${Math.max(2, (d.costUsd / maxDay) * 100)}%` }}
+                <div
+                  className="absolute bottom-0 w-full rounded-t-[3px] bg-[var(--color-honey)] transition-all group-hover:bg-[var(--color-terracotta)]"
+                  style={{ height: `${Math.max(2, (chartValue(d) / maxDay) * 100)}%` }}
                 />
               </div>
             ))}
@@ -214,56 +252,108 @@ export function Usage() {
         </div>
       )}
 
-      {/* per agente */}
-      <div>
-        <div className="mb-1.5 text-[13px] font-medium text-[var(--color-ink-soft)]">
-          Quali agenti costano di più
-        </div>
-        {activeAgents.length === 0 ? (
-          <p className="text-[12.5px] text-[var(--color-ink-faint)]">
-            Nessuna esecuzione nel periodo.
-          </p>
-        ) : (
-          <div>
-            {activeAgents.map((a, i) => (
-              <Bar
-                key={a.agentId}
-                label={
-                  <span>
-                    {a.emoji} {a.name}
-                  </span>
-                }
-                sub={`${a.runs} run`}
-                value={a.costUsd}
-                max={maxAgent}
-                color={AGENT_COLORS[i % AGENT_COLORS.length]!}
-                right={money(a.costUsd)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      {/* agenti che costano davvero */}
+      {paidAgents.length > 0 && (
+        <Section title="Quali agenti costano davvero" hint="fatturati a token">
+          {paidAgents.map((a, i) => (
+            <Bar
+              key={a.agentId}
+              label={
+                <span>
+                  {a.emoji} {a.name}
+                </span>
+              }
+              sub={`${a.runs} run`}
+              value={a.billedCostUsd}
+              max={maxPaidAgent}
+              color={AGENT_COLORS[i % AGENT_COLORS.length]!}
+              right={money(a.billedCostUsd)}
+            />
+          ))}
+        </Section>
+      )}
 
-      {/* per canale */}
-      {activeChannels.length > 0 && (
-        <div>
-          <div className="mb-1.5 text-[13px] font-medium text-[var(--color-ink-soft)]">
-            Quali chat costano di più
+      {/* agenti in abbonamento: si misurano in token */}
+      {subAgents.length > 0 && (
+        <Section title="Quali agenti consumano l'abbonamento" hint="nessun addebito">
+          {subAgents.map((a) => (
+            <Bar
+              key={a.agentId}
+              label={
+                <span>
+                  {a.emoji} {a.name}
+                </span>
+              }
+              sub={`${a.runs} run`}
+              value={a.inputTokens + a.outputTokens}
+              max={maxSubAgent}
+              color="#B9A88A"
+              right={`${tokens(a.inputTokens + a.outputTokens)} tok`}
+            />
+          ))}
+        </Section>
+      )}
+
+      {/* canali, solo dove c'è spesa vera */}
+      {paidChannels.length > 0 && (
+        <Section title="Quali chat costano davvero" hint="fatturate a token">
+          {paidChannels.map((c) => (
+            <Bar
+              key={c.channelId}
+              label={<span>#{c.name}</span>}
+              sub={`${c.runs} run`}
+              value={c.billedCostUsd}
+              max={maxChannel}
+              color="#4E7C6B"
+              right={money(c.billedCostUsd)}
+            />
+          ))}
+        </Section>
+      )}
+
+      {/* ripartizione per modello */}
+      {report.byModel.length > 0 && (
+        <Section title="Per modello">
+          <div className="overflow-hidden rounded-[10px] border border-[var(--color-border)]">
+            <table className="w-full text-[12.5px]">
+              <thead className="bg-[var(--color-panel-alt)] text-[11.5px] text-[var(--color-ink-faint)]">
+                <tr>
+                  <th className="px-3 py-1.5 text-left font-medium">Modello</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Run</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Token</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Spesa</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.byModel.map((m) => (
+                  <tr key={`${m.runtime}:${m.model}`} className="border-t border-[var(--color-border)]">
+                    <td className="px-3 py-1.5">
+                      <span className="truncate">{m.model}</span>
+                      {m.subscription && (
+                        <span className="ml-1.5 text-[11px] text-[var(--color-ink-faint)]">
+                          abbonamento
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-[var(--color-ink-soft)]">
+                      {m.runs}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-[var(--color-ink-soft)]">
+                      {tokens(m.tokens)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {m.subscription ? (
+                        <span className="text-[var(--color-ink-faint)]">—</span>
+                      ) : (
+                        money(m.billedCostUsd)
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div>
-            {activeChannels.map((c) => (
-              <Bar
-                key={c.channelId}
-                label={<span>#{c.name}</span>}
-                sub={`${c.runs} run`}
-                value={c.costUsd}
-                max={maxChannel}
-                color="#4E7C6B"
-                right={money(c.costUsd)}
-              />
-            ))}
-          </div>
-        </div>
+        </Section>
       )}
     </div>
   );

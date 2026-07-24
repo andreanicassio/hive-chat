@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { hub } from '../realtime/hub.js';
+import { flushPendingPrompts } from './messages.js';
 import type { AgentStatus, RunEvent, RunStatus, ServerPacket } from '@hive/shared';
 
 /**
@@ -34,6 +35,7 @@ export type RunnerOp =
       costUsd?: number | null;
       inputTokens?: number | null;
       outputTokens?: number | null;
+      usesSubscription?: boolean;
       sdkSessionId?: string | null;
     };
 
@@ -84,6 +86,7 @@ async function applyFinish(ctx: RunSinkContext, op: Extract<RunnerOp, { op: 'fin
       ...(op.costUsd != null ? { costUsd: op.costUsd.toFixed(6) } : {}),
       ...(op.inputTokens != null ? { inputTokens: op.inputTokens } : {}),
       ...(op.outputTokens != null ? { outputTokens: op.outputTokens } : {}),
+      ...(op.usesSubscription !== undefined ? { usesSubscription: op.usesSubscription } : {}),
       ...(op.sdkSessionId ? { sdkSessionId: op.sdkSessionId } : {}),
     })
     .where(eq(schema.agentRuns.id, ctx.runId));
@@ -141,6 +144,9 @@ async function applyFinish(ctx: RunSinkContext, op: Extract<RunnerOp, { op: 'fin
       },
     });
   }
+
+  // Se nel frattempo sono arrivati altri messaggi, adesso tocca a loro.
+  await flushPendingPrompts(ctx.agentId, ctx.channelId).catch(() => {});
 }
 
 export async function applyRunnerOps(ctx: RunSinkContext, ops: RunnerOp[]): Promise<void> {

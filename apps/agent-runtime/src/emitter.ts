@@ -25,6 +25,7 @@ export interface EmitterLike {
     costUsd?: number | null;
     inputTokens?: number | null;
     outputTokens?: number | null;
+    usesSubscription?: boolean;
     sdkSessionId?: string | null;
   }): Promise<void>;
 }
@@ -159,6 +160,7 @@ export class RunEmitter {
     costUsd?: number | null;
     inputTokens?: number | null;
     outputTokens?: number | null;
+    usesSubscription?: boolean;
     sdkSessionId?: string | null;
   }): Promise<void> {
     if (this.flushTimer) {
@@ -198,6 +200,9 @@ export class RunEmitter {
         ...(result.costUsd != null ? { costUsd: result.costUsd.toFixed(6) } : {}),
         ...(result.inputTokens != null ? { inputTokens: result.inputTokens } : {}),
         ...(result.outputTokens != null ? { outputTokens: result.outputTokens } : {}),
+        ...(result.usesSubscription !== undefined
+          ? { usesSubscription: result.usesSubscription }
+          : {}),
         ...(result.sdkSessionId ? { sdkSessionId: result.sdkSessionId } : {}),
       })
       .where(eq(schema.agentRuns.id, this.ctx.runId));
@@ -260,6 +265,15 @@ export class RunEmitter {
     }
 
     this.closed = true;
+
+    // Segnale per la coda: se sono arrivati messaggi mentre lavoravo,
+    // adesso possono partire.
+    await redis
+      .publish(
+        redisChannels.runFinished,
+        JSON.stringify({ agentId: this.ctx.agentId, channelId: this.ctx.channelId }),
+      )
+      .catch(() => {});
   }
 
   async markStarted(): Promise<void> {

@@ -411,13 +411,25 @@ export const api = {
     get<UsageReport>(`/api/workspaces/${workspaceId}/usage?days=${days}`),
 };
 
+/**
+ * `billedCostUsd` è spesa vera, fatturata a token. `subscriptionEquivalentUsd`
+ * è quanto costerebbero a listino i run coperti dall'abbonamento: non lo paghi,
+ * e non va sommato al primo.
+ */
 export interface UsageReport {
   periodDays: number;
-  total: { costUsd: number; runs: number; inputTokens: number; outputTokens: number; errorRuns: number };
-  subscriptionCostUsd: number;
-  payPerUseCostUsd: number;
-  byAgent: Array<{ agentId: string; name: string; emoji: string; color: string; model: string; runtime: string; costUsd: number; runs: number; inputTokens: number; outputTokens: number }>;
-  byChannel: Array<{ channelId: string; name: string; costUsd: number; runs: number }>;
-  byModel: Array<{ model: string; runtime: string; costUsd: number; runs: number; tokens: number }>;
-  daily: Array<{ date: string; costUsd: number; runs: number }>;
+  total: {
+    billedCostUsd: number;
+    subscriptionEquivalentUsd: number;
+    runs: number;
+    inputTokens: number;
+    outputTokens: number;
+    billedTokens: number;
+    subscriptionTokens: number;
+    errorRuns: number;
+  };
+  byAgent: Array<{ agentId: string; name: string; emoji: string; color: string; model: string; runtime: string; billedCostUsd: number; subscriptionEquivalentUsd: number; runs: number; inputTokens: number; outputTokens: number }>;
+  byChannel: Array<{ channelId: string; name: string; billedCostUsd: number; subscriptionEquivalentUsd: number; tokens: number; runs: number }>;
+  byModel: Array<{ model: string; runtime: string; subscription: boolean; billedCostUsd: number; subscriptionEquivalentUsd: number; runs: number; tokens: number }>;
+  daily: Array<{ date: string; billedCostUsd: number; subscriptionEquivalentUsd: number; runs: number }>;
 }
