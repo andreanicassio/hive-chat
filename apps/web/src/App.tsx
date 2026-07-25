@@ -206,17 +206,15 @@ function WorkspaceShell() {
           onSearch={() => {}}
           onOpenSettings={() => setShowSettings(true)}
         />
-        <Chat />
-      </div>
-
-      {/* Barra di stato sotto il foglio, sul gradiente.
-          Nessuna altezza fissa: il contenuto è alto 40px e stava in un
-          contenitore da 20, quindi sbordava oltre il fondo della finestra e
-          faceva comparire una barra di scorrimento sull'intera pagina. Quando
-          non c'è nessun agente al lavoro qui non c'è niente, e non occupa
-          spazio. */}
-      <div className="shrink-0 pl-[244px]">
-        <AgentStatusBar />
+        {/* La barra di stato sta DENTRO la colonna della conversazione, non
+            sotto tutto: quando compare, a farle spazio è solo il foglio della
+            chat, che si accorcia di quaranta pixel. Prima era fuori, e quindi
+            restringeva anche la barra laterale — nome, progetto e impostazioni
+            si spostavano ogni volta che un agente cominciava a lavorare. */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-1">
+          <Chat />
+          <AgentStatusBar />
+        </div>
       </div>
 
       {showAgents && (

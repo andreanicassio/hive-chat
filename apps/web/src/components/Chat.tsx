@@ -1633,7 +1633,7 @@ export function Chat() {
   const channelAgents = agents.filter((a) => (a.channelIds ?? []).includes(channel.id));
 
   return (
-    <div className="flex min-w-0 flex-1 gap-1">
+    <div className="flex min-h-0 min-w-0 flex-1 gap-1">
     {/* Il pannello laterale sta DENTRO il foglio della conversazione, diviso
         da una sola riga: è un'altra vista della stessa conversazione, non un
         secondo foglio che ci galleggia accanto. */}

@@ -17,10 +17,17 @@ import { useStore } from './store.js';
  * in un browser normale quello spazio sarebbe un buco senza motivo.
  */
 function markTitlebar(): void {
-  const overlay =
-    '__TAURI__' in window ||
-    window.matchMedia?.('(display-mode: window-controls-overlay)').matches === true;
-  if (overlay) document.documentElement.dataset.titlebar = 'overlay';
+  // SOLO `window-controls-overlay`, che è un segnale vero: il browser lo
+  // dichiara quando la finestra ci lascia davvero disegnare in cima.
+  //
+  // Prima bastava trovarsi dentro Tauri, ed era un'ipotesi sbagliata: il
+  // guscio Mac ha la barra in sovrimpressione solo se è stato ricompilato con
+  // quella configurazione. Fino ad allora la barra di sistema c'era ancora e
+  // noi le lasciavamo comunque 32px di spazio — una striscia vuota in cima,
+  // sotto una barra che non era affatto sparita.
+  if (window.matchMedia?.('(display-mode: window-controls-overlay)').matches === true) {
+    document.documentElement.dataset.titlebar = 'overlay';
+  }
 }
 markTitlebar();
 
