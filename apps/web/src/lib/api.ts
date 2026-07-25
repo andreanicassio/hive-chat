@@ -29,9 +29,6 @@ export interface PushPrefs {
   approvals: boolean;
   runFinished: boolean;
   runnerOffline: boolean;
-  /** Fascia di silenzio, ora locale 0-23. `null` = nessun silenzio. */
-  quietFrom: number | null;
-  quietTo: number | null;
 }
 
 /**

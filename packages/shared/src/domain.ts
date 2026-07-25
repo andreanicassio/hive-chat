@@ -763,10 +763,6 @@ export interface PushPrefs {
   runFinished: boolean;
   /** La mia macchina è spenta e un agente non può partire. */
   runnerOffline: boolean;
-  /** Ora (0-23) da cui comincia il silenzio. Null = nessun silenzio. */
-  quietFrom: number | null;
-  /** Ora (0-23) in cui il silenzio finisce. La fascia può scavalcare la mezzanotte. */
-  quietTo: number | null;
 }
 
 /** Valori di partenza: `runFinished` spento, un turno che finisce non è urgente. */
@@ -775,8 +771,6 @@ export const defaultPushPrefs: PushPrefs = {
   approvals: true,
   runFinished: false,
   runnerOffline: true,
-  quietFrom: null,
-  quietTo: null,
 };
 
 /** L'iscrizione così come la produce `PushManager.subscribe()` nel browser. */
@@ -802,8 +796,6 @@ export const updatePushPrefsSchema = z.object({
   approvals: z.boolean().optional(),
   runFinished: z.boolean().optional(),
   runnerOffline: z.boolean().optional(),
-  quietFrom: z.number().int().min(0).max(23).nullable().optional(),
-  quietTo: z.number().int().min(0).max(23).nullable().optional(),
 });
 export type UpdatePushPrefsInput = z.infer<typeof updatePushPrefsSchema>;
 

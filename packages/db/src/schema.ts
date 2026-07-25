@@ -7,7 +7,6 @@ import {
   numeric,
   pgTable,
   primaryKey,
-  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -660,7 +659,4 @@ export const pushPrefs = pgTable('push_prefs', {
   /** Spento di default: un turno che finisce non è una cosa urgente. */
   runFinished: boolean('run_finished').notNull().default(false),
   runnerOffline: boolean('runner_offline').notNull().default(true),
-  /** Fascia di silenzio in ore locali (0-23). Può scavalcare la mezzanotte. */
-  quietFrom: smallint('quiet_from'),
-  quietTo: smallint('quiet_to'),
 });

@@ -42,22 +42,7 @@ export async function prefsFor(userId: string): Promise<PushPrefs> {
     approvals: row.approvals,
     runFinished: row.runFinished,
     runnerOffline: row.runnerOffline,
-    quietFrom: row.quietFrom,
-    quietTo: row.quietTo,
   };
-}
-
-/**
- * Siamo dentro la fascia di silenzio?
- *
- * La fascia può scavalcare la mezzanotte (22 → 8), che è poi il caso normale:
- * per questo non basta un confronto fra due numeri.
- */
-function inQuietHours(prefs: PushPrefs, now = new Date()): boolean {
-  const { quietFrom: from, quietTo: to } = prefs;
-  if (from === null || to === null || from === to) return false;
-  const hour = now.getHours();
-  return from < to ? hour >= from && hour < to : hour >= from || hour < to;
 }
 
 /**
@@ -102,6 +87,10 @@ async function deliver(userId: string, payload: PushPayload): Promise<void> {
  *
  * Tre no in fila, nell'ordine in cui costano meno: non a chi l'ha causata,
  * non di ciò che sta già guardando, non se ha detto di no.
+ *
+ * Non c'è nessun silenzio notturno: quello lo gestisce il dispositivo, che lo
+ * fa meglio e in un posto solo. Duplicarlo qui avrebbe significato due
+ * impostazioni in competizione, e notifiche che spariscono senza spiegazione.
  */
 async function push(args: {
   userId: string;
@@ -120,9 +109,6 @@ async function push(args: {
 
   const prefs = await prefsFor(args.userId);
   if (!prefs[args.kind]) return;
-  // Il silenzio notturno non vale per i permessi: un agente fermo in attesa
-  // resta fermo tutta la notte, ed è esattamente il caso in cui vuoi saperlo.
-  if (args.kind !== 'approvals' && inQuietHours(prefs)) return;
 
   if (args.groupKey) {
     const key = `hive:push:grp:${args.userId}:${args.groupKey}`;
