@@ -578,11 +578,11 @@ function DeviceSectionDesktop() {
 
   if (!available) {
     return (
-      <p className="mt-1 text-[13.5px] text-[var(--color-error)]">
-        Questa versione dell’app Mac non sa ancora mostrare le notifiche di sistema: serve
-        ricompilarla con <code className="font-mono text-[12.5px]">npm run -w @hive/desktop build</code>
-        , dalla cartella del repo. Le push, invece, qui non ci saranno mai — il motore web dell’app
-        non le implementa, e non è una versione vecchia.
+      <p className="mt-1 text-[13.5px] text-[var(--color-ink-soft)]">
+        Nell’app Mac le notifiche non arrivano. Le push non ci saranno mai — il motore web che l’app
+        incorpora non le implementa — e quelle di sistema le abbiamo tolte: il pezzo che serviva a
+        mostrarle impediva all’app di avviarsi. Nel frattempo usa il telefono o il browser: le
+        preferenze qui sotto valgono lo stesso, ovunque tu sia iscritto.
       </p>
     );
   }
