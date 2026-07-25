@@ -182,7 +182,10 @@
      che invece va di CSS. */
   .titlebar-drag {
     position: fixed;
-    inset: 0 0 auto 0;
+    /* Non parte da sinistra: i primi 78px sono i tre pallini del Mac, e
+       coprirli con una striscia trascinabile significa non poter più
+       chiudere la finestra. */
+    inset: 0 0 auto var(--titlebar-left, 0px);
     height: var(--titlebar-height, 32px);
     /* Sotto ai modali: la striscia è trascinabile, non cliccabile, e se
        stesse sopra mangerebbe i primi 32px di ogni pop-up. */
@@ -194,6 +197,11 @@
     :root {
       --titlebar-height: env(titlebar-area-height, 32px);
     }
+  }
+  /* Nel guscio Mac i comandi della finestra stanno in alto a sinistra e non
+     li dichiara nessuna variabile: la misura è quella di sistema. */
+  :root[data-titlebar='overlay'][data-shell='tauri'] {
+    --titlebar-left: 78px;
   }
 
   /* Focus visibile solo da tastiera: il mouse non deve disegnare anelli. */

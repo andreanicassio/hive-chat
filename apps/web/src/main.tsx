@@ -47,6 +47,9 @@ function markTitlebar(): void {
     }
     if (localStorage.getItem('hive:shell') === 'overlay') {
       document.documentElement.dataset.titlebar = 'overlay';
+      // Il guscio Mac vuole sapere dove NON disegnare la striscia: i tre
+      // pallini stanno a sinistra e devono restare cliccabili.
+      document.documentElement.dataset.shell = 'tauri';
     }
   } catch {
     // Archiviazione bloccata: si resta con la barra normale, che è il caso
