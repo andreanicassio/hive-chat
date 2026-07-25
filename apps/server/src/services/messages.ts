@@ -709,6 +709,12 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
       // Nessuna bolla nuova comparirà: senza un segnale, in chat sembrerebbe
       // che il messaggio sia stato ignorato.
       if (args.triggerMessageId) {
+        // Il legame si scrive a database, non solo sul filo: deve reggere a
+        // un ricaricamento, altrimenti «permanente» non vuol dire niente.
+        await db
+          .update(schema.messages)
+          .set({ steeredIntoRunId: queueBehind })
+          .where(eq(schema.messages.id, args.triggerMessageId));
         await hub.publish(args.workspaceId, {
           packet: {
             t: 'steer.delivered',

@@ -27,6 +27,7 @@ import {
   Users,
   X,
   Reply,
+  ArrowRight,
   CornerUpLeft,
   PanelRight,
   FolderOpen,
@@ -946,18 +947,29 @@ function DeleteMessageDialog({ message, onClose }: { message: Message; onClose: 
 /*  Citazione del messaggio a cui si risponde                                  */
 /* ========================================================================== */
 
+/** Testo di anteprima per le pillole: niente markup delle menzioni. */
+function plainExcerpt(body: string): string {
+  return body
+    .replace(/<@([a-z0-9._-]+)>/g, '@$1')
+    .replace(/<#([a-z0-9-]+)>/g, '#$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 60);
+}
+
+/** Salta a un messaggio e lo evidenzia un istante. */
+function jumpToMessage(id: string): void {
+  const el = document.getElementById(`msg-${id}`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('flash-highlight');
+  setTimeout(() => el.classList.remove('flash-highlight'), 1200);
+}
+
 function QuotedReply({ reply }: { reply: ReplyPreview }) {
   return (
     <button
-      onClick={() => {
-        // Salta al messaggio citato e lo evidenzia un istante.
-        const el = document.getElementById(`msg-${reply.id}`);
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          el.classList.add('flash-highlight');
-          setTimeout(() => el.classList.remove('flash-highlight'), 1200);
-        }
-      }}
+      onClick={() => jumpToMessage(reply.id)}
       className="mb-1 flex max-w-full items-center gap-1.5 text-left text-[12.5px] text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-ink)]"
     >
       <CornerUpLeft size={12} strokeWidth={2.2} className="shrink-0 text-[var(--color-ink-faint)]" />
@@ -1001,6 +1013,28 @@ export function MessageRow({
   const allRuns = useStore((s) => s.runs);
   const allAgents = useStore((s) => s.agents);
   const steerMark = useStore((s) => s.steered.get(message.id));
+  const allMessages = useStore((s) => s.messagesByChannel.get(message.channelId));
+
+  /*
+   * I due capi del filo.
+   *
+   * `steerAnswerId`: se questo messaggio è stato infilato in un turno, qual è
+   * la bolla dell'agente che quel turno ha prodotto.
+   * `steeredIn`: se questa È la bolla dell'agente, quali messaggi gli sono
+   * arrivati mentre lavorava.
+   */
+  const steerAnswerId = useMemo(() => {
+    if (!message.steeredIntoRunId) return null;
+    for (const [answerId, r] of allRuns) {
+      if (r.runId === message.steeredIntoRunId) return answerId;
+    }
+    return null;
+  }, [message.steeredIntoRunId, allRuns]);
+
+  const steeredIn = useMemo(() => {
+    if (!run || !allMessages) return [];
+    return allMessages.filter((m) => m.steeredIntoRunId === run.runId && !m.deletedAt);
+  }, [run, allMessages]);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Chi è in coda per rispondere PROPRIO a questo messaggio. La mappa dei run
@@ -1126,6 +1160,28 @@ export function MessageRow({
             </div>
           )}
 
+          {steeredIn.length > 0 && (
+            /* Entrati mentre l'agente già lavorava: senza dirlo qui, la
+               risposta sembrerebbe uscita dal nulla. Non fingo di sapere
+               QUALE paragrafo risponde a cosa — quello non lo so — ma il
+               filo fra le due bolle si vede e si percorre. */
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-[11.5px] text-[var(--color-ink-faint)]">
+                letti mentre lavorava:
+              </span>
+              {steeredIn.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => jumpToMessage(m.id)}
+                  className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-[var(--color-line)] bg-[var(--color-sunken)] px-2 py-[2px] text-[11.5px] text-[var(--color-ink-soft)] transition-colors hover:border-[var(--color-line-strong)] hover:text-[var(--color-ink)]"
+                >
+                  <CornerUpLeft size={10} strokeWidth={2.4} className="shrink-0" />
+                  <span className="truncate">{plainExcerpt(m.body)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Il lavoro sta sopra la risposta e dentro la sua tab: quello che
               resta qui fuori è ciò che l'agente ha da dire. */}
           {run &&
@@ -1150,6 +1206,19 @@ export function MessageRow({
                 />
               ))}
             </div>
+          )}
+
+          {!steerMark && message.steeredIntoRunId && steerAnswerId && (
+            /* Turno finito: la pillola diventa il filo verso la risposta in
+               cui questo messaggio è stato letto. Prima spariva e basta, e
+               del collegamento non restava traccia. */
+            <button
+              onClick={() => jumpToMessage(steerAnswerId)}
+              className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-[var(--color-line)] bg-[var(--color-sunken)] px-2 py-[3px] text-[11.5px] text-[var(--color-ink-soft)] transition-colors hover:border-[var(--color-line-strong)] hover:text-[var(--color-ink)]"
+            >
+              letto in questo turno
+              <ArrowRight size={11} strokeWidth={2.4} />
+            </button>
           )}
 
           {steerMark && (

@@ -147,6 +147,7 @@ async function applyFinish(ctx: RunSinkContext, op: Extract<RunnerOp, { op: 'fin
         id: row.id,
         channelId: row.channelId,
         threadRootId: row.threadRootId,
+        steeredIntoRunId: row.steeredIntoRunId ?? null,
         replyTo: null,
         author: {
           type: 'agent',

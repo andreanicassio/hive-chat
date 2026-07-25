@@ -223,6 +223,13 @@ export const messages = pgTable(
     mentions: jsonb('mentions').notNull().default(sql`'[]'::jsonb`),
     /** Presente se il messaggio è l'output di un agente. */
     runId: uuid('run_id'),
+    /**
+     * Questo messaggio è entrato in un turno GIÀ in corso invece di aprirne
+     * uno nuovo. Serve dopo, non durante: è il filo che collega la domanda
+     * alla risposta in cui è finita, e senza salvarlo il collegamento
+     * sparirebbe al primo ricaricamento.
+     */
+    steeredIntoRunId: uuid('steered_into_run_id'),
     replyCount: integer('reply_count').notNull().default(0),
     clientNonce: varchar('client_nonce', { length: 64 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

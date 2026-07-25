@@ -197,6 +197,8 @@ export interface Message {
   attachments: Attachment[];
   /** Presente se il messaggio è l'output di un agente. */
   runId: string | null;
+  /** Turno in cui questo messaggio è stato infilato a caldo, se è successo. */
+  steeredIntoRunId: string | null;
   /** Conteggio risposte se il messaggio è la radice di un thread. */
   replyCount: number;
   /** Ora dell'ultima risposta nel thread, per la barra "N risposte". */

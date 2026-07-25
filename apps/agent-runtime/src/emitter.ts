@@ -275,6 +275,7 @@ export class RunEmitter {
               id: row.id,
               channelId: row.channelId,
               threadRootId: row.threadRootId,
+              steeredIntoRunId: row.steeredIntoRunId ?? null,
               replyTo: null,
               author: {
                 type: 'agent',

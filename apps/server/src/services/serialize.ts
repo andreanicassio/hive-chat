@@ -286,6 +286,7 @@ export async function serializeMessages(
     id: r.id,
     channelId: r.channelId,
     threadRootId: r.threadRootId,
+    steeredIntoRunId: r.steeredIntoRunId ?? null,
     replyTo: r.replyToId ? (replyPreviews.get(r.replyToId) ?? null) : null,
     author: resolveActor(actors, r.authorType, r.authorId),
     // Un messaggio cancellato non deve trapelare il testo originale.
