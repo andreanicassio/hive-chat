@@ -180,53 +180,66 @@ function waveDelay(word: string, backlog: number): number {
 function useWave(host: React.RefObject<HTMLDivElement | null>, active: boolean): void {
   useEffect(() => {
     if (!active) return;
-    let cursor = 0;
     let timer: ReturnType<typeof setTimeout>;
     let scheduledAt = performance.now();
     let scheduledFor = 0;
 
-    /** Accende tutto fino alla fine, in ordine. Nessuno viene scavalcato. */
+    /*
+     * Il fronte non è un indice: è «le prossime parole ancora spente».
+     *
+     * Prima tenevo un cursore numerico dentro l'elenco delle parole, e
+     * funzionava finché quell'elenco cresceva soltanto in fondo. Ma il
+     * markdown si rilegge a ogni aggiornamento: finché il grassetto non è
+     * chiuso, `**Pretext:` è testo normale; quando arriva il `**` di
+     * chiusura quel pezzo diventa un altro nodo, e le sue parole rinascono
+     * SPENTE in una posizione che il cursore aveva già oltrepassato. Non le
+     * raggiungeva più nessuno: restavano invisibili fino a fine risposta,
+     * quando la classe sparisce e tutto torna visibile.
+     *
+     * Chiedere al DOM «quali sono ancora spente» toglie il problema alla
+     * radice: la risposta arriva in ordine di documento, e vale anche per
+     * ciò che è comparso a metà.
+     */
+    const pending = () =>
+      host.current?.querySelectorAll<HTMLElement>('.word:not([data-in])') ?? null;
+
+    /** Accende tutto, in ordine. Serve quando siamo rimasti indietro davvero. */
     const catchUp = () => {
-      const nodes = host.current?.querySelectorAll<HTMLElement>('.word');
-      if (!nodes) return;
-      for (; cursor < nodes.length; cursor++) nodes[cursor]!.dataset.in = 'true';
+      const nodes = pending();
+      if (nodes) for (const node of nodes) node.dataset.in = 'true';
     };
 
     const tick = () => {
       /*
-       * Quanto siamo stati fermi davvero.
-       *
-       * I timer di una scheda in secondo piano vengono strozzati dal browser,
-       * e su telefono succede appena metti via lo schermo. Al ritorno il
-       * fronte si ritrova centinaia di parole indietro: invece di riprendere
-       * il passo con calma — che vorrebbe dire testo che si accende a
-       * chiazze mentre lo stai leggendo — recupera tutto in un colpo.
+       * Quanto siamo stati fermi davvero. I timer di una scheda in secondo
+       * piano vengono strozzati dal browser — su telefono succede appena
+       * metti via lo schermo — e al ritorno il fronte è centinaia di parole
+       * indietro. Riprendere col passo lento vorrebbe dire testo che si
+       * accende a chiazze mentre lo stai già leggendo.
        */
       const late = performance.now() - scheduledAt - scheduledFor;
-      const nodes = host.current?.querySelectorAll<HTMLElement>('.word');
-      const total = nodes?.length ?? 0;
-      // Il testo è stato sostituito, non allungato: succede quando un turno di
-      // ragionamento si chiude e la bolla riparte da capo.
-      if (cursor > total) cursor = 0;
+      const nodes = pending();
+      const backlog = nodes?.length ?? 0;
       let delay = 40;
-      if (nodes && cursor < total) {
+
+      if (nodes && backlog > 0) {
         if (late > 800) {
           catchUp();
         } else {
-          const backlog = total - cursor;
           const jump = backlog > 80 ? Math.ceil(backlog / 24) : 1;
-          const until = Math.min(total, cursor + jump);
-          for (; cursor < until; cursor++) nodes[cursor]!.dataset.in = 'true';
-          delay = waveDelay(nodes[cursor - 1]?.textContent ?? '', backlog);
+          const until = Math.min(backlog, jump);
+          for (let i = 0; i < until; i++) nodes[i]!.dataset.in = 'true';
+          delay = waveDelay(nodes[until - 1]?.textContent ?? '', backlog);
         }
       }
+
       scheduledAt = performance.now();
       scheduledFor = delay;
       timer = setTimeout(tick, delay);
     };
 
-    // Tornando in primo piano si recupera subito, senza aspettare il tick:
-    // è il momento in cui uno guarda lo schermo.
+    // Tornando in primo piano si recupera subito: è il momento in cui uno
+    // guarda lo schermo, non quello in cui può aspettare un altro tick.
     const onVisible = () => {
       if (!document.hidden) catchUp();
     };
