@@ -168,6 +168,8 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         model,
         runtime: runtimeForModel(model, input.kind),
         effort: input.effort,
+        replyStyle: input.replyStyle,
+        replyStyleCustom: input.replyStyleCustom ?? null,
         avatarEmoji: input.avatarEmoji,
         avatarColor: input.avatarColor ?? colorFor(handle),
         systemPrompt: input.systemPrompt ?? null,
@@ -287,6 +289,8 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
           ? { model, runtime: runtimeForModel(model, kind) }
           : {}),
         ...(input.effort !== undefined ? { effort: input.effort } : {}),
+        ...(input.replyStyle !== undefined ? { replyStyle: input.replyStyle } : {}),
+        ...(input.replyStyleCustom !== undefined ? { replyStyleCustom: input.replyStyleCustom } : {}),
         ...(input.avatarEmoji !== undefined ? { avatarEmoji: input.avatarEmoji } : {}),
         ...(input.avatarColor !== undefined ? { avatarColor: input.avatarColor } : {}),
         ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),

@@ -24,7 +24,15 @@ import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
 import { AgentDetail } from './AgentDetail.js';
 import { Modal, ModalRow, ModalSearch } from './Modal.js';
-import type { Agent, AgentKind, AgentStatus, CatalogModel, RunnerToken } from '@hive/shared';
+import { replyStyleLabels, replyStyles } from '@hive/shared';
+import type {
+  Agent,
+  AgentKind,
+  AgentStatus,
+  CatalogModel,
+  ReplyStyle,
+  RunnerToken,
+} from '@hive/shared';
 
 /* ========================================================================== */
 /*  Selettore modello                                                          */
@@ -241,6 +249,8 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
   );
   const [channelIds, setChannelIds] = useState<Set<string>>(new Set(agent?.channelIds ?? []));
   const [autoRespond, setAutoRespond] = useState(agent?.autoRespond ?? false);
+  const [replyStyle, setReplyStyle] = useState<ReplyStyle>(agent?.replyStyle ?? 'normale');
+  const [replyStyleCustom, setReplyStyleCustom] = useState(agent?.replyStyleCustom ?? '');
   const [repoUrl, setRepoUrl] = useState(agent?.repo?.gitUrl ?? '');
   const [repoBranch, setRepoBranch] = useState(agent?.repo?.branch ?? 'main');
   const [execution, setExecution] = useState<'server' | 'local'>(agent?.execution ?? 'server');
@@ -344,6 +354,8 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
         model,
         avatarEmoji: emoji,
         purpose: purpose.trim() || null,
+        replyStyle,
+        replyStyleCustom: replyStyle === 'custom' ? replyStyleCustom.trim() || null : null,
         autoRespond,
         execution,
         permissionMode: kind === 'developer' ? permissionMode : 'ask',
@@ -401,6 +413,8 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
         avatarEmoji: emoji,
         purpose: purpose.trim() || null,
         description: purpose.trim().slice(0, 200) || null,
+        replyStyle,
+        replyStyleCustom: replyStyle === 'custom' ? replyStyleCustom.trim() || null : null,
         autoRespond,
         execution,
         permissionMode: kind === 'developer' ? permissionMode : 'ask',
@@ -792,6 +806,49 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
             />
             <p className="mt-1 text-[12px] text-[var(--color-ink-faint)]">
               Finisce nel suo prompt di sistema e guida la generazione delle skill.
+            </p>
+          </div>
+
+          {/* Lunghezza della risposta che finisce in chat */}
+          <div>
+            <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink-soft)]">
+              Quanto scrive in chat
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {replyStyles.map((style) => {
+                const on = replyStyle === style;
+                return (
+                  <button
+                    key={style}
+                    onClick={() => setReplyStyle(style)}
+                    className={clsx(
+                      'rounded-full border px-3 py-1 text-[13px] transition-all',
+                      on
+                        ? 'border-[var(--color-honey)] bg-[color-mix(in_oklab,var(--color-honey)_12%,transparent)] font-medium'
+                        : 'border-[var(--color-line-strong)] text-[var(--color-ink-soft)] hover:border-[var(--color-ink-faint)]',
+                    )}
+                  >
+                    {replyStyleLabels[style].label}
+                  </button>
+                );
+              })}
+            </div>
+            {replyStyle === 'custom' ? (
+              <textarea
+                className="field mt-2 h-auto py-2 leading-relaxed"
+                rows={2}
+                value={replyStyleCustom}
+                onChange={(e) => setReplyStyleCustom(e.target.value)}
+                placeholder="Es. Rispondi in massimo cinque righe, senza tabelle, e chiudi sempre dicendo cosa resta da fare."
+                maxLength={600}
+              />
+            ) : (
+              <p className="mt-1 text-[12px] text-[var(--color-ink-faint)]">
+                {replyStyleLabels[replyStyle].hint}
+              </p>
+            )}
+            <p className="mt-1 text-[12px] text-[var(--color-ink-faint)]">
+              Vale solo per il messaggio in chat: il lavoro svolto resta per intero nella sua tab.
             </p>
           </div>
 

@@ -293,6 +293,9 @@ export const agents = pgTable(
     /** Harness che esegue: `claude-code`, `openrouter-tools`, (futuro) `opencode`. */
     runtime: varchar('runtime', { length: 24 }).notNull().default('claude-code'),
     effort: varchar('effort', { length: 8 }).notNull().default('high'),
+    /** Quanto deve essere lunga la risposta finale in chat. */
+    replyStyle: varchar('reply_style', { length: 16 }).notNull().default('normale'),
+    replyStyleCustom: text('reply_style_custom'),
     avatarEmoji: varchar('avatar_emoji', { length: 8 }).notNull().default('🤖'),
     avatarColor: varchar('avatar_color', { length: 9 }).notNull(),
     systemPrompt: text('system_prompt'),

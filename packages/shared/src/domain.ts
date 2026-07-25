@@ -358,6 +358,70 @@ export const agentKindSchema = z.enum(agentKinds);
 export const agentStatuses = ['idle', 'thinking', 'working', 'waiting', 'error'] as const;
 export type AgentStatus = (typeof agentStatuses)[number];
 
+/* ---------------------------------------------------------------------------
+ * Lunghezza della risposta finale
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Quanto deve essere lunga la risposta che finisce in chat.
+ *
+ * Riguarda SOLO il messaggio finale: il ragionamento e le operazioni vanno
+ * comunque nella tab di lavoro, dove chi vuole i dettagli se li va a prendere.
+ * Qui si decide quanto di quel materiale merita di stare nella conversazione.
+ */
+export const replyStyles = ['breve', 'normale', 'dettagliato', 'custom'] as const;
+export type ReplyStyle = (typeof replyStyles)[number];
+
+/** Come si chiamano nell'interfaccia, e cosa promettono davvero. */
+export const replyStyleLabels: Record<ReplyStyle, { label: string; hint: string }> = {
+  breve: {
+    label: 'Breve',
+    hint: 'Un messaggio, non un report. Due o tre frasi, i dettagli nella tab.',
+  },
+  normale: {
+    label: 'Normale',
+    hint: 'Quanto serve per farsi capire, senza dilungarsi.',
+  },
+  dettagliato: {
+    label: 'Dettagliato',
+    hint: 'Spiega per esteso nel messaggio: scelte, alternative, conseguenze.',
+  },
+  custom: { label: 'Su misura', hint: 'Scrivi tu la regola.' },
+};
+
+/**
+ * L'istruzione che finisce nel prompt di sistema.
+ *
+ * La clausola di scampo c'è in tutti: una domanda che merita spazio deve
+ * poterlo avere anche con «Breve», altrimenti l'impostazione smette di essere
+ * una preferenza di tono e diventa un bavaglio.
+ */
+export function replyStyleInstruction(style: ReplyStyle, custom?: string | null): string[] {
+  const escape =
+    '- Se però la domanda merita davvero spazio — una decisione, un rischio, qualcosa che non hai potuto verificare — prenditelo: la brevità non vale la chiarezza.';
+  switch (style) {
+    case 'breve':
+      return [
+        '- **La risposta finale è un messaggio di chat, non un report.** Punta a due o tre frasi.',
+        "- Niente tabelle riepilogative di ciò che hai cambiato, niente «prima/dopo», niente elenchi di file: quella roba sta già nella tab del lavoro svolto, e chi la vuole la apre.",
+        '- Per una modifica piccola, una riga basta: cosa hai fatto e se funziona.',
+        escape,
+      ];
+    case 'dettagliato':
+      return [
+        '- Nella risposta finale spiega per esteso: cosa hai fatto, perché così e non altrimenti, cosa hai scartato e cosa resta da verificare.',
+        '- Il markdown aiuta: titoli brevi, elenchi, tabelle dove confrontano davvero qualcosa.',
+      ];
+    case 'custom':
+      return custom?.trim() ? [`- ${custom.trim()}`] : [];
+    case 'normale':
+    default:
+      return [
+        '- Nella risposta finale scrivi quanto serve a farti capire, e non di più: i dettagli del lavoro stanno nella tab apposita.',
+      ];
+  }
+}
+
 export const effortLevels = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type EffortLevel = (typeof effortLevels)[number];
 
@@ -516,6 +580,10 @@ export interface Agent {
   runtime: AgentRuntime;
   /** Solo per i modelli Claude: gli altri lo ignorano. */
   effort: EffortLevel;
+  /** Quanto deve essere lunga la risposta che finisce in chat. */
+  replyStyle: ReplyStyle;
+  /** La regola scritta a mano, quando `replyStyle` è `custom`. */
+  replyStyleCustom: string | null;
   avatarEmoji: string;
   avatarColor: string;
   systemPrompt: string | null;
@@ -556,6 +624,8 @@ export const createAgentSchema = z.object({
   purpose: z.string().max(4000).nullable().optional(),
   model: z.string().max(128).optional(),
   effort: z.enum(effortLevels).default('high'),
+  replyStyle: z.enum(replyStyles).default('normale'),
+  replyStyleCustom: z.string().max(600).nullable().optional(),
   avatarEmoji: z.string().min(1).max(8).default('🤖'),
   avatarColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   systemPrompt: z.string().max(20000).nullable().optional(),
@@ -587,6 +657,8 @@ export const updateAgentSchema = z.object({
   purpose: z.string().max(4000).nullable().optional(),
   model: z.string().max(128).optional(),
   effort: z.enum(effortLevels).optional(),
+  replyStyle: z.enum(replyStyles).optional(),
+  replyStyleCustom: z.string().max(600).nullable().optional(),
   avatarEmoji: z.string().min(1).max(8).optional(),
   avatarColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   systemPrompt: z.string().max(20000).nullable().optional(),

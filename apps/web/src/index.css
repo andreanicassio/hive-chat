@@ -773,6 +773,16 @@
     animation: typing-dot 1.3s infinite;
   }
 
+  /* Attesa in coda: un respiro lento, non un'animazione che chiede attenzione.
+     Il turno non è ancora partito, non c'è niente da guardare. */
+  @keyframes queued-pulse {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 0.9; }
+  }
+  .queued-pulse {
+    animation: queued-pulse 2.2s ease-in-out infinite;
+  }
+
   /* Lampo di evidenziazione quando si salta a un messaggio citato. */
   .flash-highlight {
     animation: flash 1.2s ease-out;

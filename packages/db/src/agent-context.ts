@@ -1,5 +1,5 @@
 import { and, desc, eq, isNull, ne } from 'drizzle-orm';
-import { toPlainText } from '@hive/shared';
+import { replyStyleInstruction, toPlainText, type ReplyStyle } from '@hive/shared';
 import * as schema from './schema.js';
 import { renderDocumentTree } from './documents-index.js';
 import { channelAttachments, describeAttachments } from './attachments.js';
@@ -295,6 +295,12 @@ export async function buildAgentContext(
     `- Rispondi nella lingua di chi ti ha scritto.`,
     `- Se ti mancano informazioni per procedere, chiedile invece di inventarle.`,
     `- Usa il markdown per liste e codice, ma senza appesantire.`,
+    // La lunghezza la decide chi ha creato l'agente: un report va bene su un
+    // progetto, è fuori posto in una chat dove si chiede di spostare un margine.
+    ...replyStyleInstruction(
+      agent.replyStyle as ReplyStyle,
+      agent.replyStyleCustom,
+    ),
   );
 
   return {

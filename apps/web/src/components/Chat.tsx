@@ -997,7 +997,21 @@ export function MessageRow({
   const setReplyingTo = useStore((s) => s.setReplyingTo);
   const openThread = useStore((s) => s.openThread);
   const myUserId = useStore((s) => s.user?.id);
+  const allRuns = useStore((s) => s.runs);
+  const allAgents = useStore((s) => s.agents);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Chi è in coda per rispondere PROPRIO a questo messaggio. La mappa dei run
+  // è stabile: il filtro sta qui fuori dal selettore, altrimenti ogni render
+  // vedrebbe un array nuovo e il ciclo non finirebbe più.
+  const queuedHere = useMemo(() => {
+    const names: string[] = [];
+    for (const r of allRuns.values()) {
+      if (r.status !== 'queued' || r.triggerMessageId !== message.id) continue;
+      names.push(allAgents.find((a) => a.id === r.agentId)?.name ?? 'Un agente');
+    }
+    return names;
+  }, [allRuns, allAgents, message.id]);
   // Si cancella solo la propria roba. Il server lo ripete comunque: questo
   // serve a non mostrare un bottone che poi risponderebbe «non puoi».
   const mine = message.author.type === 'user' && message.author.id === myUserId;
@@ -1016,6 +1030,11 @@ export function MessageRow({
   const streaming = run?.streaming === true;
   const queued = run?.status === 'queued';
   const waiting = run?.status === 'awaiting_approval';
+
+  // Finché il turno è in coda l'agente non ha ancora aperto bocca: una bolla
+  // vuota coi puntini annuncerebbe una risposta che non è nemmeno partita.
+  // L'attesa si vede sotto il messaggio che l'ha innescata.
+  if (queued && !message.body) return null;
 
   if (message.deletedAt) {
     return (
@@ -1115,12 +1134,7 @@ export function MessageRow({
               <WorkTab run={run} messageId={message.id} />
             ))}
 
-          {queued ? (
-            <div className="flex items-center gap-2 py-1 text-[13.5px] text-[var(--color-ink-faint)]">
-              <Loader2 size={13} className="animate-spin" />
-              <span>In coda…</span>
-            </div>
-          ) : message.body ? (
+          {message.body ? (
             <div className={clsx(run && 'mt-3')}>
               <MessageBody body={message.body} streaming={streaming} />
             </div>
@@ -1133,6 +1147,13 @@ export function MessageRow({
                   style={{ animationDelay: `${i * 0.18}s` }}
                 />
               ))}
+            </div>
+          )}
+
+          {queuedHere.length > 0 && (
+            <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-[var(--color-line)] bg-[var(--color-sunken)] px-2 py-[3px] text-[11.5px] text-[var(--color-ink-soft)]">
+              <span className="queued-pulse h-1.5 w-1.5 rounded-full bg-[var(--color-ink-faint)]" />
+              {queuedHere.join(', ')} {queuedHere.length === 1 ? 'è' : 'sono'} in coda
             </div>
           )}
 
