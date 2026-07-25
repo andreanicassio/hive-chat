@@ -14,9 +14,15 @@ export default defineConfig({
         name: 'Hive',
         short_name: 'Hive',
         description: 'Chat di squadra con agenti AI che lavorano insieme a te',
-        theme_color: '#EFEBDA',
-        background_color: '#EFEBDA',
+        // Il primo stop del gradiente dell'app: installata, la barra della
+        // finestra continua la pagina invece di tagliarla con un'altra tinta.
+        theme_color: '#d9dee2',
+        background_color: '#d9dee2',
         display: 'standalone',
+        // Dove il browser lo supporta, la barra di sistema sparisce del tutto
+        // e i comandi della finestra galleggiano sul gradiente: è la barra
+        // "trasparente" vera. Dove non è supportato si ripiega su standalone.
+        display_override: ['window-controls-overlay', 'standalone'],
         orientation: 'portrait',
         start_url: '/',
         icons: [

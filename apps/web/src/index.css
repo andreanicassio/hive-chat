@@ -134,6 +134,35 @@
     background: linear-gradient(180deg, #1a1916 0%, #141310 55%, #100f0d 100%);
   }
 
+  /* --- Barra della finestra ----------------------------------------------
+     Nell'app installata e nel guscio Mac la barra di sistema è trasparente e
+     il gradiente arriva fino in cima: la pagina continua invece di essere
+     tagliata da una striscia di un altro colore.
+     Restano però i comandi della finestra, che galleggiano sopra. Gli
+     lasciamo lo spazio, e rendiamo quella striscia trascinabile — senza,
+     la finestra non si sposterebbe più, che è un modo eccellente di rendere
+     un'app irritante. L'attributo lo mette il boot (main.tsx) solo quando il
+     guscio ci sta davvero sotto. --------------------------------------- */
+  :root[data-titlebar='overlay'] #root {
+    padding-top: var(--titlebar-height, 32px);
+  }
+  :root[data-titlebar='overlay']::after {
+    content: '';
+    position: fixed;
+    inset: 0 0 auto 0;
+    height: var(--titlebar-height, 32px);
+    /* Sotto ai modali: la striscia è trascinabile, non cliccabile, e se
+       stesse sopra mangerebbe i primi 32px di ogni pop-up. */
+    z-index: 40;
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+  @media (display-mode: window-controls-overlay) {
+    :root {
+      --titlebar-height: env(titlebar-area-height, 32px);
+    }
+  }
+
   /* Focus visibile solo da tastiera: il mouse non deve disegnare anelli. */
   :focus-visible {
     outline: 2px solid var(--color-honey);
@@ -319,11 +348,13 @@
   .modal-backdrop {
     position: fixed;
     inset: 0;
+    /* Sopra la striscia trascinabile della barra finestra. */
+    z-index: 100;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 1rem;
-    background: rgb(28 24 16 / 0.42);
+    background: rgb(28 34 40 / 0.42);
     backdrop-filter: blur(3px);
     animation: modal-fade 130ms ease-out;
   }
@@ -335,9 +366,9 @@
     border-radius: 16px;
     background: var(--color-panel);
     box-shadow:
-      0 1px 2px rgb(28 24 16 / 0.08),
-      0 12px 32px -8px rgb(28 24 16 / 0.22),
-      0 24px 64px -16px rgb(28 24 16 / 0.18);
+      0 1px 2px rgb(28 34 40 / 0.08),
+      0 12px 32px -8px rgb(28 34 40 / 0.22),
+      0 24px 64px -16px rgb(28 34 40 / 0.18);
     animation: modal-pop 150ms cubic-bezier(0.16, 1, 0.3, 1);
     outline: none;
   }

@@ -158,7 +158,9 @@ function WorkspaceShell() {
   const noModels = !capabilities.anthropicConfigured && !capabilities.openrouterConfigured;
 
   return (
-    <div className="flex h-full flex-col">
+    // `overflow-hidden`: dentro c'è una conversazione che scorre per conto suo,
+    // e la finestra non deve mai scorrere anche lei.
+    <div className="flex h-full flex-col overflow-hidden">
       {noModels && (
         <div className="shrink-0 px-3 pt-2 text-center text-[12.5px] text-[var(--color-ink-soft)]">
           Nessuna credenziale per i modelli: gli agenti non possono ancora rispondere.{' '}
@@ -181,8 +183,13 @@ function WorkspaceShell() {
         <Chat />
       </div>
 
-      {/* Barra di stato sotto il foglio, sul crema. */}
-      <div className="h-5 shrink-0 pb-1 pl-[244px]">
+      {/* Barra di stato sotto il foglio, sul gradiente.
+          Nessuna altezza fissa: il contenuto è alto 40px e stava in un
+          contenitore da 20, quindi sbordava oltre il fondo della finestra e
+          faceva comparire una barra di scorrimento sull'intera pagina. Quando
+          non c'è nessun agente al lavoro qui non c'è niente, e non occupa
+          spazio. */}
+      <div className="shrink-0 pl-[244px]">
         <AgentStatusBar />
       </div>
 

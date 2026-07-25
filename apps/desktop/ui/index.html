@@ -5,28 +5,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hive</title>
     <style>
+      /* Stessa palette dell'app: questa finestra è la sua anticamera. */
       :root {
-        --ink: #1f1e19;
-        --soft: #57544a;
-        --faint: #8b8778;
-        --line: #e2ddc8;
-        --panel: #ffffff;
-        --sunken: #f2eee0;
-        --honey: #c8922f;
-        --sage: #6b7f56;
-        --err: #b6503f;
+        --ink: #16181a;
+        --soft: #4b5057;
+        --faint: #7d848b;
+        --line: #dfe2e4;
+        --panel: #f9f9f8;
+        --sunken: #eaebea;
+        --honey: #b5532f;
+        --sage: #4d7a58;
+        --err: #b04a34;
       }
       * { box-sizing: border-box; margin: 0; padding: 0; -webkit-user-select: none; }
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
         color: var(--ink);
-        background: linear-gradient(180deg, #e5e5bd 0%, #d6dbca 50%, #c8d1d7 100%);
+        background: linear-gradient(180deg, #d9dee2 0%, #cfd6db 45%, #bbc5cd 100%);
         height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;
+      }
+      /* La barra della finestra è trasparente: senza una striscia trascinabile
+         la finestra non si sposterebbe più. */
+      .drag {
+        position: fixed; inset: 0 0 auto 0; height: 32px;
+        -webkit-app-region: drag; app-region: drag;
       }
       .card {
         width: 100%; max-width: 440px; background: var(--panel);
         border-radius: 18px; padding: 26px;
-        box-shadow: 0 1px 2px rgba(60,52,30,.05), 0 18px 44px -12px rgba(60,52,30,.28);
+        box-shadow: 0 1px 2px rgba(28,34,40,.05), 0 18px 44px -12px rgba(28,34,40,.3);
       }
       .logo { font-size: 30px; }
       h1 { font-size: 20px; letter-spacing: -.02em; margin-top: 6px; }
@@ -58,6 +65,7 @@
     </style>
   </head>
   <body>
+    <div class="drag"></div>
     <div class="card">
       <div class="logo">🐝</div>
       <h1>Hive</h1>
