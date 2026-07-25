@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql as raw, isNull, gte } from 'drizzle-orm';
+import { and, eq, inArray, sql as raw, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { db, schema } from '../db/index.js';
 import { badRequest } from '../lib/errors.js';
@@ -447,61 +447,50 @@ async function dispatchJob(job: RunJob): Promise<void> {
 
   if (agentExec?.execution === 'local' && agentExec.ownerId) {
     const target = agentExec.runnerTokenId;
-    const online = target
-      ? await redisPub.exists(redisChannels.runnerPresenceById(target))
-      : await redisPub.exists(redisChannels.runnerPresence(agentExec.ownerId, job.workspaceId));
-    if (online) {
-      await redisPub.lpush(
-        target
-          ? redisChannels.runnerQueueById(target)
-          : redisChannels.runnerQueue(agentExec.ownerId, job.workspaceId),
-        JSON.stringify(job),
+
+    // Senza una macchina scelta non si indovina. Prima si finiva su una coda
+    // condivisa e il turno lo prendeva la prima accesa — ognuna con la sua
+    // cartella di lavoro, spesso un altro repo: non era bilanciamento del
+    // carico, era sorteggiare su quale codice si lavora. Adesso l'agente non
+    // si può nemmeno salvare così; questo resta per le righe vecchie.
+    if (!target) {
+      await failRunnerOffline(
+        job.runId,
+        job.responseMessageId,
+        job.workspaceId,
+        job.channelId,
+        null,
+        'no_runner_chosen',
       );
       return;
     }
-    // Una macchina vista da poco probabilmente si sta solo riavviando (es.
-    // per un aggiornamento): il lavoro resta in coda e lo prende appena
-    // torna, invece di far comparire un errore per pochi secondi di assenza.
-    let machine: string | null = null;
-    let seenRecently = false;
-    if (target) {
-      const t = await db
-        .select({ label: schema.runnerTokens.label, lastSeenAt: schema.runnerTokens.lastSeenAt })
-        .from(schema.runnerTokens)
-        .where(eq(schema.runnerTokens.id, target))
-        .limit(1);
-      machine = t[0]?.label ?? null;
-      const seen = t[0]?.lastSeenAt;
-      seenRecently = Boolean(seen && Date.now() - seen.getTime() < 5 * 60_000);
-    }
-    if (!target) {
-      // Nessuna macchina scelta: se una qualsiasi di questo progetto è stata
-      // vista da poco, il lavoro aspetta lei invece di fallire subito.
-      const recent = await db
-        .select({ id: schema.runnerTokens.id })
-        .from(schema.runnerTokens)
-        .where(
-          and(
-            eq(schema.runnerTokens.userId, agentExec.ownerId),
-            eq(schema.runnerTokens.workspaceId, job.workspaceId),
-            isNull(schema.runnerTokens.revokedAt),
-            gte(schema.runnerTokens.lastSeenAt, new Date(Date.now() - 5 * 60_000)),
-          ),
-        )
-        .limit(1);
-      if (recent.length > 0) {
-        await redisPub.lpush(
-          redisChannels.runnerQueue(agentExec.ownerId, job.workspaceId),
-          JSON.stringify(job),
-        );
-        return;
-      }
-    }
-    if (seenRecently && target) {
+
+    if (await redisPub.exists(redisChannels.runnerPresenceById(target))) {
       await redisPub.lpush(redisChannels.runnerQueueById(target), JSON.stringify(job));
       return;
     }
-    await failRunnerOffline(job.runId, job.responseMessageId, job.workspaceId, job.channelId, machine);
+
+    // Una macchina vista da poco probabilmente si sta solo riavviando (es.
+    // per un aggiornamento): il lavoro resta in coda e lo prende appena
+    // torna, invece di far comparire un errore per pochi secondi di assenza.
+    const t = await db
+      .select({ label: schema.runnerTokens.label, lastSeenAt: schema.runnerTokens.lastSeenAt })
+      .from(schema.runnerTokens)
+      .where(eq(schema.runnerTokens.id, target))
+      .limit(1);
+    const seen = t[0]?.lastSeenAt;
+    if (seen && Date.now() - seen.getTime() < 5 * 60_000) {
+      await redisPub.lpush(redisChannels.runnerQueueById(target), JSON.stringify(job));
+      return;
+    }
+
+    await failRunnerOffline(
+      job.runId,
+      job.responseMessageId,
+      job.workspaceId,
+      job.channelId,
+      t[0]?.label ?? null,
+    );
     return;
   }
   await redisPub.lpush(redisChannels.runQueue, JSON.stringify(job));
@@ -783,11 +772,16 @@ async function failRunnerOffline(
   workspaceId: string,
   channelId: string,
   machine: string | null = null,
+  reason: 'offline' | 'no_runner_chosen' = 'offline',
 ): Promise<void> {
-  const note = machine
-    ? `_Questo agente gira sulla macchina «${machine}», che ora è spenta. Accendi lì il runner e riprova._`
-    : '_Questo agente gira su una macchina con il runner, e nessuna è accesa in ' +
-      'questo momento. Avvia il runner e riprova._';
+  const note =
+    reason === 'no_runner_chosen'
+      ? '_Questo agente gira su una macchina tua, ma non è stato detto quale. ' +
+        'Aprilo e scegli la macchina: ognuna ha la sua cartella di lavoro._'
+      : machine
+        ? `_Questo agente gira sulla macchina «${machine}», che ora è spenta. Accendi lì il runner e riprova._`
+        : '_Questo agente gira su una macchina con il runner, e nessuna è accesa in ' +
+          'questo momento. Avvia il runner e riprova._';
   await db
     .update(schema.agentRuns)
     .set({ status: 'error', error: 'runner offline', endedAt: new Date() })

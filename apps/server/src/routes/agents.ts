@@ -92,6 +92,23 @@ function validateTools(
   }
 }
 
+/**
+ * Un agente che gira su una macchina dell'utente deve dire QUALE.
+ *
+ * Si poteva lasciare in bianco («la prima libera») e il turno finiva su una
+ * coda condivisa: lo prendeva la prima macchina accesa. Ma ogni runner ha la
+ * sua cartella di lavoro — checkout diversi, spesso repo diversi — quindi non
+ * era bilanciamento del carico: era sorteggiare su quale codice si lavora.
+ */
+function requireRunner(execution: string, runnerTokenId: string | null): void {
+  if (execution !== 'local') return;
+  if (runnerTokenId) return;
+  throw badRequest(
+    'runner_required',
+    'Scegli su quale macchina lavora questo agente: ognuna ha la sua cartella di lavoro.',
+  );
+}
+
 export async function agentRoutes(app: FastifyInstance): Promise<void> {
   /* ------------------------------------------------------ catalogo tool */
   app.get('/api/tools', async () => ({
@@ -151,6 +168,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     }
 
     validateTools(input.tools, input.kind);
+    requireRunner(input.execution, input.runnerTokenId ?? null);
 
     const handle = input.handle
       ? await uniqueAgentHandle(workspaceId, input.handle)
@@ -269,6 +287,10 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       throw badRequest('unknown_model', `Modello non disponibile: ${model}`);
     }
     if (input.tools) validateTools(input.tools, kind);
+    requireRunner(
+      input.execution ?? existing.execution,
+      input.runnerTokenId !== undefined ? input.runnerTokenId : existing.runnerTokenId,
+    );
 
     // L'handle si può cambiare, ma deve restare unico nel progetto: se è già
     // preso ne ricaviamo una variante libera (es. devver2).

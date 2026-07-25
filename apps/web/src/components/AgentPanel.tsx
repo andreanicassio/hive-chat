@@ -277,7 +277,15 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
     if (!workspace) return;
     void api
       .listRunnerTokens(workspace.id)
-      .then(({ runnerTokens }) => setRunners(runnerTokens))
+      .then(({ runnerTokens }) => {
+        setRunners(runnerTokens);
+        // Una macchina va scelta, e se ce n'è una sola scegliere è una
+        // formalità: la si dà per scelta. Meglio quella accesa, se c'è.
+        setRunnerTokenId(
+          (prev) =>
+            prev ?? (runnerTokens.find((r) => r.online) ?? runnerTokens[0])?.id ?? null,
+        );
+      })
       .catch(() => setRunners([]));
   }, [workspace]);
 
@@ -342,8 +350,28 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
   }
 
   /** Salvataggio in modifica: PATCH + allineamento dei canali. */
+  /**
+   * Un agente locale deve sapere DOVE gira.
+   *
+   * Prima si poteva lasciare «la prima libera», e il turno finiva sulla coda
+   * condivisa: lo prendeva la prima macchina accesa. Ma ogni runner ha la sua
+   * cartella di lavoro — sono checkout diversi, spesso di repo diversi —
+   * quindi non era bilanciamento di carico, era sorteggiare quale codice
+   * viene modificato.
+   */
+  function missingRunner(): boolean {
+    if (execution !== 'local' || runnerTokenId) return false;
+    setError(
+      runners.length === 0
+        ? 'Nessuna macchina disponibile: generane una in Impostazioni → Runner.'
+        : 'Scegli su quale macchina lavora: ognuna ha la sua cartella di lavoro.',
+    );
+    return true;
+  }
+
   async function saveEdits() {
     if (!name.trim() || !model || !agent) return;
+    if (missingRunner()) return;
     setSaving(true);
     setError(null);
     try {
@@ -403,6 +431,7 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
 
   async function create() {
     if (!name.trim() || !model) return;
+    if (missingRunner()) return;
     setSaving(true);
     setError(null);
     try {
@@ -722,7 +751,7 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
                     value={runnerTokenId ?? ''}
                     onChange={(e) => setRunnerTokenId(e.target.value || null)}
                   >
-                    <option value="">La prima libera</option>
+                    {!runnerTokenId && <option value="">Scegli una macchina…</option>}
                     {runners.map((r) => (
                       <option key={r.id} value={r.id}>
                         {r.online ? '● ' : '○ '}
