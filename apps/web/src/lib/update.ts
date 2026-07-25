@@ -1,61 +1,58 @@
 /**
  * «C'è una versione nuova»: rilevamento e passaggio.
  *
- * Il service worker nuovo si installa ma resta in attesa (vedi `sw.ts`). Qui
- * ce ne accorgiamo e lo diciamo all'app, che mostra l'avviso; quando l'utente
- * accetta, gli si dice di prendere il posto del vecchio e si ricarica.
+ * Il service worker nuovo prende il controllo appena è pronto (vedi `sw.ts`),
+ * ma NON ricarica la pagina: quella continua a girare con i file di prima
+ * finché non lo decidi tu. Qui ce ne accorgiamo e lo diciamo all'app, che
+ * mostra l'avviso in basso.
  *
- * Il controllo si rifà anche ogni tanto e al ritorno sulla scheda: una scheda
- * aperta da ore, altrimenti, non scoprirebbe mai che è uscita una versione
- * nuova — ed è proprio quella che resta indietro più a lungo.
+ * Il controllo si rifà ogni tanto e al ritorno sulla scheda: una scheda aperta
+ * da ore, altrimenti, non scoprirebbe mai che è uscita una versione nuova — ed
+ * è proprio quella che resta indietro più a lungo.
  */
 
 /** Ogni mezz'ora: abbastanza spesso da accorgersene, non tanto da pesare. */
 const CHECK_EVERY_MS = 30 * 60_000;
 
 let waiting: ServiceWorker | null = null;
-let reloading = false;
+let announced = false;
 
 export function updateReady(): boolean {
-  return waiting !== null;
+  return announced;
 }
 
 /**
  * Accetta l'aggiornamento.
  *
- * Non ricarica subito: prima chiede al service worker in attesa di prendere
- * il posto del vecchio, poi la pagina si ricarica quando il cambio è
- * avvenuto — `controllerchange`. Ricaricare prima servirebbe la versione
- * vecchia un'altra volta.
+ * Se un service worker è ancora in attesa gli si dice di prendere il posto del
+ * vecchio; se invece ha già preso il controllo — il caso normale — basta
+ * ricaricare, perché i file nuovi sono già quelli che verranno serviti.
  */
 export function applyUpdate(): void {
-  if (!waiting) {
-    location.reload();
-    return;
-  }
-  waiting.postMessage({ type: 'SKIP_WAITING' });
+  if (waiting) waiting.postMessage({ type: 'SKIP_WAITING' });
+  location.reload();
 }
 
 export function watchForUpdates(onReady: () => void): void {
   if (!('serviceWorker' in navigator)) return;
 
   const announce = (sw: ServiceWorker | null) => {
-    if (!sw) return;
+    if (announced) return;
     waiting = sw;
+    announced = true;
     onReady();
   };
 
+  // C'era già un service worker e adesso ne comanda un altro: è arrivata una
+  // versione nuova. Non si ricarica di forza — si avvisa.
+  const hadController = Boolean(navigator.serviceWorker.controller);
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    // Succede anche alla primissima installazione, quando non c'era niente da
-    // aggiornare: lì non c'è nulla da ricaricare.
-    if (reloading || !waiting) return;
-    reloading = true;
-    location.reload();
+    if (hadController) announce(null);
   });
 
   void navigator.serviceWorker.ready.then((reg) => {
     // Già in attesa da un caricamento precedente.
-    announce(reg.waiting);
+    if (reg.waiting && navigator.serviceWorker.controller) announce(reg.waiting);
 
     reg.addEventListener('updatefound', () => {
       const installing = reg.installing;
@@ -64,7 +61,7 @@ export function watchForUpdates(onReady: () => void): void {
         // `controller` esiste solo se un service worker c'era già: senza,
         // questa è la prima installazione e non è un aggiornamento.
         if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-          announce(reg.waiting ?? installing);
+          announce(reg.waiting);
         }
       });
     });

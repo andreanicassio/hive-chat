@@ -18,6 +18,28 @@ import { UpdateToast } from './components/UpdateToast.js';
    pagina bianca muta. Meglio mostrare cosa è successo, con il modo di
    ripartire.
    ======================================================================== */
+/**
+ * Ricarica scartando la copia dell'app tenuta dal service worker.
+ *
+ * Un `location.reload()` normale rimette in piedi gli stessi file: se il
+ * guasto sta lì, si ripresenta identico. Qui siamo già su una schermata di
+ * errore, quindi buttare la cache è il compromesso giusto — si perde il
+ * funzionamento offline per un giro, si recupera un'app che parte.
+ */
+async function hardReload(): Promise<void> {
+  try {
+    const regs = (await navigator.serviceWorker?.getRegistrations?.()) ?? [];
+    await Promise.all(regs.map((r) => r.unregister()));
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch {
+    /* se non si può, si ricarica e basta */
+  }
+  location.reload();
+}
+
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   override state: { error: Error | null } = { error: null };
 
@@ -41,9 +63,16 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
           <pre className="mt-3 max-h-40 overflow-auto rounded-lg bg-[var(--color-panel-alt)] px-3 py-2 font-mono text-[12px]">
             {this.state.error.message}
           </pre>
-          <button className="btn btn-primary mt-4" onClick={() => location.reload()}>
+          <p className="mt-2 font-mono text-[11.5px] text-[var(--color-ink-faint)]">
+            build {__BUILD_ID__}
+          </p>
+          <button className="btn btn-primary mt-4" onClick={() => void hardReload()}>
             Ricarica
           </button>
+          <p className="mt-2 text-[12.5px] text-[var(--color-ink-faint)]">
+            Ricaricando si scarta anche la copia in cache: se il guasto era in una versione
+            vecchia rimasta appesa, così sparisce.
+          </p>
         </div>
       </div>
     );

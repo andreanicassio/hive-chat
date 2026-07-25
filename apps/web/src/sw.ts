@@ -31,12 +31,31 @@ declare const self: ServiceWorkerGlobalScope;
  * caricati a richiesta (il markdown, per esempio) sono già stati rimossi
  * dalla cache — e si romperebbero al primo uso.
  */
+/*
+ * Il service worker nuovo prende il posto del vecchio APPENA è pronto.
+ *
+ * Ieri l'avevo messo in attesa, per non strappare la pagina a chi sta
+ * scrivendo. Sembrava gentile ed era una trappola: il service worker è
+ * l'unico pezzo che il browser riscarica sempre, e se resta in attesa un
+ * client rimasto indietro non ha più nessun modo di venirne fuori. Dentro
+ * l'app Mac non c'è nemmeno un «svuota la cache» da usare come scappatoia:
+ * ricaricare serviva la stessa copia vecchia all'infinito.
+ *
+ * Quindi: il nuovo prende il controllo subito, ma NON ricarica da solo — la
+ * pagina aperta continua a funzionare e mostra l'avviso in basso. Il momento
+ * lo sceglie chi sta usando l'app; il ricaricamento successivo, qualunque
+ * esso sia, servirà comunque la versione nuova.
+ */
+void self.skipWaiting();
+clientsClaim();
+
+// Il pulsante «Ricarica» dell'avviso passa comunque di qui: se per qualche
+// motivo questo service worker fosse ancora in attesa, così si sblocca.
 self.addEventListener('message', (event) => {
   if ((event.data as { type?: string } | undefined)?.type === 'SKIP_WAITING') {
     void self.skipWaiting();
   }
 });
-clientsClaim();
 
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);

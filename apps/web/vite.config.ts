@@ -4,6 +4,18 @@ import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  /*
+   * Un'etichetta della build, visibile nella schermata d'errore.
+   *
+   * Serve a rispondere in un colpo solo alla domanda «ma stai girando sulla
+   * versione nuova?»: senza, davanti a uno screenshot di un crash si può solo
+   * tirare a indovinare.
+   */
+  define: {
+    __BUILD_ID__: JSON.stringify(
+      new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
+    ),
+  },
   plugins: [
     react(),
     tailwindcss(),
