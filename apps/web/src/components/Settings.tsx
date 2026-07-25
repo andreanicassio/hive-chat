@@ -235,12 +235,15 @@ export function Settings({ onClose }: { onClose: () => void }) {
       title={`Impostazioni · ${workspace?.name ?? ''}`}
     >
 
-        <nav className="flex shrink-0 gap-1 border-b border-[var(--color-line)] px-4">
+        {/* Le tab scorrono in orizzontale. Erano cinque, ora sono sette: senza
+            scorrimento le ultime finivano semplicemente fuori dal pannello, e
+            «Notifiche» non si poteva raggiungere in nessun modo. */}
+        <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--color-line)] px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {(
             [
               ['credenziali', 'Credenziali', KeyRound],
-              ['contesto', 'Contesto condiviso', Brain],
-              ['runner', 'Runner locale', Cpu],
+              ['contesto', 'Contesto', Brain],
+              ['runner', 'Runner', Cpu],
               ['persone', 'Persone', UserPlus],
               ['utilizzo', 'Utilizzo', BarChart3],
               ['aspetto', 'Aspetto', Palette],
@@ -251,13 +254,13 @@ export function Settings({ onClose }: { onClose: () => void }) {
               key={id}
               onClick={() => setTab(id)}
               className={clsx(
-                'flex items-center gap-1.5 border-b-2 px-2.5 py-2 text-[13.5px] transition-colors',
+                'flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-2 text-[13.5px] whitespace-nowrap transition-colors',
                 tab === id
                   ? 'border-[var(--color-honey)] font-medium text-[var(--color-ink)]'
                   : 'border-transparent text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]',
               )}
             >
-              <Icon size={14} strokeWidth={2.1} />
+              <Icon size={14} strokeWidth={2.1} className="shrink-0" />
               {label}
             </button>
           ))}
