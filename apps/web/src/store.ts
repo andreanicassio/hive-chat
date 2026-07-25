@@ -132,9 +132,11 @@ interface State {
   runs: Map<string, RunState>;
   /**
    * Messaggi consegnati a un turno GIÀ in corso invece che a uno nuovo.
-   * Chiave: id del messaggio → id dell'agente che lo sta leggendo.
+   * Chiave: id del messaggio. Si porta dietro il turno, perché quando quel
+   * turno finisce il segnale deve spegnersi — prima restava a schermo per
+   * sempre, e spariva solo ricaricando la pagina.
    */
-  steered: Map<string, string>;
+  steered: Map<string, { agentId: string; runId: string; reading: boolean }>;
   /** Stato volatile degli agenti, per la barra in basso. */
   agentActivity: Map<string, { status: AgentStatus; label: string | null }>;
   approvals: Approval[];
@@ -958,6 +960,19 @@ export const useStore = create<State>((set, get) => ({
               streaming: p.status === 'running',
               endedAt: finished ? (run.endedAt ?? Date.now()) : run.endedAt,
             });
+            if (finished) {
+              // Il turno è chiuso: si spegne anche il segnale sui messaggi
+              // che erano stati infilati dentro. Restava acceso a turno
+              // finito, e spariva solo ricaricando la pagina.
+              const steered = new Map(s.steered);
+              let changed = false;
+              for (const [messageId, mark] of steered) {
+                if (mark.runId !== run.runId) continue;
+                steered.delete(messageId);
+                changed = true;
+              }
+              if (changed) return { runs, steered };
+            }
           }
           return { runs };
         });
@@ -1078,10 +1093,21 @@ export const useStore = create<State>((set, get) => ({
       }
 
       case 'steer.delivered': {
-        const p = packet as unknown as { messageId: string; agentId: string };
+        const p = packet as unknown as {
+          messageId: string;
+          agentId: string;
+          runId: string;
+          state: 'pending' | 'reading' | 'done';
+        };
         set((s) => {
           const next = new Map(s.steered);
-          next.set(p.messageId, p.agentId);
+          if (p.state === 'done') next.delete(p.messageId);
+          else
+            next.set(p.messageId, {
+              agentId: p.agentId,
+              runId: p.runId,
+              reading: p.state === 'reading',
+            });
           return { steered: next };
         });
         break;

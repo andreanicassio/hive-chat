@@ -1000,7 +1000,7 @@ export function MessageRow({
   const myUserId = useStore((s) => s.user?.id);
   const allRuns = useStore((s) => s.runs);
   const allAgents = useStore((s) => s.agents);
-  const steeredBy = useStore((s) => s.steered.get(message.id));
+  const steerMark = useStore((s) => s.steered.get(message.id));
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Chi è in coda per rispondere PROPRIO a questo messaggio. La mappa dei run
@@ -1152,13 +1152,31 @@ export function MessageRow({
             </div>
           )}
 
-          {steeredBy && (
-            // Consegnato a un turno già in corso: non nascerà nessuna bolla
-            // nuova, quindi senza questa riga sembrerebbe caduto nel vuoto.
-            <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-[color-mix(in_oklab,var(--color-online)_35%,transparent)] bg-[color-mix(in_oklab,var(--color-online)_10%,transparent)] px-2 py-[3px] text-[11.5px] text-[var(--color-ink-soft)]">
-              <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--color-online)]" />
-              {allAgents.find((a) => a.id === steeredBy)?.name ?? 'L’agente'} lo sta leggendo mentre
-              lavora
+          {steerMark && (
+            /* Consegnato a un turno già in corso: non nascerà nessuna bolla
+               nuova, quindi senza questa riga sembrerebbe caduto nel vuoto.
+               Due stati, perché fra il «consegnato» e il «letto» sul runner
+               locale possono passare secondi, e dire subito «sta leggendo»
+               era una promessa che non potevamo mantenere. */
+            <div
+              className={clsx(
+                'mt-1.5 inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[11.5px] text-[var(--color-ink-soft)]',
+                steerMark.reading
+                  ? 'border-[color-mix(in_oklab,var(--color-online)_35%,transparent)] bg-[color-mix(in_oklab,var(--color-online)_10%,transparent)]'
+                  : 'border-[var(--color-line)] bg-[var(--color-sunken)]',
+              )}
+            >
+              <span
+                className={clsx(
+                  'h-1.5 w-1.5 shrink-0 rounded-full',
+                  steerMark.reading
+                    ? 'animate-pulse bg-[var(--color-online)]'
+                    : 'queued-pulse bg-[var(--color-ink-faint)]',
+                )}
+              />
+              {steerMark.reading
+                ? `${allAgents.find((a) => a.id === steerMark.agentId)?.name ?? 'L’agente'} lo sta leggendo mentre lavora`
+                : 'in consegna al turno in corso'}
             </div>
           )}
 

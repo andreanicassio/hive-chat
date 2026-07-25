@@ -29,9 +29,43 @@ export function createSteering(runId: string, firstPrompt: string): Steering {
   /** Svuota la lista: è lì che stanno i testi, il canale è solo il campanello. */
   const drain = async () => {
     for (;;) {
-      const text = await pub.rpop(redisChannels.steerQueue(runId)).catch(() => null);
-      if (!text) return;
-      inbox.inject(text);
+      const raw = await pub.rpop(redisChannels.steerQueue(runId)).catch(() => null);
+      if (!raw) return;
+      let rec: {
+        text?: string;
+        messageId?: string | null;
+        channelId?: string;
+        workspaceId?: string;
+        agentId?: string;
+      } = {};
+      try {
+        rec = JSON.parse(raw) as typeof rec;
+      } catch {
+        // Record di una versione precedente: era il testo nudo.
+        rec = { text: raw };
+      }
+      if (!rec.text) continue;
+      inbox.inject(rec.text);
+
+      // Il turno ce l'ha in mano: la chat smette di dire «in consegna».
+      if (rec.messageId && rec.workspaceId && rec.channelId && rec.agentId) {
+        void pub
+          .publish(
+            redisChannels.workspace(rec.workspaceId),
+            JSON.stringify({
+              packet: {
+                t: 'steer.delivered',
+                channelId: rec.channelId,
+                messageId: rec.messageId,
+                runId,
+                agentId: rec.agentId,
+                state: 'reading',
+              },
+              channelId: rec.channelId,
+            }),
+          )
+          .catch(() => {});
+      }
     }
   };
 

@@ -167,6 +167,16 @@ export type ServerPacket =
       messageId: string;
       runId: string;
       agentId: string;
+      /**
+       * `pending`: consegnato al turno, che però non l'ha ancora ritirato —
+       * sul runner locale può passare qualche secondo.
+       * `reading`: il turno ce l'ha in mano davvero.
+       * `done`: il turno è finito, il segnale si spegne.
+       *
+       * Erano tutti «sta leggendo» fin dal primo istante, il che era una
+       * bugia all'inizio e restava a schermo per sempre alla fine.
+       */
+      state: 'pending' | 'reading' | 'done';
     };
 
 /* --------------------------------- Canali Redis -------------------------- */

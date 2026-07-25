@@ -685,7 +685,19 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
      * di ritorno degli eventi.
      */
     const key = redisChannels.steerQueue(queueBehind);
-    await redisPub.lpush(key, args.prompt);
+    // Un record, non il solo testo: chi lo ritira deve poter dire in chat
+    // QUALE messaggio è entrato nel turno.
+    await redisPub.lpush(
+      key,
+      JSON.stringify({
+        text: args.prompt,
+        messageId: args.triggerMessageId ?? null,
+        channelId: args.channelId,
+        workspaceId: args.workspaceId,
+        agentId: args.agentId,
+        runId: queueBehind,
+      }),
+    );
     await redisPub.expire(key, 3600);
     await redisPub.publish(redisChannels.steer(queueBehind), '1');
 
@@ -704,6 +716,9 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
             messageId: args.triggerMessageId,
             runId: queueBehind,
             agentId: args.agentId,
+            // Consegnato, non ancora letto: il turno lo ritira al suo
+            // prossimo passaggio.
+            state: 'pending',
           },
           channelId: args.channelId,
         });

@@ -282,9 +282,32 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
       const key = redisChannels.steerQueue(run.id);
       const texts: string[] = [];
       for (;;) {
-        const text = await redisPub.rpop(key);
-        if (!text) break;
-        texts.push(text);
+        const raw = await redisPub.rpop(key);
+        if (!raw) break;
+        let rec: { text?: string; messageId?: string | null } = {};
+        try {
+          rec = JSON.parse(raw) as typeof rec;
+        } catch {
+          // Record scritto da una versione precedente: era il testo nudo.
+          rec = { text: raw };
+        }
+        if (!rec.text) continue;
+        texts.push(rec.text);
+        // Da adesso il turno ce l'ha davvero in mano: la chat può smettere di
+        // dire «in consegna» e dire «lo sta leggendo».
+        if (rec.messageId) {
+          await hub.publish(run.workspaceId, {
+            packet: {
+              t: 'steer.delivered',
+              channelId: run.channelId,
+              messageId: rec.messageId,
+              runId: run.id,
+              agentId: run.agentId,
+              state: 'reading',
+            },
+            channelId: run.channelId,
+          });
+        }
       }
       if (texts.length > 0) steer = texts;
     }
