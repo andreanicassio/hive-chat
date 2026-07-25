@@ -109,7 +109,10 @@
         // Il segnale delle PWA (`window-controls-overlay`) qui non arriva
         // mai: dentro Tauri nessuno lo dichiara, e senza questo l'app
         // finirebbe sotto i tre pallini.
-        window.location.href = url + "/?shell=overlay";
+        // `app` porta la versione del guscio fin dentro la pagina: senza,
+        // «che versione dell'app hai?» non ha risposta — e oggi è costato
+        // un pomeriggio. Va aggiornata insieme alle altre tre.
+        window.location.href = url + "/?shell=overlay&app=0.1.5";
       };
 
       // Ponte verso Rust (Tauri v2, API globale).

@@ -58,8 +58,9 @@ costruiscono i runner macOS di GitHub Actions
 lo zip su `hive.dvnx.net` per l'installazione in una riga.
 
 ```bash
-# 1. le tre versioni vanno allineate a mano, e devono coincidere col tag
+# 1. le QUATTRO versioni vanno allineate a mano, e devono coincidere col tag
 #    apps/desktop/package.json · src-tauri/tauri.conf.json · src-tauri/Cargo.toml
+#    e `?app=` in apps/desktop/ui/index.html, che la mostra nell'app
 # 2. il codice deve stare su GitHub: il workflow fa checkout del tag
 GIT_SSH_COMMAND="ssh -i ~/.ssh/hive_deploy" git push origin main
 git tag desktop-v0.1.3 -m "che cosa cambia"

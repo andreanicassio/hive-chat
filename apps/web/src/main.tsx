@@ -35,8 +35,14 @@ function markTitlebar(): void {
   // indirizzo, e da lì in poi vale per questo dispositivo: la navigazione
   // interna perde la query, e la finestra non cambia forma per strada.
   try {
-    if (new URLSearchParams(location.search).get('shell') === 'overlay') {
+    const params = new URLSearchParams(location.search);
+    if (params.get('shell') === 'overlay') {
       localStorage.setItem('hive:shell', 'overlay');
+      // Il guscio si presenta con la sua versione. Serve a rispondere a «che
+      // versione dell'app hai?», che finora non aveva risposta: la sigla in
+      // basso è quella del frontend, che si aggiorna da sé — il guscio no.
+      const app = params.get('app');
+      if (app) localStorage.setItem('hive:shellVersion', app);
       history.replaceState(null, '', location.pathname + location.hash);
     }
     if (localStorage.getItem('hive:shell') === 'overlay') {

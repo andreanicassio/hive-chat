@@ -36,6 +36,15 @@ export function BuildTag({ className }: { className?: string }) {
   }, []);
 
   const running = runningSha();
+  // Nell'app Mac il guscio è un binario a parte: si aggiorna solo
+  // reinstallandolo, quindi la sua versione va detta accanto a quella del
+  // frontend, non dedotta da essa.
+  let shell: string | null = null;
+  try {
+    shell = localStorage.getItem('hive:shellVersion');
+  } catch {
+    shell = null;
+  }
   const latest = publishedSha();
   const behind = Boolean(latest && latest !== running);
   const ready = updateReady();
@@ -65,6 +74,7 @@ export function BuildTag({ className }: { className?: string }) {
       )}
     >
       Hive · {running}
+      {shell ? ` · app ${shell}` : ''}
     </div>
   );
 }
