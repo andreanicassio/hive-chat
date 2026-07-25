@@ -216,30 +216,53 @@ export function MessageBody({
   const waving = streaming === true && !prefersReducedMotion();
   useWave(host, waving);
 
-  const ctx: WordCtx = { agentHandles, splitting: waving };
+  /*
+   * Le sostituzioni DEVONO essere memoizzate.
+   *
+   * Scritte in linea, queste funzioni sono nuove a ogni render: React le vede
+   * come componenti di tipo diverso e rismonta l'intero sottoalbero a ogni
+   * token che arriva. Ogni parola diventa un nodo nuovo — e i nodi nuovi non
+   * hanno l'attributo che l'onda ha appena scritto sui vecchi, quindi il
+   * messaggio restava invisibile fino a fine streaming.
+   *
+   * Le menzioni le intercettiamo qui invece di pre-processare il markdown,
+   * così non rompiamo blocchi di codice che contengono la stessa sintassi.
+   */
+  const components = useMemo(() => {
+    const ctx: WordCtx = { agentHandles, splitting: waving };
+    return {
+      p: ({ children }: { children?: React.ReactNode }) => (
+        <p>{transformChildren(children, ctx)}</p>
+      ),
+      li: ({ children }: { children?: React.ReactNode }) => (
+        <li>{transformChildren(children, ctx)}</li>
+      ),
+      h1: ({ children }: { children?: React.ReactNode }) => (
+        <h1>{transformChildren(children, ctx)}</h1>
+      ),
+      h2: ({ children }: { children?: React.ReactNode }) => (
+        <h2>{transformChildren(children, ctx)}</h2>
+      ),
+      h3: ({ children }: { children?: React.ReactNode }) => (
+        <h3>{transformChildren(children, ctx)}</h3>
+      ),
+      td: ({ children }: { children?: React.ReactNode }) => (
+        <td>{transformChildren(children, ctx)}</td>
+      ),
+      th: ({ children }: { children?: React.ReactNode }) => (
+        <th>{transformChildren(children, ctx)}</th>
+      ),
+      a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+        <a href={href} target="_blank" rel="noopener noreferrer">
+          {transformChildren(children, ctx)}
+        </a>
+      ),
+    };
+  }, [agentHandles, waving]);
 
   return (
     <div ref={host} className={clsx('msg-body', className)} data-wave={waving ? 'true' : undefined}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          // Le menzioni vivono dentro il testo: le intercettiamo qui
-          // invece di pre-processare il markdown, così non rompiamo
-          // blocchi di codice che contengono la stessa sintassi.
-          p: ({ children }) => <p>{transformChildren(children, ctx)}</p>,
-          li: ({ children }) => <li>{transformChildren(children, ctx)}</li>,
-          h1: ({ children }) => <h1>{transformChildren(children, ctx)}</h1>,
-          h2: ({ children }) => <h2>{transformChildren(children, ctx)}</h2>,
-          h3: ({ children }) => <h3>{transformChildren(children, ctx)}</h3>,
-          td: ({ children }) => <td>{transformChildren(children, ctx)}</td>,
-          th: ({ children }) => <th>{transformChildren(children, ctx)}</th>,
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noopener noreferrer">
-              {transformChildren(children, ctx)}
-            </a>
-          ),
-        }}
-      >
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {body}
       </ReactMarkdown>
     </div>

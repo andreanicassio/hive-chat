@@ -684,9 +684,18 @@
   .msg-body[data-wave] .word {
     opacity: 0;
     transition: opacity 0.6s cubic-bezier(0.33, 0.7, 0.4, 1);
+    /* Cintura di sicurezza: se il fronte dell'onda non arriva — un bug, una
+       scheda in secondo piano che congela i timer — la parola si accende da
+       sola dopo tre secondi. Un'animazione mancata è un dettaglio; un
+       messaggio che resta illeggibile è un guasto. */
+    animation: word-fallback 0.4s ease-out 3s forwards;
   }
   .msg-body[data-wave] .word[data-in] {
     opacity: 1;
+    animation: none;
+  }
+  @keyframes word-fallback {
+    to { opacity: 1; }
   }
 
   /* Una luce che attraversa: dice «vivo» senza fingere di sapere a che punto
