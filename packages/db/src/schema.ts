@@ -364,6 +364,15 @@ export const agentRuns = pgTable(
     sdkSessionId: text('sdk_session_id'),
     status: varchar('status', { length: 20 }).notNull().default('queued'),
     error: text('error'),
+    /*
+     * Modello ed effort con cui il turno è PARTITO.
+     *
+     * Si registrano qui e non si leggono dall'agente: la sua configurazione
+     * può cambiare mentre il turno gira, e mostrare quella nuova vorrebbe
+     * dire dire una cosa falsa su cosa sta davvero girando.
+     */
+    model: text('model'),
+    effort: varchar('effort', { length: 10 }),
     numTurns: integer('num_turns').notNull().default(0),
     /**
      * Costo che l'harness attribuisce al run, a listino. Per i run in

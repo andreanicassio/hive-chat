@@ -640,6 +640,17 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
   }
 
   const runId = randomUUID();
+
+  // Con cosa parte questo turno. Si registra sul run perché la configurazione
+  // dell'agente può cambiare mentre lavora: chi guarda deve vedere quello che
+  // sta girando adesso, non quello che girerà la prossima volta.
+  const agentConfig = (
+    await db
+      .select({ model: schema.agents.model, effort: schema.agents.effort })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, args.agentId))
+      .limit(1)
+  )[0];
   // Tetto di spesa: se il progetto ha finito il budget del mese, il turno
   // non parte. Lo diciamo in chat invece di far sparire il messaggio.
   const budget = await budgetState(args.workspaceId);
@@ -674,6 +685,8 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
     triggerMessageId: args.triggerMessageId,
     responseMessageId: responseMessage.id,
     status: 'queued',
+    model: agentConfig?.model ?? null,
+    effort: agentConfig?.effort ?? null,
     hop: args.hop + 1,
   });
 
@@ -690,6 +703,8 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
       channelId: args.channelId,
       messageId: responseMessage.id,
       triggerMessageId: args.triggerMessageId,
+      model: agentConfig?.model ?? null,
+      effort: agentConfig?.effort ?? null,
     },
     channelId: args.channelId,
   });

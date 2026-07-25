@@ -395,6 +395,9 @@ export const api = {
         triggerMessageId: string | null;
         status: RunStatus;
         error: string | null;
+        /** Con cosa è partito questo turno: non l'attuale configurazione dell'agente. */
+        model: string | null;
+        effort: string | null;
         /** Quanti passaggi ha fatto l'agente: è il "N passaggi" della tab di lavoro. */
         numTurns: number;
         startedAt: string | null;

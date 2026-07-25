@@ -101,6 +101,9 @@ export type ServerPacket =
        * sapere, prima di cancellarlo, che cancellandolo ferma anche l'agente.
        */
       triggerMessageId: string | null;
+      /** Modello ed effort con cui il turno è partito, per mostrarli dal vivo. */
+      model: string | null;
+      effort: string | null;
     }
   | { t: 'run.delta'; runId: string; messageId: string; text: string }
   | {

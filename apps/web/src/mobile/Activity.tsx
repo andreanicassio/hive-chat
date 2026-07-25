@@ -4,6 +4,7 @@ import { useStore, type RunState } from '../store.js';
 import { api } from '../lib/api.js';
 import { Avatar } from '../components/Avatar.js';
 import { useTicker, totalDuration } from '../components/Chat.js';
+import { RunConfig } from '../components/ChannelAside.js';
 import { MobileHeader, WithTabs } from './Shell.js';
 
 /* ==========================================================================
@@ -53,6 +54,8 @@ function ActiveCard({ messageId, run }: { messageId: string; run: RunState }) {
           {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
         </span>
       </div>
+
+      <RunConfig run={run} agentId={run.agentId} />
 
       {note && <p className="mt-2.5 text-[13.5px] leading-[1.45] text-[var(--color-ink)]">{note}</p>}
 

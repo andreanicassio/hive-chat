@@ -124,6 +124,8 @@ export async function approvalRoutes(app: FastifyInstance): Promise<void> {
         sdkSessionId: r.sdkSessionId,
         status: r.status,
         error: r.error,
+        model: r.model,
+        effort: r.effort,
         numTurns: r.numTurns,
         costUsd: r.costUsd == null ? null : Number(r.costUsd),
         inputTokens: r.inputTokens,

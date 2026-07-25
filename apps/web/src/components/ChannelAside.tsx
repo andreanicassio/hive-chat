@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { format } from 'date-fns';
-import { Square, X } from 'lucide-react';
+import { ChevronDown, Square, X } from 'lucide-react';
 import { useStore, type RunState } from '../store.js';
 import { api } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
 import { Composer, MessageBody, WorkTab, useTicker } from './Chat.js';
-import type { Message } from '@hive/shared';
+import { effortLevels, type EffortLevel, type Message } from '@hive/shared';
 
 /* ========================================================================== */
 /*  Pannello laterale del canale: cosa stanno facendo gli agenti, e i thread   */
@@ -75,6 +75,89 @@ function toolTally(run: RunState): string {
     .join(' · ');
 }
 
+/** `anthropic/claude-opus-4-8` → `claude-opus-4-8`. */
+function shortModel(model: string): string {
+  return model.replace(/^.*\//, '');
+}
+
+/**
+ * Con cosa sta girando questo turno, e come cambiarlo.
+ *
+ * Modello ed effort vengono dal RUN, non dall'agente: sono quelli con cui è
+ * partito. Il selettore invece scrive sull'agente, quindi vale dal turno
+ * dopo — e lo dice, perché il contrario sarebbe una promessa che non si può
+ * mantenere: l'effort si passa all'SDK quando la query parte, e a quel punto
+ * non si cambia più.
+ */
+export function RunConfig({ run, agentId }: { run: RunState; agentId: string }) {
+  const agents = useStore((s) => s.agents);
+  const agent = agents.find((a) => a.id === agentId);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const live = run.status === 'running' || run.status === 'queued';
+
+  // L'effort vale solo per i modelli Claude: sugli altri l'SDK lo ignora, e
+  // mostrare un selettore che non fa niente è peggio che non mostrarlo.
+  const supportsEffort = (run.model ?? agent?.model ?? '').startsWith('anthropic/');
+  const pending = agent && run.effort && agent.effort !== run.effort;
+
+  async function choose(effort: EffortLevel) {
+    setBusy(true);
+    try {
+      await api.updateAgent(agentId, { effort });
+      setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!run.model && !run.effort) return null;
+
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+      {run.model && (
+        <span className="rounded-[5px] bg-[var(--color-sunken)] px-1.5 py-px font-mono text-[10.5px] text-[var(--color-ink-soft)]">
+          {shortModel(run.model)}
+        </span>
+      )}
+      {run.effort && supportsEffort && (
+        <div className="relative">
+          <button
+            onClick={() => setOpen(!open)}
+            className="flex items-center gap-1 rounded-[5px] bg-[var(--color-sunken)] px-1.5 py-px text-[10.5px] text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-ink)]"
+            title="Cambia l'impegno di ragionamento"
+          >
+            effort: <span className="font-medium">{run.effort}</span>
+            <ChevronDown size={10} strokeWidth={2.4} />
+          </button>
+          {open && (
+            <div className="absolute bottom-full left-0 z-30 mb-1 overflow-hidden rounded-[9px] border border-[var(--color-line)] bg-[var(--color-panel)] shadow-[var(--shadow-pop)]">
+              {effortLevels.map((level) => (
+                <button
+                  key={level}
+                  onClick={() => void choose(level)}
+                  disabled={busy}
+                  className={clsx(
+                    'block w-full px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-[var(--color-sunken)]',
+                    agent?.effort === level && 'font-semibold text-[var(--color-honey)]',
+                  )}
+                >
+                  {level}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {pending && (
+        <span className="text-[10.5px] text-[var(--color-ink-faint)]">
+          {live ? `dal prossimo turno: ${agent.effort}` : `ora impostato: ${agent.effort}`}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** Il testo di un messaggio senza il markup delle menzioni. */
 function plainText(body: string, max: number): string {
   const text = body
@@ -116,6 +199,8 @@ function ActiveRunCard({ run, channelId }: { run: RunState; channelId: string })
           {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
         </span>
       </div>
+
+      <RunConfig run={run} agentId={run.agentId} />
 
       {asked && (
         <p className="mt-2 border-l-2 border-[var(--color-line-strong)] pl-2 text-[12px] leading-[1.45] text-[var(--color-ink-faint)]">
