@@ -34,3 +34,4 @@ chrome-headless-shell/
 # Cartella di lavoro del runner: ci finiscono gli allegati che le persone
 # caricano in chat. Sono dati loro, non sorgenti.
 .hive/
+deploy/backup.env

@@ -59,7 +59,7 @@ from datetime import datetime, timedelta, timezone
 
 dest = sys.argv[1]
 now = datetime.now(timezone.utc)
-pat = re.compile(r'^hive-(\d{4}-\d{2}-\d{2}T\d{6}Z)(-uploads\.tar\.gz|\.dump)$')
+pat = re.compile(r'^hive-(\d{4}-\d{2}-\d{2}T\d{6}Z)(-uploads\.tar\.gz|-env|\.dump)(\.gpg)?$')
 
 # Raggruppa dump e allegati sotto la stessa data: si tengono o si buttano
 # insieme, altrimenti resta un database senza le sue immagini.
@@ -107,5 +107,57 @@ for s in stamps:
         removed += 1
 print(f'[backup] copie tenute: {len(keep)}, file rimossi: {removed}')
 PY
+
+# --- Copia fuori sede, cifrata ----------------------------------------
+#
+# Tutto quello che esce da questa macchina esce cifrato. Non perche' R2 sia
+# insicuro — e' privato — ma perche' dentro c'e' ogni messaggio mai scritto,
+# e una copia in chiaro su un servizio altrui e' una decisione che non voglio
+# prendere per distrazione.
+#
+# Ci va anche il `.env`: contiene SECRETS_KEY, la chiave che apre i segreti
+# dei progetti nel database. Senza, un ripristino ti ridarebbe le righe
+# cifrate e nessun modo di leggerle.
+ENVFILE="${HIVE_ENV_FILE:-/home/andrea/hive/.env}"
+CONF="${HIVE_BACKUP_ENV:-/home/andrea/hive/deploy/backup.env}"
+
+if [ -r "$CONF" ]; then
+  set -a; . "$CONF"; set +a
+fi
+
+if [ -n "${BACKUP_PASSPHRASE:-}" ]; then
+  enc() {
+    gpg --batch --yes --quiet --symmetric --cipher-algo AES256 \
+      --passphrase "$BACKUP_PASSPHRASE" -o "$1.gpg" "$1"
+    # Riletto subito: una copia cifrata che non si apre e' peggio di nessuna
+    # copia, perche' ti fa credere di essere coperto.
+    if ! gpg --batch --quiet --decrypt --passphrase "$BACKUP_PASSPHRASE" \
+         -o /dev/null "$1.gpg" 2>/dev/null; then
+      echo "[backup] ERRORE: cifratura non verificabile per $1" >&2
+      rm -f "$1.gpg"
+      exit 1
+    fi
+  }
+  enc "$dump"
+  [ -f "$files" ] && enc "$files"
+  if [ -r "$ENVFILE" ]; then
+    cp "$ENVFILE" "$DEST/hive-$STAMP-env"
+    enc "$DEST/hive-$STAMP-env"
+    rm -f "$DEST/hive-$STAMP-env"   # in chiaro non resta mai a terra
+  fi
+fi
+
+if [ -n "${R2_BUCKET:-}" ] && command -v rclone >/dev/null 2>&1; then
+  export RCLONE_CONFIG_R2_TYPE=s3
+  export RCLONE_CONFIG_R2_PROVIDER=Cloudflare
+  export RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
+  export RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
+  export RCLONE_CONFIG_R2_ENDPOINT="$R2_ENDPOINT"
+  export RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
+  # `sync` e non `copy`: cosi' la ritenzione decisa qui sopra vale anche
+  # laggiu', senza una seconda regola da tenere allineata a mano.
+  rclone sync "$DEST" "r2:$R2_BUCKET" --include "*.gpg" --stats-one-line -q
+  echo "[backup] fuori sede: $(rclone ls "r2:$R2_BUCKET" -q | wc -l) file su R2"
+fi
 
 echo "[backup] ok: $(basename "$dump") ($(du -h "$dump" | cut -f1))"

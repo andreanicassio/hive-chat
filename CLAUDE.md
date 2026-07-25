@@ -126,9 +126,21 @@ pg_restore -h 127.0.0.1 -U hive -d hive --clean --if-exists FILE.dump
 tar xzf FILE-uploads.tar.gz -C /
 ```
 
-**Manca la copia fuori da questa macchina**, ed è la metà che conta contro un
-guasto del disco. Finché non c'è, questo protegge da una cancellazione
-sbagliata, non dalla perdita del server.
+La copia esce anche **fuori sede**, su Cloudflare R2, e ne esce **cifrata**
+(`gpg`, AES256): dentro c'è ogni messaggio mai scritto, e una copia in chiaro
+su un servizio altrui non è una decisione da prendere per distrazione. Nel
+pacchetto cifrato va anche il `.env`, perché contiene `SECRETS_KEY` — senza
+quella, un ripristino ti ridà i segreti dei progetti cifrati e nessun modo di
+aprirli.
+
+Credenziali e passphrase stanno in `deploy/backup.env` (600, fuori da git).
+**Se perdi la passphrase i backup remoti sono carta straccia**: deve esistere
+anche fuori da questo server.
+
+L'invio è `rclone sync`, non `copy`: la ritenzione decisa qui vale anche
+laggiù, senza una seconda regola da tenere allineata a mano. Serve rclone
+recente — quello del pacchetto Ubuntu (1.60) fallisce con R2 restituendo 501;
+in `/usr/local/bin` c'è quello ufficiale.
 
 ## Collaudare l'interfaccia davvero
 
