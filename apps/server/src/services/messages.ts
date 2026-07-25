@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql as raw, isNull } from 'drizzle-orm';
+import { and, eq, inArray, sql as raw, isNull, gte } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { db, schema } from '../db/index.js';
 import { badRequest } from '../lib/errors.js';
@@ -421,6 +421,29 @@ async function dispatchJob(job: RunJob): Promise<void> {
       machine = t[0]?.label ?? null;
       const seen = t[0]?.lastSeenAt;
       seenRecently = Boolean(seen && Date.now() - seen.getTime() < 5 * 60_000);
+    }
+    if (!target) {
+      // Nessuna macchina scelta: se una qualsiasi di questo progetto è stata
+      // vista da poco, il lavoro aspetta lei invece di fallire subito.
+      const recent = await db
+        .select({ id: schema.runnerTokens.id })
+        .from(schema.runnerTokens)
+        .where(
+          and(
+            eq(schema.runnerTokens.userId, agentExec.ownerId),
+            eq(schema.runnerTokens.workspaceId, job.workspaceId),
+            isNull(schema.runnerTokens.revokedAt),
+            gte(schema.runnerTokens.lastSeenAt, new Date(Date.now() - 5 * 60_000)),
+          ),
+        )
+        .limit(1);
+      if (recent.length > 0) {
+        await redisPub.lpush(
+          redisChannels.runnerQueue(agentExec.ownerId, job.workspaceId),
+          JSON.stringify(job),
+        );
+        return;
+      }
     }
     if (seenRecently && target) {
       await redisPub.lpush(redisChannels.runnerQueueById(target), JSON.stringify(job));

@@ -560,6 +560,19 @@ export async function startRunnerClient(): Promise<void> {
     console.error('[runner] impossibile collegarsi:', (err as Error).message);
   }
 
+  // Battito indipendente dal poll: mentre il runner ESEGUE un turno non fa
+  // richieste di poll, quindi la sua presenza (TTL 30s) scadeva e il server
+  // lo dava per spento — i messaggi che arrivavano durante un lavoro lungo
+  // fallivano con «runner offline» pur essendo la macchina accesa e attiva.
+  const heartbeat = setInterval(() => {
+    void fetch(`${cfg.serverUrl}/api/runner/hello`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.token}` },
+      body: JSON.stringify({ name: cfg.name, host: hostname(), workdir: cfg.workdir }),
+    }).catch(() => {});
+  }, 10_000);
+  heartbeat.unref();
+
   // Comandi fuori turno (lettura/scrittura file) in parallelo ai turni.
   void commandLoop(cfg);
 
