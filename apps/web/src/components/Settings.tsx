@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../store.js';
 import { Usage } from './Usage.js';
+import { BuildTag } from './BuildTag.js';
 import { Modal } from './Modal.js';
 import { applyTheme, setThemePref, storedPref, type ThemePref } from '../lib/theme.js';
 import { disablePush, enablePush, pushState, type PushState } from '../lib/push.js';
@@ -265,6 +266,12 @@ export function Settings({ onClose }: { onClose: () => void }) {
             </button>
           ))}
         </nav>
+
+        {/* Da telefono la barra laterale non c'è: la versione in esecuzione
+            deve restare raggiungibile anche qui. */}
+        <div className="shrink-0 border-b border-[var(--color-line)] px-4 py-1">
+          <BuildTag />
+        </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {loading ? (

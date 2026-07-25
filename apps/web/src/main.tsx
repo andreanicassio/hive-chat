@@ -27,6 +27,24 @@ function markTitlebar(): void {
   // sotto una barra che non era affatto sparita.
   if (window.matchMedia?.('(display-mode: window-controls-overlay)').matches === true) {
     document.documentElement.dataset.titlebar = 'overlay';
+    return;
+  }
+
+  // Il guscio Mac non dichiara nulla — quel segnale è roba da PWA e dentro
+  // Tauri non arriva mai. Ce lo dice lui, con `?shell=overlay` sul primo
+  // indirizzo, e da lì in poi vale per questo dispositivo: la navigazione
+  // interna perde la query, e la finestra non cambia forma per strada.
+  try {
+    if (new URLSearchParams(location.search).get('shell') === 'overlay') {
+      localStorage.setItem('hive:shell', 'overlay');
+      history.replaceState(null, '', location.pathname + location.hash);
+    }
+    if (localStorage.getItem('hive:shell') === 'overlay') {
+      document.documentElement.dataset.titlebar = 'overlay';
+    }
+  } catch {
+    // Archiviazione bloccata: si resta con la barra normale, che è il caso
+    // peggiore ma non rompe niente.
   }
 }
 markTitlebar();

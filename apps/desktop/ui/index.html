@@ -104,7 +104,12 @@
         const url = $("server").value.trim().replace(/\/+$/, "");
         if (!url) return;
         store.set("hive:serverUrl", url);
-        window.location.href = url;
+        // `?shell=overlay` dice all'app che questa finestra le lascia
+        // disegnare fin sotto i comandi del Mac (titleBarStyle: Overlay).
+        // Il segnale delle PWA (`window-controls-overlay`) qui non arriva
+        // mai: dentro Tauri nessuno lo dichiara, e senza questo l'app
+        // finirebbe sotto i tre pallini.
+        window.location.href = url + "/?shell=overlay";
       };
 
       // Ponte verso Rust (Tauri v2, API globale).

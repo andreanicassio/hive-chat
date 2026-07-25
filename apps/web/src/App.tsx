@@ -278,6 +278,12 @@ export function App() {
       {/* Fuori dalle rotte: l'avviso di aggiornamento vale ovunque, anche
           sulla pagina d'accesso. */}
       <UpdateToast />
+      {/* La striscia trascinabile sotto i comandi della finestra. C'è solo
+          dove la finestra ci lascia disegnare fin lassù: altrove sarebbe
+          32px di pagina che non risponde al clic. */}
+      {document.documentElement.dataset.titlebar === 'overlay' && (
+        <div className="titlebar-drag" data-tauri-drag-region />
+      )}
       <Routes>
         <Route path="/accedi" element={user ? <Navigate to="/" replace /> : <AuthPage />} />
         <Route path="/invito/:code" element={<InviteLanding />} />

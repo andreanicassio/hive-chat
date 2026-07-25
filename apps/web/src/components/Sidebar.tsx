@@ -15,6 +15,7 @@ import {
 import { useStore } from '../store.js';
 import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
+import { BuildTag } from './BuildTag.js';
 import type { Channel } from '@hive/shared';
 
 /* Misure della voce di barra. `.rail-item` vive in index.css: qui si aggiunge
@@ -363,8 +364,13 @@ export function Sidebar({
         </button>
       </div>
 
+      {/* Quale versione sto eseguendo: sopra il profilo, sempre in vista. */}
+      <div className="shrink-0 px-2.5 pt-1">
+        <BuildTag />
+      </div>
+
       {/* --- utente e progetto corrente --- */}
-      <div className="relative flex items-center gap-2.5 px-3 py-3">
+      <div className="relative flex items-center gap-2.5 px-3 pt-1 pb-3">
         {/* Menu di scelta progetto. */}
         {wsMenu && (
           <>

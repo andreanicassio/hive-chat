@@ -2,21 +2,54 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { execSync } from 'node:child_process';
+
+/*
+ * L'identità della build.
+ *
+ * Lo `sha` è il commit da cui esce questo bundle: è la stessa sigla che
+ * finisce nei messaggi in chat («committato come cd59864»), quindi guardando
+ * l'angolo della barra laterale si sa esattamente cosa si sta eseguendo —
+ * senza doverlo dedurre da quali funzioni si vedono e quali no.
+ */
+const BUILD_SHA = (() => {
+  try {
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+  } catch {
+    return 'dev';
+  }
+})();
+const BUILD_TIME = new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+
+/**
+ * `version.json` accanto al bundle.
+ *
+ * Il client lo rilegge ogni tanto: se la sigla è cambiata, sul server c'è una
+ * versione più nuova di quella che sta girando qui. È il modo più diretto di
+ * accorgersene — il controllo del service worker da solo passa ogni mezz'ora,
+ * troppo lento in una fase in cui si pubblica dieci volte al giorno.
+ */
+function versionManifest() {
+  return {
+    name: 'hive-version-manifest',
+    generateBundle(this: { emitFile: (f: Record<string, string>) => void }) {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: JSON.stringify({ sha: BUILD_SHA, builtAt: BUILD_TIME }),
+      });
+    },
+  };
+}
 
 export default defineConfig({
-  /*
-   * Un'etichetta della build, visibile nella schermata d'errore.
-   *
-   * Serve a rispondere in un colpo solo alla domanda «ma stai girando sulla
-   * versione nuova?»: senza, davanti a uno screenshot di un crash si può solo
-   * tirare a indovinare.
-   */
   define: {
-    __BUILD_ID__: JSON.stringify(
-      new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
-    ),
+    __BUILD_ID__: JSON.stringify(`${BUILD_SHA} · ${BUILD_TIME}`),
+    __BUILD_SHA__: JSON.stringify(BUILD_SHA),
+    __BUILD_TIME__: JSON.stringify(BUILD_TIME),
   },
   plugins: [
+    versionManifest(),
     react(),
     tailwindcss(),
     VitePWA({

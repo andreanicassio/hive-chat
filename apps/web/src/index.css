@@ -176,8 +176,11 @@
   :root[data-titlebar='overlay'] #root {
     padding-top: var(--titlebar-height, 32px);
   }
-  :root[data-titlebar='overlay']::after {
-    content: '';
+  /* Un elemento vero, non uno pseudo: il guscio Mac riconosce la striscia
+     dall'attributo `data-tauri-drag-region`, e un attributo su un `::after`
+     non esiste. `-webkit-app-region` resta per l'app installata dal browser,
+     che invece va di CSS. */
+  .titlebar-drag {
     position: fixed;
     inset: 0 0 auto 0;
     height: var(--titlebar-height, 32px);
