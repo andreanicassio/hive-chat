@@ -183,7 +183,11 @@ function ActiveRunCard({ run, channelId }: { run: RunState; channelId: string })
       ? s.messagesByChannel.get(channelId)?.find((m) => m.id === run.triggerMessageId)
       : undefined,
   );
-  const now = useTicker(true);
+  // In coda non è «al lavoro»: non c'è niente da cronometrare, perché non è
+  // ancora cominciato niente. Un timer che scorre su un turno fermo racconta
+  // una bugia — sembra che stia impiegando tanto, e invece sta aspettando.
+  const queued = run.status === 'queued';
+  const now = useTicker(!queued);
   const seconds = run.startedAt ? Math.floor((now - run.startedAt) / 1000) : 0;
   const tool = currentTool(run);
   const note = currentNote(run);
@@ -195,9 +199,15 @@ function ActiveRunCard({ run, channelId }: { run: RunState; channelId: string })
         <span className="text-[14px]">{agent?.avatarEmoji ?? '🤖'}</span>
         <span className="text-[12.5px] font-semibold">{agent?.name ?? 'Agente'}</span>
         <span className="flex-1" />
-        <span className="font-mono text-[10.5px] text-[var(--color-ink-faint)] tabular-nums">
-          {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
-        </span>
+        {queued ? (
+          <span className="rounded-full bg-[var(--color-sunken)] px-2 py-[2px] text-[10.5px] font-medium text-[var(--color-ink-faint)]">
+            in coda
+          </span>
+        ) : (
+          <span className="font-mono text-[10.5px] text-[var(--color-ink-faint)] tabular-nums">
+            {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
+          </span>
+        )}
       </div>
 
       <RunConfig run={run} agentId={run.agentId} />
@@ -209,12 +219,9 @@ function ActiveRunCard({ run, channelId }: { run: RunState; channelId: string })
       )}
 
       <p className="mt-2 text-[13px] leading-[1.45] text-[var(--color-ink)]">
-        {note ??
-          (run.status === 'queued'
-            ? 'In coda: parte appena si libera.'
-            : tool
-              ? tool.label
-              : 'Sta ragionando…')}
+        {queued
+          ? 'Parte appena si libera. Non ha ancora letto il messaggio.'
+          : (note ?? (tool ? tool.label : 'Sta ragionando…'))}
       </p>
 
       {tally && (
@@ -234,7 +241,15 @@ function ActiveRunCard({ run, channelId }: { run: RunState; channelId: string })
         onClick={() => void api.cancelRun(run.runId).catch(() => {})}
         className="mt-2.5 flex h-[26px] w-full items-center justify-center gap-1.5 rounded-[7px] bg-[color-mix(in_oklab,var(--color-error)_10%,transparent)] text-[12px] font-medium text-[var(--color-error)] transition-colors hover:bg-[color-mix(in_oklab,var(--color-error)_18%,transparent)]"
       >
-        <Square size={10} strokeWidth={3} /> Interrompi
+        {queued ? (
+          <>
+            <X size={11} strokeWidth={3} /> Annulla
+          </>
+        ) : (
+          <>
+            <Square size={10} strokeWidth={3} /> Interrompi
+          </>
+        )}
       </button>
     </div>
   );

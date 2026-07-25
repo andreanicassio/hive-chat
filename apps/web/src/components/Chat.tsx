@@ -61,7 +61,7 @@ function renderMentions(text: string, isAgentHandle: (h: string) => boolean) {
     if (index > last) parts.push(text.slice(last, index));
     if (m[1]) parts.push({ handle: m[1], kind: isAgentHandle(m[1]) ? 'agent' : 'user' });
     else if (m[2]) parts.push({ handle: m[2], kind: 'channel' });
-    else parts.push({ handle: 'tutti', kind: 'all' });
+    else parts.push({ handle: 'everyone', kind: 'all' });
     last = index + m[0].length;
   }
   if (last < text.length) parts.push(text.slice(last));
@@ -371,7 +371,7 @@ export function useTicker(active: boolean): number {
 
 /** "0,31 s" per le operazioni: sotto il minuto il decimo conta. */
 export function shortDuration(ms: number): string {
-  if (ms < 60_000) return `${(ms / 1000).toFixed(2).replace('.', ',')} s`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(2)}s`;
   const m = Math.floor(ms / 60_000);
   return `${m}m ${Math.round((ms % 60_000) / 1000)}s`;
 }
@@ -525,12 +525,12 @@ export function WorkTab({ run, messageId }: { run: RunState; messageId: string }
           )}
         />
         <span className="shrink-0 text-[12.5px] font-semibold tracking-[-0.005em] text-[var(--color-ink-soft)]">
-          {live ? 'Sta lavorando' : 'Lavoro svolto'}
+          {live ? 'Working' : 'Work'}
         </span>
         <span className="shrink-0 text-[11.5px] text-[var(--color-ink-faint)]">
           {live
-            ? `passaggio ${stepCount || 1}`
-            : `${stepCount} ${stepCount === 1 ? 'passaggio' : 'passaggi'}`}
+            ? `step ${stepCount || 1}`
+            : `${stepCount} ${stepCount === 1 ? 'step' : 'steps'}`}
         </span>
         <span className="flex-1" />
         {!live && chips.length > 0 && (
@@ -559,7 +559,7 @@ export function WorkTab({ run, messageId }: { run: RunState; messageId: string }
         <div className="border-t border-[var(--color-line)] bg-[var(--color-panel)]">
           {steps.length === 0 ? (
             <div className="px-[14px] py-3 text-[13px] text-[var(--color-ink-faint)]">
-              {thinking ? 'Ha ragionato, senza usare strumenti.' : 'Traccia non disponibile.'}
+              {thinking ? 'It thought this through, without using tools.' : 'No trace available.'}
             </div>
           ) : (
             <WorkSteps steps={steps} now={run.endedAt ?? now} />
@@ -615,7 +615,7 @@ export function WorkRow({ run, onOpen }: { run: RunState; onOpen: () => void }) 
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-1.5">
             <span className="text-[13.5px] font-semibold text-[var(--color-ink-soft)]">
-              {live ? 'Sta lavorando' : 'Lavoro svolto'}
+              {live ? 'Working' : 'Work'}
             </span>
             {live && seconds !== null && (
               <span className="text-[12px] text-[var(--color-ink-faint)] tabular-nums">
@@ -625,8 +625,8 @@ export function WorkRow({ run, onOpen }: { run: RunState; onOpen: () => void }) 
           </span>
           <span className="block truncate text-[12px] text-[var(--color-ink-faint)]">
             {live
-              ? (running?.label ?? 'sta ragionando…')
-              : `${stepCount} ${stepCount === 1 ? 'passaggio' : 'passaggi'}${
+              ? (running?.label ?? 'thinking…')
+              : `${stepCount} ${stepCount === 1 ? 'step' : 'steps'}${
                   elapsed !== null ? ` · ${totalDuration(elapsed)}` : ''
                 }`}
           </span>
@@ -641,7 +641,7 @@ export function WorkRow({ run, onOpen }: { run: RunState; onOpen: () => void }) 
       {live && (
         <button
           onClick={() => void api.cancelRun(run.runId).catch(() => {})}
-          aria-label="Ferma questo turno"
+          aria-label="Stop this turn"
           className="flex w-11 shrink-0 items-center justify-center rounded-[10px] border border-[var(--color-line)] bg-[var(--color-panel-alt)] text-[var(--color-ink-faint)] transition-colors active:text-[var(--color-error)]"
         >
           <Square size={13} strokeWidth={3} />
@@ -714,7 +714,7 @@ function ApprovalCard({ approval }: { approval: Approval }) {
         <span className="mt-0.5 text-[15px]">{agent?.avatarEmoji ?? '🤖'}</span>
         <div className="min-w-0 flex-1">
           <div className="text-[14px] font-medium">
-            {agent?.name ?? 'Un agente'} chiede il permesso
+            {agent?.name ?? 'An agent'} needs your approval
           </div>
           <div className="mt-0.5 text-[13.5px] text-[var(--color-ink-soft)]">{approval.title}</div>
         </div>
@@ -728,13 +728,13 @@ function ApprovalCard({ approval }: { approval: Approval }) {
 
       <div className="flex items-center gap-2 px-3.5 py-3">
         <button className="btn btn-primary h-8" onClick={() => void decide(true)} disabled={busy}>
-          Consenti
+          Allow
         </button>
         <button className="btn btn-ghost h-8" onClick={() => void decide(false)} disabled={busy}>
-          Rifiuta
+          Deny
         </button>
         <span className="ml-auto text-[12px] text-[var(--color-ink-faint)]">
-          Nessuno esegue nulla finché non decidi
+          Nothing runs until you decide
         </span>
       </div>
     </div>
@@ -779,14 +779,14 @@ function LiveHint({ run, compact }: { run: RunState; compact?: boolean }) {
         ))}
       </span>
       <span className="tabular-nums">
-        sta scrivendo · {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
+        is typing · {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
       </span>
       <button
         onClick={() => void api.cancelRun(run.runId).catch(() => {})}
         className="rounded-md border border-[var(--color-line)] bg-[var(--color-panel-alt)] px-2 py-px transition-colors hover:border-[color-mix(in_oklab,var(--color-error)_35%,var(--color-line))] hover:text-[var(--color-error)]"
-        title="Ferma questo turno"
+        title="Stop this turn"
       >
-        Ferma
+        Stop
       </button>
     </span>
   );
@@ -825,11 +825,11 @@ function ThreadBar({ message, onOpen }: { message: Message; onOpen?: () => void 
         </span>
       )}
       <span className="text-[12.5px] font-semibold tracking-[-0.005em] text-[var(--color-honey)]">
-        {message.replyCount} {message.replyCount === 1 ? 'risposta' : 'risposte'}
+        {message.replyCount} {message.replyCount === 1 ? 'reply' : 'replies'}
       </span>
       {last && (
         <span className="text-[11.5px] text-[var(--color-ink-faint)]">
-          ultima alle {format(last, 'HH:mm')}
+          last at {format(last, 'HH:mm')}
         </span>
       )}
     </button>
@@ -891,26 +891,26 @@ function DeleteMessageDialog({ message, onClose }: { message: Message; onClose: 
   return (
     <Modal
       onClose={onClose}
-      title="Eliminare il messaggio?"
+      title="Delete this message?"
       size="sm"
       footer={
         <div className="flex items-center justify-end gap-2">
           <button className="btn btn-ghost" onClick={onClose} disabled={busy}>
-            Annulla
+            Cancel
           </button>
           <button
             className="btn bg-[var(--color-error)] text-[var(--color-on-accent)] hover:brightness-110"
             onClick={() => void remove()}
             disabled={busy}
           >
-            {busy ? 'Elimino…' : 'Elimina'}
+            {busy ? 'Deleting…' : 'Delete'}
           </button>
         </div>
       }
     >
       <p className="text-[14px] text-[var(--color-ink-soft)]">
-        Il testo sparisce per tutti e non si recupera. Al suo posto resta una riga che dice che
-        c'era un messaggio.
+        The text disappears for everyone and can't be recovered. In its place stays a line saying
+        there was a message here.
       </p>
 
       {names.length > 0 && (
@@ -919,14 +919,14 @@ function DeleteMessageDialog({ message, onClose }: { message: Message; onClose: 
           <p className="text-[13.5px]">
             {names.length === 1 ? (
               <>
-                <strong className="font-semibold">{names[0]}</strong> sta rispondendo a questo
-                messaggio: eliminandolo <strong className="font-semibold">fermi anche lui</strong>.
+                <strong className="font-semibold">{names[0]}</strong> is replying to this message:
+                deleting it <strong className="font-semibold">stops it too</strong>.
               </>
             ) : (
               <>
-                <strong className="font-semibold">{names.join(', ')}</strong> stanno rispondendo a
-                questo messaggio: eliminandolo{' '}
-                <strong className="font-semibold">fermi anche loro</strong>.
+                <strong className="font-semibold">{names.join(', ')}</strong> are replying to this
+                message: deleting it{' '}
+                <strong className="font-semibold">stops them too</strong>.
               </>
             )}
           </p>
@@ -935,7 +935,7 @@ function DeleteMessageDialog({ message, onClose }: { message: Message; onClose: 
 
       {failed && (
         <p className="mt-3 text-[13.5px] text-[var(--color-error)]">
-          Non è stato possibile eliminarlo. Riprova.
+          Couldn't delete it. Try again.
         </p>
       )}
     </Modal>
@@ -963,7 +963,7 @@ function QuotedReply({ reply }: { reply: ReplyPreview }) {
       <CornerUpLeft size={12} strokeWidth={2.2} className="shrink-0 text-[var(--color-ink-faint)]" />
       <span className="shrink-0 font-medium">{reply.authorName}</span>
       <span className="min-w-0 truncate text-[var(--color-ink-faint)]">
-        {reply.deleted ? 'messaggio eliminato' : reply.excerpt}
+        {reply.deleted ? 'deleted message' : reply.excerpt}
       </span>
     </button>
   );
@@ -1009,7 +1009,7 @@ export function MessageRow({
     const names: string[] = [];
     for (const r of allRuns.values()) {
       if (r.status !== 'queued' || r.triggerMessageId !== message.id) continue;
-      names.push(allAgents.find((a) => a.id === r.agentId)?.name ?? 'Un agente');
+      names.push(allAgents.find((a) => a.id === r.agentId)?.name ?? 'An agent');
     }
     return names;
   }, [allRuns, allAgents, message.id]);
@@ -1832,35 +1832,47 @@ export function AgentStatusBar() {
   const now = useTicker(activity.size > 0);
 
   const active = [...activity.entries()]
-    .map(([id, state]) => ({
-      agent: agents.find((a) => a.id === id),
-      state,
-      startedAt: [...runs.values()].find(
+    .map(([id, state]) => {
+      const run = [...runs.values()].find(
         (r) => r.agentId === id && (r.status === 'running' || r.status === 'queued'),
-      )?.startedAt,
-    }))
+      );
+      return {
+        agent: agents.find((a) => a.id === id),
+        state,
+        // Un turno in coda non ha un cronometro: non è partito niente da
+        // misurare, e la rotella che gira direbbe che sta lavorando.
+        queued: run?.status === 'queued',
+        startedAt: run?.startedAt,
+      };
+    })
     .filter((x) => x.agent);
 
   if (active.length === 0) return null;
 
   return (
     <div className="flex h-10 items-center gap-4 px-4 text-[12.5px]">
-      {active.slice(0, 3).map(({ agent, state, startedAt }) => {
+      {active.slice(0, 3).map(({ agent, state, startedAt, queued }) => {
         const seconds = startedAt ? Math.floor((now - startedAt) / 1000) : null;
         return (
           <span key={agent!.id} className="flex min-w-0 items-center gap-2">
             <span>{agent!.avatarEmoji}</span>
             <span className="font-semibold">{agent!.name}</span>
             <span className="min-w-0 truncate font-mono text-[11.5px] text-[var(--color-ink-soft)]">
-              {state.label ??
-                (state.status === 'thinking'
-                  ? 'sta ragionando'
-                  : state.status === 'waiting'
-                    ? 'in attesa di conferma'
-                    : 'al lavoro')}
+              {queued
+                ? 'in coda'
+                : (state.label ??
+                  (state.status === 'thinking'
+                    ? 'sta ragionando'
+                    : state.status === 'waiting'
+                      ? 'in attesa di conferma'
+                      : 'al lavoro'))}
             </span>
-            <span className="h-2.5 w-2.5 shrink-0 animate-spin rounded-full border-[1.5px] border-[var(--color-line-strong)] border-t-[var(--color-ink-faint)]" />
-            {seconds !== null && (
+            {queued ? (
+              <span className="queued-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-ink-faint)]" />
+            ) : (
+              <span className="h-2.5 w-2.5 shrink-0 animate-spin rounded-full border-[1.5px] border-[var(--color-line-strong)] border-t-[var(--color-ink-faint)]" />
+            )}
+            {!queued && seconds !== null && (
               <span className="shrink-0 text-[11.5px] text-[var(--color-ink-faint)] tabular-nums">
                 {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
               </span>

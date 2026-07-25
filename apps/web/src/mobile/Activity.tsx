@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import { Square } from 'lucide-react';
+import clsx from 'clsx';
+import { Square, X } from 'lucide-react';
 import { useStore, type RunState } from '../store.js';
 import { api } from '../lib/api.js';
 import { Avatar } from '../components/Avatar.js';
@@ -21,7 +22,11 @@ function ActiveCard({ messageId, run }: { messageId: string; run: RunState }) {
   const channels = useStore((s) => s.channels);
   const agent = agents.find((a) => a.id === run.agentId);
   const channel = channels.find((c) => c.id === run.channelId);
-  const now = useTicker(true);
+  // In coda non è al lavoro: niente cronometro, perché non è cominciato
+  // niente. Vederlo scorrere su un turno fermo fa sembrare lento qualcosa
+  // che sta solo aspettando il suo turno.
+  const queued = run.status === 'queued';
+  const now = useTicker(!queued);
   const seconds = run.startedAt ? Math.floor((now - run.startedAt) / 1000) : 0;
 
   let note: string | null = null;
@@ -50,24 +55,49 @@ function ActiveCard({ messageId, run }: { messageId: string; run: RunState }) {
             {run.numTurns > 0 && ` · passaggio ${run.numTurns}`}
           </div>
         </div>
-        <span className="shrink-0 text-[14px] font-semibold text-[var(--color-honey)] tabular-nums">
-          {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
-        </span>
+        {queued ? (
+          <span className="shrink-0 rounded-full bg-[var(--color-sunken)] px-2.5 py-1 text-[12px] font-medium text-[var(--color-ink-faint)]">
+            in coda
+          </span>
+        ) : (
+          <span className="shrink-0 text-[14px] font-semibold text-[var(--color-honey)] tabular-nums">
+            {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
+          </span>
+        )}
       </div>
 
       <RunConfig run={run} agentId={run.agentId} />
 
       {note && <p className="mt-2.5 text-[13.5px] leading-[1.45] text-[var(--color-ink)]">{note}</p>}
 
-      <div className="sweep mt-2.5 rounded-[10px] bg-[var(--color-panel-alt)] px-2.5 py-2">
+      <div
+        className={clsx(
+          'mt-2.5 rounded-[10px] bg-[var(--color-panel-alt)] px-2.5 py-2',
+          // La luce che scorre dice «sta succedendo qualcosa»: su un turno
+          // fermo direbbe il falso, quindi non c'è.
+          !queued && 'sweep',
+        )}
+      >
         <div className="mb-1 flex items-center gap-1.5">
-          <span className="h-[7px] w-[7px] animate-pulse rounded-full bg-[var(--color-online)]" />
-          <span className="text-[10.5px] font-semibold tracking-[0.06em] text-[var(--color-honey)] uppercase">
-            In corso
+          <span
+            className={clsx(
+              'h-[7px] w-[7px] rounded-full',
+              queued
+                ? 'queued-pulse bg-[var(--color-ink-faint)]'
+                : 'animate-pulse bg-[var(--color-online)]',
+            )}
+          />
+          <span
+            className={clsx(
+              'text-[10.5px] font-semibold tracking-[0.06em] uppercase',
+              queued ? 'text-[var(--color-ink-faint)]' : 'text-[var(--color-honey)]',
+            )}
+          >
+            {queued ? 'In attesa' : 'In corso'}
           </span>
         </div>
         <p className="font-mono text-[12px] break-all text-[var(--color-ink-soft)]">
-          {current ?? (run.status === 'queued' ? 'in coda…' : 'sta ragionando…')}
+          {queued ? 'non ancora cominciato' : (current ?? 'sta ragionando…')}
         </p>
       </div>
 
@@ -84,7 +114,15 @@ function ActiveCard({ messageId, run }: { messageId: string; run: RunState }) {
           onClick={() => void api.cancelRun(run.runId).catch(() => {})}
           className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-[12px] bg-[color-mix(in_oklab,var(--color-error)_12%,transparent)] text-[14px] font-medium text-[var(--color-error)]"
         >
-          <Square size={11} strokeWidth={3} /> Interrompi
+          {queued ? (
+            <>
+              <X size={12} strokeWidth={3} /> Annulla
+            </>
+          ) : (
+            <>
+              <Square size={11} strokeWidth={3} /> Interrompi
+            </>
+          )}
         </button>
       </div>
     </div>
