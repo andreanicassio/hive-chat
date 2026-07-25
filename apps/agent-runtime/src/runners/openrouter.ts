@@ -50,6 +50,10 @@ export class OpenRouterRunner implements Runner {
 
     const byName = new Map(hiveTools.map((t) => [t.name, t]));
 
+    // `web.search` è concesso? Su questo runtime non diventa un tool: diventa
+    // un plugin nella richiesta (vedi sotto).
+    const webSearch = grants.some((g) => g.toolId === 'web.search');
+
     // Le stesse definizioni, tradotte nel formato function-calling.
     const toolSpecs = hiveTools.map((t) => ({
       type: 'function' as const,
@@ -94,6 +98,17 @@ export class OpenRouterRunner implements Runner {
           model: agent.model,
           messages,
           ...(toolSpecs.length > 0 ? { tools: toolSpecs } : {}),
+          // La ricerca web qui non è un tool nostro: la mette OpenRouter con
+          // un plugin. Senza questo, la spunta «Ricerca web» nell'editor
+          // dell'agente non faceva NIENTE su un modello non-Claude — il
+          // catalogo la offriva, il runtime non la implementava, e l'agente
+          // rispondeva (correttamente) che non sapeva cercare.
+          //
+          // Sui modelli che ce l'hanno nativa (xAI, Google, OpenAI,
+          // Anthropic, Perplexity) la usa; sugli altri ricade su Exa, che si
+          // paga a ricerca. Per questo è legata al permesso e non accesa
+          // sempre.
+          ...(webSearch ? { plugins: [{ id: 'web' }] } : {}),
           stream: true,
           usage: { include: true },
         }),
