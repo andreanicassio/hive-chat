@@ -286,6 +286,10 @@ export class ClaudeCodeRunner implements Runner {
       turnText = '';
       if (!text) return;
       await emitter.event({ type: 'text.block', text });
+      // Da qui in poi quel testo vive nella tab di lavoro. Lasciarlo anche nel
+      // buffer lo incollerebbe al turno dopo senza neanche un a capo — ed è
+      // quello che si vedeva ricaricando la pagina a metà turno.
+      emitter.resetText();
     };
 
     // Input a caldo: la chat può iniettare messaggi DENTRO questo turno, come

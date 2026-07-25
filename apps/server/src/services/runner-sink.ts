@@ -25,7 +25,8 @@ export type RunnerOp =
   | { op: 'status'; status: AgentStatus; label: string | null }
   | { op: 'delta'; text: string }
   | { op: 'body'; text: string }
-  | { op: 'event'; seq: number; event: RunEvent }
+  /** `at` è in millisecondi epoch. Manca sui runner più vecchi del campo. */
+  | { op: 'event'; seq: number; event: RunEvent; at?: number }
   | {
       op: 'finish';
       status: RunStatus;
@@ -184,18 +185,30 @@ export async function applyRunnerOps(ctx: RunSinkContext, ops: RunnerOp[]): Prom
           .set({ body: op.text })
           .where(eq(schema.messages.id, ctx.messageId));
         break;
-      case 'event':
+      case 'event': {
+        // L'ora la decide il runner: gli eventi arrivano a lotti, e usare
+        // quella del server appiattirebbe tutte le durate del lotto a zero.
+        // Un `at` mancante è un runner più vecchio del campo.
+        const at = typeof op.at === 'number' ? op.at : Date.now();
         await db
           .insert(schema.runEvents)
-          .values({ runId: ctx.runId, seq: op.seq, type: op.event.type, payload: op.event })
+          .values({
+            runId: ctx.runId,
+            seq: op.seq,
+            type: op.event.type,
+            payload: op.event,
+            createdAt: new Date(at),
+          })
           .onConflictDoNothing();
         await publish(ctx, {
           t: 'run.event',
           runId: ctx.runId,
           messageId: ctx.messageId,
           event: op.event,
+          at,
         });
         break;
+      }
       case 'finish':
         await applyFinish(ctx, op);
         break;

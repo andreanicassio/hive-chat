@@ -854,14 +854,17 @@ export const useStore = create<State>((set, get) => ({
       }
 
       case 'run.event': {
-        const p = packet as unknown as { messageId: string; event: RunEvent };
+        const p = packet as unknown as { messageId: string; event: RunEvent; at?: number };
         set((s) => {
           const runs = new Map(s.runs);
           const run = runs.get(p.messageId);
           if (run) {
             runs.set(p.messageId, {
               ...run,
-              events: [...run.events, { event: p.event, at: Date.now() }],
+              // L'ora la dice chi ha eseguito l'operazione, non chi riceve il
+              // pacchetto: il runner locale manda gli eventi a lotti, e usare
+              // l'arrivo appiattirebbe ogni durata del lotto a «0,00 s».
+              events: [...run.events, { event: p.event, at: p.at ?? Date.now() }],
             });
           }
           // Un turno di ragionamento si è chiuso: quel testo ora vive nella

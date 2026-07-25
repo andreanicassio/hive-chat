@@ -13,7 +13,7 @@ type Op =
   | { op: 'status'; status: AgentStatus; label: string | null }
   | { op: 'delta'; text: string }
   | { op: 'body'; text: string }
-  | { op: 'event'; seq: number; event: RunEvent }
+  | { op: 'event'; seq: number; event: RunEvent; at: number }
   | Record<string, unknown>;
 
 export class RemoteEmitter implements EmitterLike {
@@ -87,8 +87,16 @@ export class RemoteEmitter implements EmitterLike {
 
   async event(event: RunEvent): Promise<void> {
     this.seq++;
-    this.pending.push({ op: 'event', seq: this.seq, event });
+    // L'ora la prendiamo QUI, non quando il lotto parte: fra i due momenti
+    // possono passare 500ms, e sarebbero tutti attribuiti all'ultima
+    // operazione del lotto.
+    this.pending.push({ op: 'event', seq: this.seq, event, at: Date.now() });
     this.schedule();
+  }
+
+  /** Vedi `EmitterLike.resetText`. */
+  resetText(): void {
+    this.buffer = '';
   }
 
   async bumpTurns(): Promise<void> {

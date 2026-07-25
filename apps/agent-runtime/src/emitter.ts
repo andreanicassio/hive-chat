@@ -16,6 +16,15 @@ export interface EmitterLike {
   runStatus(status: RunStatus, error?: string | null, queuePosition?: number): Promise<void>;
   delta(text: string): Promise<void>;
   event(event: RunEvent): Promise<void>;
+  /**
+   * Dimentica il testo accumulato finora.
+   *
+   * Serve quando un turno di ragionamento si chiude ed è già stato salvato
+   * come `text.block`: da quel momento vive nella tab di lavoro, e lasciarlo
+   * anche nel buffer significherebbe incollarlo al turno successivo senza
+   * neanche un a capo in mezzo.
+   */
+  resetText(): void;
   bumpTurns(): Promise<void>;
   finish(result: {
     status: RunStatus;
@@ -86,6 +95,7 @@ export class RunEmitter {
   async event(event: RunEvent): Promise<void> {
     if (this.closed) return;
     this.seq++;
+    const at = Date.now();
     await db
       .insert(schema.runEvents)
       .values({ runId: this.ctx.runId, seq: this.seq, type: event.type, payload: event })
@@ -95,7 +105,13 @@ export class RunEmitter {
       runId: this.ctx.runId,
       messageId: this.ctx.messageId,
       event,
+      at,
     });
+  }
+
+  /** Vedi `EmitterLike.resetText`. */
+  resetText(): void {
+    this.buffer = '';
   }
 
   /** Etichetta di stato mostrata nella barra in basso ("Honey: sto leggendo…"). */

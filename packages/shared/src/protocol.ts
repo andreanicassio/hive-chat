@@ -88,7 +88,19 @@ export type ServerPacket =
       messageId: string;
     }
   | { t: 'run.delta'; runId: string; messageId: string; text: string }
-  | { t: 'run.event'; runId: string; messageId: string; event: RunEvent }
+  | {
+      t: 'run.event';
+      runId: string;
+      messageId: string;
+      event: RunEvent;
+      /**
+       * Quando è successo davvero, in millisecondi epoch.
+       * Il runner locale accumula gli eventi e li manda a lotti ogni mezzo
+       * secondo: senza questo, inizio e fine di un'operazione veloce arrivano
+       * insieme e ogni durata risulta «0,00 s».
+       */
+      at: number;
+    }
   | {
       t: 'run.status';
       runId: string;

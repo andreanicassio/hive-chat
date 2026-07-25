@@ -380,6 +380,10 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
     turnText = '';
     if (!text) return;
     await emitter.event({ type: 'text.block', text });
+    // Da qui in poi quel testo vive nella tab di lavoro. Lasciarlo anche nel
+    // buffer lo incollerebbe al turno dopo senza neanche un a capo — ed è
+    // quello che si vedeva ricaricando la pagina a metà turno.
+    emitter.resetText();
   };
 
   await emitter.status('thinking', null);

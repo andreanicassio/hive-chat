@@ -121,7 +121,12 @@ export class OpenRouterRunner implements Runner {
       // quel testo è ragionamento concluso. Il corpo del messaggio verrà
       // sovrascritto dalla risposta finale, quindi lo salviamo come evento.
       const reasoning = turn.text.trim();
-      if (reasoning) await emitter.event({ type: 'text.block', text: reasoning });
+      if (reasoning) {
+        await emitter.event({ type: 'text.block', text: reasoning });
+        // Da qui in poi quel testo vive nella tab di lavoro: lasciarlo anche
+        // nel buffer lo incollerebbe al turno dopo senza un a capo in mezzo.
+        emitter.resetText();
+      }
 
       messages.push({
         role: 'assistant',
