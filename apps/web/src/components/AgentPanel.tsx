@@ -831,7 +831,7 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
                             className={clsx(
                               'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-all',
                               on
-                                ? 'border-[var(--color-honey)] bg-[var(--color-honey)] text-white'
+                                ? 'border-[var(--color-honey)] bg-[var(--color-honey)] text-[var(--color-on-accent)]'
                                 : 'border-[var(--color-line-strong)]',
                             )}
                           >
@@ -1089,7 +1089,7 @@ function ToolConfigForm({
                   className={
                     'rounded-md px-2 py-0.5 font-mono text-[11.5px] transition-colors ' +
                     (on
-                      ? 'bg-[var(--color-honey)] text-white'
+                      ? 'bg-[var(--color-honey)] text-[var(--color-on-accent)]'
                       : 'bg-[var(--color-sunken)] text-[var(--color-ink-soft)]')
                   }
                 >

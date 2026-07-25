@@ -14,6 +14,25 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Hive</title>
+    <script>
+      /* Il tema si decide PRIMA che la pagina si disegni. Se aspettassimo il
+         bundle, chi ha il sistema scuro vedrebbe un lampo bianco a ogni
+         avvio. Stessa logica di src/lib/theme.ts, tenuta corta apposta. */
+      (function () {
+        try {
+          var p = localStorage.getItem('hive:theme');
+          var dark =
+            p === 'dark' ||
+            (p !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+          document
+            .querySelector('meta[name="theme-color"]')
+            .setAttribute('content', dark ? '#1b2024' : '#d9dee2');
+        } catch (e) {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

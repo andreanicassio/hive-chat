@@ -16,10 +16,18 @@
   /* --- Superfici --- */
   --color-shell: #cfd6db; /* valore medio del gradiente, usato come fallback */
   --color-shell-deep: #bbc5cd; /* bordo e zone in ombra */
+  --color-shell-top: #d9dee2; /* primo stop del gradiente, e le barre in cima */
+  --color-shell-bottom: #bbc5cd; /* ultimo stop */
   --color-rail: transparent; /* la sidebar sta a filo sul fondo */
   --color-panel: #f9f9f8; /* pannello conversazione: non bianco pieno */
   --color-panel-alt: #f1f2f1; /* righe alternate, blocchi citati, log di lavoro */
   --color-sunken: #eaebea; /* campi, pillole, stati premuti */
+  --color-card: #ffffff; /* card ed elenchi che galleggiano sul pannello */
+  /* Campo translucido appoggiato sul gradiente: ricerca, pillole di testata. */
+  --color-glass: rgb(255 255 255 / 0.55);
+  --color-glass-line: rgb(28 34 40 / 0.12);
+  --color-scrim: rgb(28 34 40 / 0.42); /* velo dietro ai pop-up */
+  --color-on-accent: #ffffff; /* testo sopra l'accento pieno */
 
   /* --- Testo --- */
   --color-ink: #16181a; /* testo principale */
@@ -57,29 +65,55 @@
 }
 
 /* --- Modalità scura ------------------------------------------------------
-   NON legata a prefers-color-scheme: il crema chiaro è il design del
-   prodotto, non una preferenza di sistema. Chi vuole il tema scuro se lo
-   accende, e allora vale questo blocco. Non è un'inversione: è la stessa
-   stanza con la luce abbassata, i toni restano caldi. ------------------- */
+   Segue il sistema, di default: lo decide `data-theme` sull'elemento radice,
+   che imposta lo script in `index.html` prima ancora che la pagina si
+   disegni (vedi lib/theme.ts). Chi vuole forzarla lo fa dalle impostazioni.
+
+   Non è un'inversione: è la stessa stanza con la luce abbassata. I grigi
+   restano freddi come nel tema chiaro, e valgono le due regole che mi sono
+   state date — il bianco non è bianchissimo, il nero non è nerissimo. Il
+   fondo più scuro è #101417, non nero; il testo più chiaro è #e6e9ec, non
+   bianco: su uno schermo al buio il contrasto pieno abbaglia e affatica.
+
+   L'accento si SCHIARISCE (#d9683f contro #b5532f): la terracotta del tema
+   chiaro, su un fondo scuro, scenderebbe sotto la soglia di leggibilità.
+   ------------------------------------------------------------------------ */
 :root[data-theme='dark'] {
-  --color-shell: #171613;
-  --color-shell-deep: #100f0d;
-  --color-rail: #1d1c18;
-  --color-panel: #221f1a;
-  --color-panel-alt: #26231d;
-  --color-sunken: #2b2822;
+  --color-shell: #14171a;
+  --color-shell-deep: #0e1113;
+  --color-shell-top: #1b2024;
+  --color-shell-bottom: #101417;
+  --color-rail: transparent;
+  --color-panel: #1b1f23;
+  --color-panel-alt: #21262b;
+  --color-sunken: #272d33;
+  --color-card: #22272c;
+  --color-glass: rgb(255 255 255 / 0.06);
+  --color-glass-line: rgb(255 255 255 / 0.1);
+  --color-scrim: rgb(0 0 0 / 0.6);
+  /* Sopra la terracotta chiara il testo scuro si legge quasi il doppio
+     meglio del bianco: 6,5 contro 3,1. */
+  --color-on-accent: #16181a;
 
-  --color-ink: #f0ece1;
-  --color-ink-soft: #b3ada0;
-  --color-ink-faint: #7d786c;
+  --color-ink: #e6e9ec;
+  --color-ink-soft: #a8b1b9;
+  --color-ink-faint: #79838c;
 
-  --color-line: #322e27;
-  --color-line-strong: #423d34;
+  --color-line: #2b3238;
+  --color-line-strong: #3a434b;
 
-  /* Tinta dell'accento: segue la terracotta, non più il miele. */
-  --color-honey-soft: #3a2620;
-  --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -8px rgb(0 0 0 / 0.5);
-  --shadow-pop: 0 2px 6px rgb(0 0 0 / 0.4), 0 16px 40px -12px rgb(0 0 0 / 0.6);
+  --color-honey: #d9683f;
+  --color-honey-soft: #3a221a;
+  --color-terracotta: #d9683f;
+  --color-sage: #6fa87e;
+  --color-clay: #d1795c;
+
+  --color-online: #5fb37a;
+  --color-error: #d9694f;
+
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -8px rgb(0 0 0 / 0.55);
+  --shadow-pop: 0 2px 6px rgb(0 0 0 / 0.5), 0 16px 40px -12px rgb(0 0 0 / 0.7);
+  --shadow-inset: inset 0 1px 2px rgb(0 0 0 / 0.35);
 }
 
 /* ========================================================================= */
@@ -121,17 +155,13 @@
     pointer-events: none;
     background: linear-gradient(
       180deg,
-      #d9dee2 0%,
-      #d4dade 22%,
-      #cfd6db 45%,
-      #c9d1d7 68%,
-      #c2cbd2 85%,
-      #bbc5cd 100%
+      var(--color-shell-top) 0%,
+      color-mix(in oklab, var(--color-shell-top) 78%, var(--color-shell-bottom)) 22%,
+      color-mix(in oklab, var(--color-shell-top) 55%, var(--color-shell-bottom)) 45%,
+      color-mix(in oklab, var(--color-shell-top) 32%, var(--color-shell-bottom)) 68%,
+      color-mix(in oklab, var(--color-shell-top) 15%, var(--color-shell-bottom)) 85%,
+      var(--color-shell-bottom) 100%
     );
-  }
-
-  :root[data-theme='dark'] body::before {
-    background: linear-gradient(180deg, #1a1916 0%, #141310 55%, #100f0d 100%);
   }
 
   /* --- Barra della finestra ----------------------------------------------
@@ -354,7 +384,7 @@
     align-items: center;
     justify-content: center;
     padding: 1rem;
-    background: rgb(28 34 40 / 0.42);
+    background: var(--color-scrim);
     backdrop-filter: blur(3px);
     animation: modal-fade 130ms ease-out;
   }

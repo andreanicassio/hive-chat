@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { App } from './App.js';
 import './index.css';
+import { watchSystemTheme } from './lib/theme.js';
 
 /**
  * La finestra ci lascia disegnare fin sotto la sua barra?
@@ -20,6 +21,10 @@ function markTitlebar(): void {
   if (overlay) document.documentElement.dataset.titlebar = 'overlay';
 }
 markTitlebar();
+
+// Il tema l'ha già applicato lo script in index.html: qui restiamo solo in
+// ascolto, perché il sistema può passare a scuro mentre l'app è aperta.
+watchSystemTheme();
 
 /**
  * Dopo un aggiornamento, ricarica una volta sola.

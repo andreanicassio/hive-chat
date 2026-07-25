@@ -89,11 +89,11 @@ export function MobileChannels() {
 
   return (
     <WithTabs>
-      <header className={clsx('shrink-0 bg-gradient-to-b from-[#d9dee2] to-[#cfd6db] px-4 pb-2.5', STATUS_BAR)}>
+      <header className={clsx('shrink-0 bg-gradient-to-b from-[var(--color-shell-top)] to-[color-mix(in_oklab,var(--color-shell-top)_55%,var(--color-shell-bottom))] px-4 pb-2.5', STATUS_BAR)}>
         <div className="flex items-center gap-2">
           <h1 className="text-[26px] font-bold tracking-[-0.03em]">Hive</h1>
           {workspace && (
-            <span className="flex h-6 items-center gap-1 rounded-full border border-[rgba(28,34,40,.12)] bg-[rgba(255,255,255,.55)] px-2 text-[12.5px]">
+            <span className="flex h-6 items-center gap-1 rounded-full border border-[var(--color-glass-line)] bg-[var(--color-glass)] px-2 text-[12.5px]">
               <span>{workspace.iconEmoji || '🐝'}</span>
               <span className="max-w-[120px] truncate">{workspace.name}</span>
             </span>
@@ -104,7 +104,7 @@ export function MobileChannels() {
           )}
         </div>
 
-        <div className="mt-2.5 flex h-[38px] items-center gap-2 rounded-[11px] border border-[rgba(28,34,40,.12)] bg-[rgba(255,255,255,.6)] px-3">
+        <div className="mt-2.5 flex h-[38px] items-center gap-2 rounded-[11px] border border-[var(--color-glass-line)] bg-[var(--color-glass)] px-3">
           <Search size={16} strokeWidth={2} className="shrink-0 text-[var(--color-ink-faint)]" />
           <input
             placeholder="Cerca ovunque"
@@ -129,7 +129,7 @@ export function MobileChannels() {
               <span className="mr-1.5 inline-block h-[7px] w-[7px] animate-pulse rounded-full bg-[var(--color-online)] align-middle" />
               Al lavoro
             </SectionLabel>
-            <div className="mx-3 divide-y divide-[var(--color-line)] overflow-hidden rounded-[14px] bg-white">
+            <div className="mx-3 divide-y divide-[var(--color-line)] overflow-hidden rounded-[14px] bg-[var(--color-card)]">
               {working.map(([messageId, run]) => (
                 <WorkingRow key={run.runId} messageId={messageId} run={run} />
               ))}
@@ -146,7 +146,7 @@ export function MobileChannels() {
         >
           Canali
         </SectionLabel>
-        <div className="mx-3 divide-y divide-[var(--color-line)] overflow-hidden rounded-[14px] bg-white">
+        <div className="mx-3 divide-y divide-[var(--color-line)] overflow-hidden rounded-[14px] bg-[var(--color-card)]">
           {channels.map((c) => {
             const last = messagesByChannel.get(c.id)?.at(-1);
             const author = last?.author;
@@ -186,7 +186,7 @@ export function MobileChannels() {
                   )}
                 </div>
                 {unread > 0 ? (
-                  <span className="flex h-[22px] min-w-[22px] shrink-0 items-center justify-center rounded-full bg-[var(--color-honey)] px-1.5 text-[12px] font-semibold text-white tabular-nums">
+                  <span className="flex h-[22px] min-w-[22px] shrink-0 items-center justify-center rounded-full bg-[var(--color-honey)] px-1.5 text-[12px] font-semibold text-[var(--color-on-accent)] tabular-nums">
                     {unread}
                   </span>
                 ) : (

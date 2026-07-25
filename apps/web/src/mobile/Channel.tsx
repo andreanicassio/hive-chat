@@ -75,7 +75,7 @@ export function MobileChannel() {
           <button
             onClick={() => navigate('/attivita')}
             aria-label="Attività"
-            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-[rgba(28,34,40,.12)] bg-[rgba(255,255,255,.55)]"
+            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-[var(--color-glass-line)] bg-[var(--color-glass)]"
           >
             <PanelRight size={16} strokeWidth={2.2} />
           </button>

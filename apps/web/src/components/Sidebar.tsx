@@ -126,7 +126,7 @@ export function Sidebar({
       <div className="px-3 pt-3 pb-2">
         <button
           onClick={onSearch}
-          className="flex h-[32px] w-full items-center gap-2 rounded-[9px] border border-[rgba(28,34,40,0.15)] bg-[rgba(255,255,255,0.5)] px-2.5 text-[13.5px] text-[var(--color-ink-faint)] transition-colors duration-[120ms] hover:bg-[rgba(255,255,255,0.72)]"
+          className="flex h-[32px] w-full items-center gap-2 rounded-[9px] border border-[rgba(28,34,40,0.15)] bg-[rgba(255,255,255,0.5)] px-2.5 text-[13.5px] text-[var(--color-ink-faint)] transition-colors duration-[120ms] hover:bg-[var(--color-glass)]"
         >
           <Search size={14} strokeWidth={2.2} />
           <span className="flex-1 text-left">Cerca ovunque</span>

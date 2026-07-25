@@ -44,7 +44,7 @@ export function MobileHeader({
   return (
     <header
       className={clsx(
-        'shrink-0 bg-gradient-to-b from-[#d9dee2] to-[#cfd6db] px-3 pb-2.5',
+        'shrink-0 bg-gradient-to-b from-[var(--color-shell-top)] to-[color-mix(in_oklab,var(--color-shell-top)_55%,var(--color-shell-bottom))] px-3 pb-2.5',
         STATUS_BAR,
       )}
     >

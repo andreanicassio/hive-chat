@@ -67,7 +67,7 @@ export function MobileWork() {
         {/* In sintesi: se leggi una cosa sola, leggi questa. Sono parole sue,
             non un riassunto dedotto dai nomi dei comandi. */}
         {notes.length > 0 && (
-          <section className="mt-3 rounded-[14px] bg-white p-3.5">
+          <section className="mt-3 rounded-[14px] bg-[var(--color-card)] p-3.5">
             <h2 className="mb-1.5 text-[11.5px] font-semibold tracking-[0.06em] text-[var(--color-ink-faint)] uppercase">
               In sintesi
             </h2>
@@ -76,7 +76,7 @@ export function MobileWork() {
         )}
 
         {tools.length > 0 && (
-          <section className="mt-3 overflow-hidden rounded-[14px] bg-white">
+          <section className="mt-3 overflow-hidden rounded-[14px] bg-[var(--color-card)]">
             <h2 className="px-3.5 pt-3.5 pb-1.5 text-[11.5px] font-semibold tracking-[0.06em] text-[var(--color-ink-faint)] uppercase">
               Passaggi
             </h2>
@@ -120,7 +120,7 @@ export function MobileWork() {
         )}
 
         {notes.length > 1 && (
-          <section className="mt-3 rounded-[14px] bg-white p-3.5">
+          <section className="mt-3 rounded-[14px] bg-[var(--color-card)] p-3.5">
             <h2 className="mb-1.5 text-[11.5px] font-semibold tracking-[0.06em] text-[var(--color-ink-faint)] uppercase">
               Ragionamento
             </h2>

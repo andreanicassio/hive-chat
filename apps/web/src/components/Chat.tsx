@@ -886,7 +886,7 @@ function DeleteMessageDialog({ message, onClose }: { message: Message; onClose: 
             Annulla
           </button>
           <button
-            className="btn bg-[var(--color-error)] text-white hover:brightness-110"
+            className="btn bg-[var(--color-error)] text-[var(--color-on-accent)] hover:brightness-110"
             onClick={() => void remove()}
             disabled={busy}
           >
@@ -1405,7 +1405,7 @@ export function Composer({
               )}
               <button
                 onClick={() => setPending((prev) => prev.filter((x) => x.key !== p.key))}
-                className="absolute top-0.5 right-0.5 rounded bg-[var(--color-ink)]/70 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                className="absolute top-0.5 right-0.5 rounded bg-[var(--color-ink)]/70 p-0.5 text-[var(--color-panel)] opacity-0 transition-opacity group-hover:opacity-100"
                 title="Togli"
               >
                 <X size={11} strokeWidth={2.6} />

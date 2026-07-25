@@ -33,7 +33,7 @@ function ActiveCard({ messageId, run }: { messageId: string; run: RunState }) {
   }
 
   return (
-    <div className="rounded-[14px] bg-white p-3.5 shadow-[var(--shadow-panel)]">
+    <div className="rounded-[14px] bg-[var(--color-card)] p-3.5 shadow-[var(--shadow-panel)]">
       <div className="flex items-center gap-2.5">
         <Avatar
           name={agent?.name ?? 'Agente'}
@@ -134,7 +134,7 @@ export function MobileActivity() {
             <h2 className="px-1 pt-5 pb-1.5 text-[11.5px] font-semibold tracking-[0.06em] text-[var(--color-ink-faint)] uppercase">
               Turni recenti
             </h2>
-            <div className="divide-y divide-[var(--color-line)] overflow-hidden rounded-[14px] bg-white">
+            <div className="divide-y divide-[var(--color-line)] overflow-hidden rounded-[14px] bg-[var(--color-card)]">
               {recent.map(({ messageId, run }) => {
                 const agent = agents.find((a) => a.id === run.agentId);
                 const channel = channels.find((c) => c.id === run.channelId);

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import {
   BadgeCheck,
+  Palette,
   Brain,
   Check,
   Copy,
@@ -18,6 +19,7 @@ import {
 import { useStore } from '../store.js';
 import { Usage } from './Usage.js';
 import { Modal } from './Modal.js';
+import { applyTheme, setThemePref, storedPref, type ThemePref } from '../lib/theme.js';
 import { RunnerTab } from './RunnerTab.js';
 import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
@@ -31,7 +33,7 @@ import { Avatar } from './Avatar.js';
  * server — si vede solo un troncone per riconoscerlo.
  */
 
-type Tab = 'credenziali' | 'contesto' | 'runner' | 'persone' | 'utilizzo';
+type Tab = 'credenziali' | 'contesto' | 'runner' | 'persone' | 'utilizzo' | 'aspetto';
 
 interface SecretRow {
   key: string;
@@ -238,6 +240,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               ['runner', 'Runner locale', Cpu],
               ['persone', 'Persone', UserPlus],
               ['utilizzo', 'Utilizzo', BarChart3],
+              ['aspetto', 'Aspetto', Palette],
             ] as const
           ).map(([id, label, Icon]) => (
             <button
@@ -380,6 +383,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 )}
               </div>
             </div>
+          ) : tab === 'aspetto' ? (
+            <AppearanceTab />
           ) : tab === 'utilizzo' ? (
             <Usage />
           ) : tab === 'runner' ? (
@@ -434,5 +439,67 @@ export function Settings({ onClose }: { onClose: () => void }) {
           )}
         </div>
     </Modal>
+  );
+}
+
+/* ========================================================================== */
+/*  Aspetto                                                                    */
+/* ========================================================================== */
+
+const THEME_CHOICES: Array<{ id: ThemePref; label: string; hint: string }> = [
+  { id: 'auto', label: 'Come il sistema', hint: 'Segue il tuo dispositivo, e cambia con lui' },
+  { id: 'light', label: 'Chiaro', hint: 'Sempre chiaro, qualunque cosa dica il sistema' },
+  { id: 'dark', label: 'Scuro', hint: 'Sempre scuro' },
+];
+
+function AppearanceTab() {
+  const [pref, setPref] = useState<ThemePref>(() => storedPref());
+
+  // Se si torna su "come il sistema", il tema va ricalcolato subito: la
+  // scelta manuale poteva averlo portato dalla parte opposta.
+  function choose(next: ThemePref) {
+    setPref(next);
+    setThemePref(next);
+    if (next === 'auto') applyTheme('auto');
+  }
+
+  return (
+    <div className="max-w-[460px]">
+      <h3 className="text-[14px] font-semibold">Tema</h3>
+      <p className="mt-1 text-[13.5px] text-[var(--color-ink-soft)]">
+        Di norma Hive segue il tuo dispositivo. Se preferisci decidere tu, scegli qui: la scelta
+        resta su questo browser.
+      </p>
+
+      <div className="mt-3 flex flex-col gap-1.5">
+        {THEME_CHOICES.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => choose(c.id)}
+            className={clsx(
+              'flex items-start gap-3 rounded-[11px] border px-3.5 py-3 text-left transition-colors',
+              pref === c.id
+                ? 'border-[color-mix(in_oklab,var(--color-honey)_50%,transparent)] bg-[var(--color-honey-soft)]'
+                : 'border-[var(--color-line)] hover:border-[var(--color-line-strong)]',
+            )}
+          >
+            <span
+              className={clsx(
+                'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border',
+                pref === c.id
+                  ? 'border-[var(--color-honey)] bg-[var(--color-honey)]'
+                  : 'border-[var(--color-line-strong)]',
+              )}
+            >
+              {pref === c.id && <Check size={10} strokeWidth={3.2} className="text-[var(--color-on-accent)]" />}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[14px] font-medium">{c.label}</span>
+              <span className="block text-[12.5px] text-[var(--color-ink-faint)]">{c.hint}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
