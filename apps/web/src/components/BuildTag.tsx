@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import { RefreshCw } from 'lucide-react';
+import { shellError } from '../App.js';
 import {
   applyUpdate,
   onVersionChange,
@@ -78,6 +79,12 @@ export function BuildTag({ className }: { className?: string }) {
       {/* Serve a vedere a colpo d'occhio se la finestra ci lascia disegnare
           in cima: se manca, la striscia per trascinare non esiste. */}
       {document.documentElement.dataset.shell === 'tauri' && !shell ? ' · app ?' : ''}
+      {shellError && (
+        <span className="text-[var(--color-error)]" title={shellError}>
+          {' '}
+          · guscio ✗
+        </span>
+      )}
     </div>
   );
 }

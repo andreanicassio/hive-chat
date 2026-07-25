@@ -273,14 +273,27 @@ function WorkspaceShell() {
 /*
  * Trascinare la finestra dal guscio Mac.
  *
- * `data-tauri-drag-region` da solo non bastava: è l'attributo che il guscio
- * riconosce, ma resta in piedi solo se il suo script interno è agganciato e
- * se il permesso c'è. Chiamare l'API a mano è la stessa cosa detta in modo
- * esplicito — e soprattutto è codice nostro, che si aggiorna ricaricando la
- * pagina invece di richiedere una build nuova dell'app.
+ * Tre tentativi in fila, dal più pulito al più diretto, perché ognuno dei
+ * primi due dipende da qualcosa che può non esserci:
  *
- * Fuori dall'app Mac non fa niente e non dà fastidio.
+ * 1. `data-tauri-drag-region` — l'attributo che il guscio dovrebbe
+ *    riconoscere da solo (resta sull'elemento, non costa niente);
+ * 2. l'API globale `__TAURI__.window`, che c'è solo se il guscio espone quel
+ *    modulo;
+ * 3. `__TAURI_INTERNALS__.invoke`, che in Tauri 2 c'è SEMPRE: è il ponte che
+ *    usano tutte le API, comprese quelle dei plugin.
+ *
+ * Il terzo è quello che non può mancare, ed è il motivo per cui è qui: i
+ * primi due li ho già visti fallire in silenzio, e un fallimento silenzioso
+ * è indistinguibile da una striscia morta.
+ *
+ * Se anche l'ultimo si rifiuta, l'errore NON si butta via: finisce nella
+ * riga della versione, così si legge invece di doverlo indovinare.
  */
+interface TauriBridge {
+  invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+}
+
 interface TauriWindowApi {
   getCurrentWindow?: () => {
     startDragging?: () => Promise<void>;
@@ -288,26 +301,49 @@ interface TauriWindowApi {
   };
 }
 
-function tauriWindow(): TauriWindowApi | null {
+/** L'ultimo errore del guscio, mostrato accanto alla versione. */
+export let shellError: string | null = null;
+
+function bridge(): TauriBridge | null {
+  return (window as { __TAURI_INTERNALS__?: TauriBridge }).__TAURI_INTERNALS__ ?? null;
+}
+
+function windowApi(): TauriWindowApi | null {
   return (window as { __TAURI__?: { window?: TauriWindowApi } }).__TAURI__?.window ?? null;
+}
+
+function callWindow(command: string, viaApi: (w: TauriWindowApi) => unknown): void {
+  const api = windowApi();
+  if (api?.getCurrentWindow) {
+    try {
+      viaApi(api);
+      return;
+    } catch (err) {
+      shellError = `api: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+  const inner = bridge()?.invoke;
+  if (!inner) {
+    shellError = 'nessun ponte verso il guscio';
+    return;
+  }
+  // `label` omesso di proposito: il guscio risolve sulla finestra corrente,
+  // e passargliene una sbagliata sarebbe peggio che non passarla.
+  void inner(command, {}).catch((err: unknown) => {
+    shellError = `${command}: ${err instanceof Error ? err.message : String(err)}`;
+  });
 }
 
 function startWindowDrag(event: React.MouseEvent): void {
   // Solo il tasto sinistro: col destro macOS apre il suo menu di finestra.
   if (event.button !== 0) return;
-  try {
-    void tauriWindow()?.getCurrentWindow?.()?.startDragging?.();
-  } catch {
-    /* non siamo nel guscio, o il permesso manca: la striscia resta inerte */
-  }
+  callWindow('plugin:window|start_dragging', (w) => void w.getCurrentWindow?.()?.startDragging?.());
 }
 
 function toggleWindowMaximize(): void {
-  try {
-    void tauriWindow()?.getCurrentWindow?.()?.toggleMaximize?.();
-  } catch {
-    /* come sopra */
-  }
+  callWindow('plugin:window|toggle_maximize', (w) =>
+    void w.getCurrentWindow?.()?.toggleMaximize?.(),
+  );
 }
 
 export function App() {
