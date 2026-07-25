@@ -417,6 +417,18 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openChannel(channelId) {
+    // Dove sei rimasto. Alla ricarica si riapre questo, non il primo canale
+    // dell'elenco: tornare ogni volta su #generale vuol dire ricominciare da
+    // capo la navigazione a ogni aggiornamento.
+    const wsId = get().workspace?.id;
+    if (wsId) {
+      try {
+        localStorage.setItem(`hive:lastChannel:${wsId}`, channelId);
+      } catch {
+        /* archiviazione bloccata: si riparte dal primo canale, come prima */
+      }
+    }
+
     // Il thread aperto appartiene al canale che si sta lasciando: portarselo
     // dietro mostrerebbe risposte di un'altra conversazione.
     set((s) => ({

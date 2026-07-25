@@ -169,8 +169,17 @@ function WorkspaceShell() {
   }, [workspaces, workspace, openWorkspace]);
 
   useEffect(() => {
-    if (!activeChannelId && channels.length > 0) void openChannel(channels[0]!.id);
-  }, [channels, activeChannelId, openChannel]);
+    if (activeChannelId || channels.length === 0) return;
+    // L'ultimo canale aperto in questo progetto, se esiste ancora.
+    let target = channels[0]!.id;
+    try {
+      const saved = localStorage.getItem(`hive:lastChannel:${workspace?.id ?? ''}`);
+      if (saved && channels.some((c) => c.id === saved)) target = saved;
+    } catch {
+      /* ignora */
+    }
+    void openChannel(target);
+  }, [channels, activeChannelId, openChannel, workspace]);
 
   if (bootError) {
     return (

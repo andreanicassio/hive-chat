@@ -43,6 +43,7 @@ import { ChannelAside } from './ChannelAside.js';
 import { Modal } from './Modal.js';
 import { api } from '../lib/api.js';
 import { realtime } from '../lib/ws.js';
+import { draftKey, readDraft, writeDraft } from '../lib/drafts.js';
 import { Avatar } from './Avatar.js';
 import type { Approval, Message, ReplyPreview, RunEvent } from '@hive/shared';
 
@@ -1245,7 +1246,10 @@ export function Composer({
   threadRootId?: string;
   compact?: boolean;
 }) {
-  const [value, setValue] = useState('');
+  // La bozza appartiene alla conversazione, non al composer: il composer è
+  // uno solo e non si smonta cambiando canale.
+  const key = draftKey(channelId, threadRootId);
+  const [value, setValue] = useState(() => readDraft(key));
   const [sending, setSending] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   /* Allegati trascinati o incollati, in attesa di partire col messaggio. */
@@ -1261,6 +1265,24 @@ export function Composer({
   const setReplyingTo = useStore((s) => s.setReplyingTo);
   const agents = useStore((s) => s.agents);
   const members = useStore((s) => s.members);
+
+  /*
+   * Cambio di conversazione: si rimette in campo la bozza di quella nuova.
+   * Gli allegati già caricati seguono la stessa regola — appartengono al
+   * messaggio che stavi scrivendo lì, non a quello che scriverai altrove.
+   */
+  const stashed = useRef(new Map<string, PendingAttachment[]>());
+  const prevKey = useRef(key);
+  useEffect(() => {
+    const from = prevKey.current;
+    if (from === key) return;
+    prevKey.current = key;
+    setValue(readDraft(key));
+    setPending((current) => {
+      stashed.current.set(from, current);
+      return stashed.current.get(key) ?? [];
+    });
+  }, [key]);
 
   // Il campo cresce col testo fino a un tetto, poi scorre.
   useLayoutEffect(() => {
@@ -1303,6 +1325,7 @@ export function Composer({
 
   function onChange(next: string) {
     setValue(next);
+    writeDraft(key, next);
     realtime.send({ t: 'typing', channelId });
     // Rilevamento della menzione in corso: l'ultima @ non ancora chiusa.
     const upToCaret = next.slice(0, textarea.current?.selectionStart ?? next.length);
@@ -1317,6 +1340,7 @@ export function Composer({
     const before = value.slice(0, caret).replace(/@[a-zA-Z0-9._-]*$/, `<@${handle}> `);
     const next = before + value.slice(caret);
     setValue(next);
+    writeDraft(key, next);
     setMentionQuery(null);
     requestAnimationFrame(() => {
       el.focus();
@@ -1331,6 +1355,7 @@ export function Composer({
     if ((!body && ready.length === 0) || sending) return;
     setSending(true);
     setValue('');
+    writeDraft(key, '');
     setPending([]);
     try {
       await sendMessage(
@@ -1342,6 +1367,7 @@ export function Composer({
     } catch {
       // Rimettiamo tutto nel campo: perderlo sarebbe imperdonabile.
       setValue(body);
+      writeDraft(key, body);
       setPending(ready);
     } finally {
       setSending(false);
