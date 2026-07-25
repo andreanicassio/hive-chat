@@ -17,7 +17,12 @@ cat > "$TMP/package.json" <<PKG
   "dependencies": { "@anthropic-ai/claude-agent-sdk": "$SDKVER" } }
 PKG
 echo "$VER" > "$TMP/VERSION"
-tar -czf "$DL/hive-runner.tar.gz" -C "$TMP" .
+# Nome che contiene la versione: un URL nuovo per ogni release, così nessuna
+# cache (Cloudflare in testa) può servire il pacchetto vecchio a chi si
+# aggiorna. È successo davvero: l'edge teneva un tarball di 37 minuti prima e
+# i runner si riavviavano in tondo ogni 5 minuti senza mai aggiornarsi.
+tar -czf "$DL/hive-runner-$VER.tar.gz" -C "$TMP" .
+cp -f "$DL/hive-runner-$VER.tar.gz" "$DL/hive-runner.tar.gz"
 echo "$VER" > "$DL/runner-version"
 rm -rf "$TMP"
 echo "Runner $VER pubblicato (Claude Code SDK $SDKVER) → $DL"

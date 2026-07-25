@@ -76,6 +76,7 @@ Redis porta le code dei run, la presenza dei runner e il fanout realtime fra i n
 - **`canUseTool` non viene chiamato in modalità headless** dall'SDK. Per intercettare i tool si usa l'hook `PreToolUse`.
 - **`settingSources`**: il runner locale carica `['user','project','local']`, così ha la stessa potenza di Claude Code da terminale (CLAUDE.md, skill, MCP). Lasciarlo vuoto è un handicap silenzioso.
 - **Schemi di modifica**: non usare `createSchema.partial()` per le PATCH — `.partial()` rende i campi facoltativi ma i `.default()` scattano lo stesso, e una modifica parziale azzera quello che non hai mandato. Gli schemi di update si scrivono a mano con `.optional()`.
+- **Il pacchetto del runner ha un URL versionato** (`hive-runner-<ver>.tar.gz`). Non riusare un nome fisso: Cloudflare tiene in cache il `.tar.gz` mentre `runner-version` è già aggiornato, e i runner si riavviano in tondo scaricando per sempre la versione vecchia.
 - **Segreti**: `.env`, `runner.env` e i `*.bak` non entrano mai in git. Le chiavi del workspace stanno cifrate nel DB (AES-256-GCM).
 
 ## Contesto per gli agenti che lavorano qui
