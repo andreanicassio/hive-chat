@@ -50,6 +50,33 @@ eseguire, controlla la versione pubblicata e — se è cambiata — esce pulito.
 Il `run.sh` che lo avvolge scarica il bundle nuovo e riparte. Aggiorna quindi
 solo **fra** un turno e l'altro, mai a metà.
 
+## L'app Mac si compila su GitHub
+
+Questa macchina è Linux: un `.app` macOS non si può costruire qui. Lo
+costruiscono i runner macOS di GitHub Actions
+(`.github/workflows/desktop-release.yml`), che ne fanno una Release e caricano
+lo zip su `hive.dvnx.net` per l'installazione in una riga.
+
+```bash
+# 1. le tre versioni vanno allineate a mano, e devono coincidere col tag
+#    apps/desktop/package.json · src-tauri/tauri.conf.json · src-tauri/Cargo.toml
+# 2. il codice deve stare su GitHub: il workflow fa checkout del tag
+GIT_SSH_COMMAND="ssh -i ~/.ssh/hive_deploy" git push origin main
+git tag desktop-v0.1.3 -m "che cosa cambia"
+GIT_SSH_COMMAND="ssh -i ~/.ssh/hive_deploy" git push origin desktop-v0.1.3
+```
+
+- **La chiave SSH non è quella di default**: senza `GIT_SSH_COMMAND` il push
+  fallisce con «Permission denied (publickey)». La chiave è di sola questo
+  repo (`~/.ssh/hive_deploy`).
+- **Il tag è l'innesco**: `desktop-v*`. Si può anche lanciare a mano dalla tab
+  Actions, ma allora la Release esce come `desktop-v0.0.0-dev`.
+- **Seguire la build senza `gh`** (qui non è installato): il repo è pubblico,
+  quindi basta l'API senza token —
+  `curl -s "https://api.github.com/repos/andreanicassio/hive-chat/actions/runs?per_page=1"`.
+- Finita, l'app è su `https://hive.dvnx.net/install-mac` (curl | bash: così non
+  scatta la quarantena di macOS e non esce «app danneggiata»).
+
 ## Dati
 
 Postgres 16 e Redis 7 girano in locale.
