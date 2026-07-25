@@ -109,6 +109,27 @@ Redis porta le code dei run, la presenza dei runner e il fanout realtime fra i n
 - The interface speaks plainly, in the second person, and avoids jargon where it can.
 - Ogni pop-up passa dal componente `Modal` (`apps/web/src/components/Modal.tsx`): dà Esc, click fuori, blocco dello scroll e impilamento coerenti.
 
+## Copie di sicurezza
+
+Timer di sistema notturno (`hive-backup.timer`, 03:20 UTC) che lancia
+`deploy/backup.sh`: dump del database **e** archivio degli allegati, insieme,
+in `/srv/hive/backups`. Separati non servirebbero — il database senza i file
+ti ridà una chat piena di immagini mancanti.
+
+Ogni copia viene riletta appena scritta: se non si apre, viene cancellata e
+lo script fallisce. Ritenzione a scalare: tutto degli ultimi 7 giorni, una a
+settimana per due mesi, una al mese per sei.
+
+```bash
+sudo systemctl start hive-backup.service    # a mano, subito
+pg_restore -h 127.0.0.1 -U hive -d hive --clean --if-exists FILE.dump
+tar xzf FILE-uploads.tar.gz -C /
+```
+
+**Manca la copia fuori da questa macchina**, ed è la metà che conta contro un
+guasto del disco. Finché non c'è, questo protegge da una cancellazione
+sbagliata, non dalla perdita del server.
+
 ## Collaudare l'interfaccia davvero
 
 `puppeteer-core` è in `package.json`, ma **di proposito non scarica nessun
