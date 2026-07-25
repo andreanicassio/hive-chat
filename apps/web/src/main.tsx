@@ -21,6 +21,23 @@ function markTitlebar(): void {
 }
 markTitlebar();
 
+/**
+ * Dopo un aggiornamento, ricarica una volta sola.
+ *
+ * Il service worker nuovo prende il controllo subito, ma la pagina già aperta
+ * continua a usare i file di prima: servivano due ricaricamenti, e al primo
+ * sembrava che non fosse cambiato niente. Solo se un controller c'era già —
+ * alla prima installazione non c'è niente da ricaricare.
+ */
+if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloading) return;
+    reloading = true;
+    location.reload();
+  });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>

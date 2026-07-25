@@ -24,7 +24,7 @@ import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
 import { AgentDetail } from './AgentDetail.js';
 import { Modal, ModalRow, ModalSearch } from './Modal.js';
-import type { Agent, AgentKind, CatalogModel, RunnerToken } from '@hive/shared';
+import type { Agent, AgentKind, AgentStatus, CatalogModel, RunnerToken } from '@hive/shared';
 
 /* ========================================================================== */
 /*  Selettore modello                                                          */
@@ -1129,6 +1129,160 @@ function ToolConfigForm({
 /*  Elenco agenti del progetto                                                 */
 /* ========================================================================== */
 
+/* ==========================================================================
+   Card di un agente nell'elenco.
+
+   Il badge dice UNO stato, e solo stati che esistono davvero: nel codice ci
+   sono `idle`, `thinking`, `working`, `waiting`, `error` — nessuna «pausa».
+   Un badge che mente è peggio di un badge in meno.
+   ======================================================================== */
+
+type Badge = { label: string; tint: string; pulse?: boolean };
+
+function agentBadge(
+  agent: Agent,
+  live: { status: AgentStatus; label: string | null } | undefined,
+  awaiting: boolean,
+): Badge {
+  const status = live?.status ?? agent.status;
+  if (awaiting || status === 'waiting')
+    return {
+      label: 'attende te',
+      tint: 'bg-[var(--color-honey-soft)] text-[color-mix(in_oklab,var(--color-honey)_75%,var(--color-ink))]',
+    };
+  if (status === 'error')
+    return {
+      label: 'errore',
+      tint: 'bg-[color-mix(in_oklab,var(--color-error)_12%,transparent)] text-[var(--color-error)]',
+    };
+  if (status === 'working' || status === 'thinking')
+    return {
+      label: 'al lavoro',
+      tint: 'bg-[color-mix(in_oklab,var(--color-online)_14%,transparent)] text-[color-mix(in_oklab,var(--color-online)_80%,var(--color-ink))]',
+      pulse: true,
+    };
+  // Un agente locale con la macchina spenta non è «fermo»: non può partire.
+  if (agent.execution === 'local' && agent.runnerOnline === false)
+    return { label: 'macchina spenta', tint: 'bg-[var(--color-sunken)] text-[var(--color-ink-faint)]' };
+  return { label: 'fermo', tint: 'bg-[var(--color-sunken)] text-[var(--color-ink-faint)]' };
+}
+
+function AgentCard({
+  agent,
+  channels,
+  live,
+  onOpen,
+}: {
+  agent: Agent;
+  channels: string[];
+  live: { status: AgentStatus; label: string | null } | undefined;
+  onOpen: () => void;
+}) {
+  const approvals = useStore((s) => s.approvals);
+  const pending = approvals.find((ap) => ap.agentId === agent.id);
+  const badge = agentBadge(agent, live, Boolean(pending));
+  const [busy, setBusy] = useState(false);
+
+  async function decide(allowed: boolean) {
+    if (!pending) return;
+    setBusy(true);
+    try {
+      await api.decideApproval(pending.id, allowed);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    // Un `div`, non un bottone: dentro ce ne sono altri due, e i bottoni non
+    // si annidano.
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') onOpen();
+      }}
+      className={clsx(
+        'mx-3 mb-2 grid cursor-pointer grid-cols-[38px_minmax(0,1fr)_auto] items-start gap-3 rounded-[10px] border px-3.5 py-3 transition-colors',
+        pending
+          ? 'border-[color-mix(in_oklab,var(--color-honey)_35%,transparent)] bg-[var(--color-honey-soft)]'
+          : 'border-[var(--color-line)] hover:border-[var(--color-line-strong)]',
+      )}
+    >
+      <Avatar name={agent.name} emoji={agent.avatarEmoji} color={agent.avatarColor} size={38} isAgent />
+
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-[14px] font-semibold">{agent.name}</span>
+          <span className="shrink-0 text-[12px] font-normal text-[var(--color-ink-faint)]">
+            @{agent.handle}
+          </span>
+          {agent.kind === 'developer' && (
+            <span className="flex shrink-0 items-center gap-1 rounded bg-[var(--color-sunken)] px-1.5 text-[10.5px] font-medium text-[var(--color-ink-soft)]">
+              <Terminal size={9} /> sviluppatore
+            </span>
+          )}
+        </div>
+
+        <div className="mt-0.5 truncate text-[11.5px] text-[var(--color-ink-faint)]">
+          <span className="font-mono">{agent.model.replace(/^.*\//, '')}</span>
+          {' · '}
+          {agent.execution === 'local' ? 'sulla tua macchina' : 'sul server'}
+          {' · '}
+          {channels.length > 0 ? channels.map((c) => `#${c}`).join(' ') : 'in nessun canale'}
+        </div>
+
+        {(live?.label ?? agent.statusLabel) && (
+          <div className="mt-1 truncate font-mono text-[10.5px] text-[var(--color-ink-soft)]">
+            {live?.label ?? agent.statusLabel}
+          </div>
+        )}
+
+        {pending && (
+          <div className="mt-2">
+            <p className="text-[12.5px] text-[var(--color-ink-soft)]">{pending.title}</p>
+            <div className="mt-2 flex gap-2">
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={busy}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void decide(true);
+                }}
+              >
+                Concedi
+              </button>
+              <button
+                className="btn btn-sm border border-[var(--color-line-strong)]"
+                disabled={busy}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void decide(false);
+                }}
+              >
+                Rifiuta
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <span
+        className={clsx(
+          'flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[11.5px] font-medium',
+          badge.tint,
+        )}
+      >
+        {badge.pulse && (
+          <span className="h-[6px] w-[6px] animate-pulse rounded-full bg-[var(--color-online)]" />
+        )}
+        {badge.label}
+      </span>
+    </div>
+  );
+}
+
 export function AgentList({ onClose, onNew }: { onClose: () => void; onNew: () => void }) {
   const agents = useStore((s) => s.agents);
   const channels = useStore((s) => s.channels);
@@ -1138,6 +1292,15 @@ export function AgentList({ onClose, onNew }: { onClose: () => void; onNew: () =
   const [q, setQ] = useState('');
   const detail = detailId ? (agents.find((a) => a.id === detailId) ?? null) : null;
   const editTarget = editId ? (agents.find((a) => a.id === editId) ?? null) : null;
+  const approvals = useStore((s) => s.approvals);
+  // «Richiede attenzione» vuol dire: sta aspettando una tua decisione, o è
+  // finito in errore. Non un agente semplicemente fermo.
+  const attention = agents.filter(
+    (a) =>
+      approvals.some((ap) => ap.agentId === a.id) ||
+      (activity.get(a.id)?.status ?? a.status) === 'waiting' ||
+      (activity.get(a.id)?.status ?? a.status) === 'error',
+  ).length;
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -1159,6 +1322,15 @@ export function AgentList({ onClose, onNew }: { onClose: () => void; onNew: () =
         flush
         icon={<Bot size={18} strokeWidth={2.1} />}
         title="Agenti"
+        subtitle={
+          agents.length === 0
+            ? undefined
+            : `${agents.length} ${agents.length === 1 ? 'configurato' : 'configurati'}${
+                attention > 0
+                  ? ` · ${attention} ${attention === 1 ? 'richiede' : 'richiedono'} attenzione`
+                  : ''
+              }`
+        }
         headerRight={
           <button className="btn btn-primary btn-sm" onClick={onNew}>
             <Plus size={13} strokeWidth={2.4} /> Nuovo agente
@@ -1188,54 +1360,12 @@ export function AgentList({ onClose, onNew }: { onClose: () => void; onNew: () =
               const state = activity.get(a.id);
               const inChannels = channels.filter((c) => (a.channelIds ?? []).includes(c.id));
               return (
-                <ModalRow
+                <AgentCard
                   key={a.id}
-                  onClick={() => setDetailId(a.id)}
-                  leading={
-                    <Avatar
-                      name={a.name}
-                      emoji={a.avatarEmoji}
-                      color={a.avatarColor}
-                      size={34}
-                      isAgent
-                    />
-                  }
-                  title={
-                    <span className="flex items-center gap-2">
-                      {a.name}
-                      <span className="text-[12.5px] font-normal text-[var(--color-ink-faint)]">
-                        @{a.handle}
-                      </span>
-                      {a.kind === 'developer' && (
-                        <span className="flex items-center gap-1 rounded bg-[var(--color-sunken)] px-1.5 text-[10.5px] font-medium text-[var(--color-ink-soft)]">
-                          <Terminal size={9} /> sviluppatore
-                        </span>
-                      )}
-                    </span>
-                  }
-                  meta={
-                    <>
-                      {inChannels.length > 0
-                        ? inChannels.map((c) => `#${c.name}`).join(' · ')
-                        : 'in nessun canale'}
-                      {' · '}
-                      <span className="font-mono">{a.model.replace(/^.*\//, '')}</span>
-                    </>
-                  }
-                  trailing={
-                    state ? (
-                      <span className="flex items-center gap-1 text-[12px] text-[var(--color-ink-faint)]">
-                        <Loader2 size={11} className="animate-spin" />
-                        {state.status === 'waiting' ? 'in attesa' : 'al lavoro'}
-                      </span>
-                    ) : (
-                      <ChevronRight
-                        size={15}
-                        strokeWidth={2.2}
-                        className="text-[var(--color-ink-faint)] opacity-0 transition-opacity group-hover:opacity-100"
-                      />
-                    )
-                  }
+                  agent={a}
+                  channels={inChannels.map((c) => c.name)}
+                  live={state}
+                  onOpen={() => setDetailId(a.id)}
                 />
               );
             })}
