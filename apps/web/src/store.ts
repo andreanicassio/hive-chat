@@ -10,6 +10,7 @@ import type {
   DocumentNode,
   Message,
   PublicUser,
+  PushPayload,
   RunEvent,
   RunStatus,
   UpdateArtifactInput,
@@ -18,6 +19,7 @@ import type {
 } from '@hive/shared';
 import { api, type BootstrapPayload } from './lib/api.js';
 import { realtime } from './lib/ws.js';
+import { nativeNotifyShow } from './lib/native-notify.js';
 
 /**
  * Stato del client.
@@ -1046,6 +1048,15 @@ export const useStore = create<State>((set, get) => ({
       case 'document.changed': {
         const p = packet as unknown as { workspaceId: string; document: DocumentNode };
         set((s) => upsertDocument(s.documentsByWorkspace, p.workspaceId, p.document));
+        break;
+      }
+
+      case 'notify': {
+        // Solo l'app Mac se ne serve: altrove la stessa notifica arriva
+        // (meglio) via push, e mostrarle entrambe vorrebbe dire due avvisi
+        // per lo stesso evento.
+        const p = packet as unknown as { payload: PushPayload };
+        void nativeNotifyShow(p.payload);
         break;
       }
 

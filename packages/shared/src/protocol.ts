@@ -7,6 +7,7 @@ import type {
   DocumentNode,
   Channel,
   Message,
+  PushPayload,
   Reaction,
   RunEvent,
   RunStatus,
@@ -140,7 +141,16 @@ export type ServerPacket =
 
   /* --- documenti (base di conoscenza del progetto) --- */
   | { t: 'document.changed'; workspaceId: string; document: DocumentNode }
-  | { t: 'document.deleted'; workspaceId: string; documentId: string };
+  | { t: 'document.deleted'; workspaceId: string; documentId: string }
+  /*
+   * Una notifica consegnata sul filo, non via push.
+   *
+   * Serve all'app Mac: il suo motore web non ha le push (né PushManager né
+   * Notification), quindi lì l'unico modo di avvisare è dirglielo mentre è
+   * connessa e lasciare che sia il guscio a mostrare la notifica di sistema.
+   * Chi ha le push la ignora, altrimenti riceverebbe tutto due volte.
+   */
+  | { t: 'notify'; payload: PushPayload };
 
 /* --------------------------------- Canali Redis -------------------------- */
 

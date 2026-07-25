@@ -52,6 +52,11 @@ export async function prefsFor(userId: string): Promise<PushPrefs> {
  * si cancella, altrimenti resta lì a far fallire ogni invio successivo.
  */
 async function deliver(userId: string, payload: PushPayload): Promise<void> {
+  // Prima sul filo: l'app Mac non ha le push — il suo motore web non le
+  // implementa — e mentre è aperta questa è l'unica strada che le arriva.
+  // Chi le push ce le ha ignora il pacchetto, altrimenti sarebbero due.
+  hub.sendToUser(userId, { t: 'notify', payload });
+
   if (!configured) return;
   const subs = await db
     .select()
@@ -103,7 +108,6 @@ async function push(args: {
   /** Chiave per raggruppare: entro pochi secondi, il secondo avviso non parte. */
   groupKey?: string;
 }): Promise<void> {
-  if (!configured) return;
   if (args.actorUserId && args.actorUserId === args.userId) return;
   if (args.channelId && hub.isWatching(args.userId, args.channelId)) return;
 

@@ -74,6 +74,7 @@ fn runner_running(state: State<RunnerState>) -> bool {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(RunnerState(Mutex::new(None)))
         .manage(StartUrl(Mutex::new(None)))
         // Menu nativo: Modifica (copia/incolla nel webview), Vista (Ricarica,

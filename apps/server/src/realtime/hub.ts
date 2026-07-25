@@ -153,6 +153,29 @@ class Hub {
     return false;
   }
 
+  /**
+   * Manda un pacchetto a tutte le socket di una persona, ovunque sia.
+   *
+   * Non passa da Redis: il fanout fra nodi è per workspace, e una notifica
+   * non ne ha sempre uno (il runner spento non appartiene a un canale).
+   * Finché l'API gira su un processo solo è esatto; il giorno che diventano
+   * due, questo va rifatto sopra un canale Redis per utente.
+   */
+  sendToUser(userId: string, packet: ServerPacket): void {
+    const payload = JSON.stringify(packet);
+    for (const set of this.byWorkspace.values()) {
+      for (const conn of set) {
+        if (conn.userId !== userId) continue;
+        if (conn.socket.readyState !== OPEN) continue;
+        try {
+          conn.socket.send(payload);
+        } catch {
+          /* socket morente: se ne occupa il gestore di close */
+        }
+      }
+    }
+  }
+
   /** Pubblica su Redis: raggiunge tutti i nodi, incluso questo. */
   async publish(workspaceId: string, envelope: Envelope): Promise<void> {
     await redisPub.publish(

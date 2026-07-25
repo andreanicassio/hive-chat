@@ -23,6 +23,12 @@ import { BuildTag } from './BuildTag.js';
 import { Modal } from './Modal.js';
 import { applyTheme, setThemePref, storedPref, type ThemePref } from '../lib/theme.js';
 import { disablePush, enablePush, pushState, type PushState } from '../lib/push.js';
+import {
+  inDesktopShell,
+  nativeNotifyAvailable,
+  nativeNotifyEnable,
+  nativeNotifyGranted,
+} from '../lib/native-notify.js';
 import type { PushPrefs } from '../lib/api.js';
 import { RunnerTab } from './RunnerTab.js';
 import { api, ApiError } from '../lib/api.js';
@@ -554,18 +560,75 @@ const PUSH_KINDS: Array<{ id: keyof PushPrefs; label: string; hint: string }> = 
   { id: 'runFinished', label: 'Quando un agente finisce', hint: 'Anche se non ti ha nominato' },
 ];
 
+/**
+ * Dentro l'app Mac le push non esistono, e non è una versione vecchia: il
+ * motore web che Tauri incorpora non le implementa proprio. Lì la strada è
+ * un'altra — la notifica arriva sul WebSocket mentre l'app è aperta e la
+ * mostra il guscio, con l'API di macOS. Dirle «questo browser non supporta»
+ * era vero e inutile: non diceva cosa fare.
+ */
+function DeviceSectionDesktop() {
+  const available = nativeNotifyAvailable();
+  const [granted, setGranted] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void nativeNotifyGranted().then(setGranted);
+  }, []);
+
+  if (!available) {
+    return (
+      <p className="mt-1 text-[13.5px] text-[var(--color-error)]">
+        Questa versione dell’app Mac non sa ancora mostrare le notifiche di sistema: serve
+        ricompilarla con <code className="font-mono text-[12.5px]">npm run -w @hive/desktop build</code>
+        , dalla cartella del repo. Le push, invece, qui non ci saranno mai — il motore web dell’app
+        non le implementa, e non è una versione vecchia.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      <p className="mt-1 text-[13.5px] text-[var(--color-ink-soft)]">
+        {granted
+          ? 'Le notifiche di sistema sono attive in questa app.'
+          : 'Qui le notifiche passano da macOS, non dal browser: l’app le mostra mentre è aperta.'}
+      </p>
+      <p className="mt-1 text-[12.5px] text-[var(--color-ink-faint)]">
+        Ad app chiusa non arrivano. Se le vuoi anche allora, tieni Hive aperta anche dal telefono.
+      </p>
+      {!granted && (
+        <button
+          className="btn btn-primary mt-3"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void nativeNotifyEnable()
+              .then(setGranted)
+              .finally(() => setBusy(false));
+          }}
+        >
+          Attiva le notifiche
+        </button>
+      )}
+    </>
+  );
+}
+
 function NotificationsTab() {
   const [state, setState] = useState<PushState | null>(null);
   const [prefs, setPrefs] = useState<PushPrefs | null>(null);
   const [busy, setBusy] = useState(false);
+  const desktop = inDesktopShell();
 
   useEffect(() => {
+    if (desktop) return;
     void pushState().then(setState);
     void api
       .pushPrefs()
       .then(({ prefs }) => setPrefs(prefs))
       .catch(() => setPrefs(null));
-  }, []);
+  }, [desktop]);
 
   async function toggleDevice() {
     setBusy(true);
@@ -588,7 +651,8 @@ function NotificationsTab() {
   return (
     <div className="max-w-[480px]">
       <h3 className="text-[14px] font-semibold">Questo dispositivo</h3>
-      {info && (
+      {desktop && <DeviceSectionDesktop />}
+      {!desktop && info && (
         <p
           className={clsx(
             'mt-1 text-[13.5px]',
@@ -598,7 +662,7 @@ function NotificationsTab() {
           {info.text}
         </p>
       )}
-      {(state === 'on' || state === 'off') && (
+      {!desktop && (state === 'on' || state === 'off') && (
         <button className="btn btn-primary mt-3" onClick={() => void toggleDevice()} disabled={busy}>
           {state === 'on' ? 'Disattiva qui' : 'Attiva le notifiche'}
         </button>
