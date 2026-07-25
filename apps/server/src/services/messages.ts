@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql as raw, isNull } from 'drizzle-orm';
+import { and, eq, inArray, sql as raw, isNull, isNotNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { db, schema } from '../db/index.js';
 import { badRequest } from '../lib/errors.js';
@@ -421,17 +421,49 @@ export interface EnqueueRunArgs {
  * messaggi, li uniamo in un solo turno nuovo — l'agente li legge tutti
  * insieme, come farebbe una persona che torna e trova due righe.
  */
+/**
+ * Fa partire il prossimo turno rimasto in attesa per un agente in un canale.
+ *
+ * La coda vive nel DATABASE: un turno «in attesa» è una riga con stato
+ * `queued` e `dispatchedAt` nullo, che porta con sé il lavoro da fare. Prima
+ * il payload stava in una lista Redis separata: bastava che le due cose
+ * divergessero (turno annullato, runner morto, segnale di fine perso) perché
+ * la riga restasse in coda per sempre bloccando tutte quelle dopo, senza che
+ * nessuno potesse più ricostruire il lavoro. Ora la coda è ricostruibile
+ * sempre, e il raccoglitore la ripara da solo.
+ */
 export async function flushPendingPrompts(agentId: string, channelId: string): Promise<void> {
-  const key = redisChannels.pendingPrompts(agentId, channelId);
-  // Uno alla volta: il primo parte, gli altri restano in coda e toccherà a
-  // loro quando anche questo avrà finito.
-  const raw = await redisPub.rpop(key);
-  if (!raw) return;
-  const job = JSON.parse(raw) as RunJob;
-  await dispatchJob(job);
+  // Uno alla volta: se qualcosa sta già girando qui, non si accavalla.
+  if (await activeRunFor(agentId, channelId, { ignoreWaiting: true })) return;
+
+  const next = await db
+    .select({ id: schema.agentRuns.id, job: schema.agentRuns.job })
+    .from(schema.agentRuns)
+    .where(
+      and(
+        eq(schema.agentRuns.agentId, agentId),
+        eq(schema.agentRuns.channelId, channelId),
+        eq(schema.agentRuns.status, 'queued'),
+        isNull(schema.agentRuns.dispatchedAt),
+      ),
+    )
+    .orderBy(schema.agentRuns.queuedAt)
+    .limit(1);
+
+  const row = next[0];
+  if (!row?.job) return;
+  await markDispatched(row.id);
+  await dispatchJob(row.job as RunJob);
 }
 
-/** Manda un turno già creato alla coda che lo eseguirà. */
+/** Segna il turno come mandato in esecuzione (così non riparte due volte). */
+async function markDispatched(runId: string): Promise<void> {
+  await db
+    .update(schema.agentRuns)
+    .set({ dispatchedAt: new Date() })
+    .where(eq(schema.agentRuns.id, runId));
+}
+
 async function dispatchJob(job: RunJob): Promise<void> {
   const agentExec = (
     await db
@@ -615,7 +647,11 @@ export async function cancelRunsTriggeredBy(messageId: string): Promise<number> 
  * Serve per non far partire due turni in parallelo sulla stessa sessione:
  * si pesterebbero i piedi a vicenda. Il secondo messaggio va in coda.
  */
-async function activeRunFor(agentId: string, channelId: string): Promise<string | null> {
+async function activeRunFor(
+  agentId: string,
+  channelId: string,
+  opts: { ignoreWaiting?: boolean } = {},
+): Promise<string | null> {
   const rows = await db
     .select({ id: schema.agentRuns.id })
     .from(schema.agentRuns)
@@ -624,6 +660,10 @@ async function activeRunFor(agentId: string, channelId: string): Promise<string 
         eq(schema.agentRuns.agentId, agentId),
         eq(schema.agentRuns.channelId, channelId),
         inArray(schema.agentRuns.status, ACTIVE_RUN_STATES),
+        // Un turno ancora in attesa non "occupa" l'agente: è quello che
+        // stiamo per far partire noi. Senza questa distinzione la coda si
+        // guarda allo specchio e non parte mai.
+        ...(opts.ignoreWaiting ? [isNotNull(schema.agentRuns.dispatchedAt)] : []),
       ),
     )
     .limit(1);
@@ -799,15 +839,12 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
     return runId;
   }
 
-  if (queueBehind) {
-    await redisPub.lpush(
-      redisChannels.pendingPrompts(args.agentId, args.channelId),
-      JSON.stringify(job),
-    );
-    await redisPub.expire(redisChannels.pendingPrompts(args.agentId, args.channelId), 7200);
-    return runId;
-  }
+  // Il lavoro resta sulla riga del turno: è la coda, ed è ricostruibile.
+  await db.update(schema.agentRuns).set({ job }).where(eq(schema.agentRuns.id, runId));
 
+  if (queueBehind) return runId; // parte quando tocca a lui
+
+  await markDispatched(runId);
   await dispatchJob(job);
   return runId;
 }

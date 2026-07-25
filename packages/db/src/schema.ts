@@ -391,6 +391,16 @@ export const agentRuns = pgTable(
      */
     usesSubscription: boolean('uses_subscription'),
     hop: integer('hop').notNull().default(0),
+    /**
+     * Il lavoro da eseguire, per intero. Sta QUI e non solo in Redis: se le
+     * due cose divergono (turno annullato, runner morto, segnale di fine
+     * perso) il turno resta «in coda» per sempre e blocca tutti quelli dopo,
+     * senza che nessuno possa più ricostruirlo. Con il payload sulla riga,
+     * la coda si ripara da sola.
+     */
+    job: jsonb('job'),
+    /** Quando è stato mandato in esecuzione. Null = è ancora in attesa. */
+    dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
     queuedAt: timestamp('queued_at', { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp('started_at', { withTimezone: true }),
     endedAt: timestamp('ended_at', { withTimezone: true }),

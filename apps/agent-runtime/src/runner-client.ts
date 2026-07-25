@@ -13,7 +13,7 @@ import {
 } from '@hive/shared';
 import { toAnthropicModelId } from './models.js';
 import { RemoteEmitter } from './remote-emitter.js';
-import { createLocalSteering } from './steering.js';
+import { createLocalSteering } from './steering-core.js';
 
 /**
  * Runner LOCALE a token.

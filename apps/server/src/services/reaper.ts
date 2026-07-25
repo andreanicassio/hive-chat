@@ -1,4 +1,4 @@
-import { and, eq, inArray, lt, isNotNull } from 'drizzle-orm';
+import { and, eq, inArray, lt, isNotNull, isNull } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import { hub } from '../realtime/hub.js';
 import { serializeMessage } from './serialize.js';
@@ -22,8 +22,8 @@ const CHECK_EVERY_MS = 60_000;
 
 /** Minuti oltre i quali un run in un certo stato è considerato perso. */
 const LIMITS = {
-  /** In coda: nessuna macchina l'ha raccolto. */
-  queued: 10,
+  /** In coda: nessuno l'ha raccolto nemmeno dopo i tentativi di recupero. */
+  queued: 20,
   /** In esecuzione: oltre il timeout di 20 minuti dell'SDK. */
   running: 25,
   /** In attesa di conferma: le approvazioni scadono a 30 minuti. */
@@ -103,24 +103,46 @@ async function reapState(state: keyof typeof LIMITS): Promise<number> {
   return stale.length;
 }
 
-/** Code di messaggi rimaste in attesa senza più un turno attivo. */
+/**
+ * Rimette in moto le code ferme.
+ *
+ * È la rete che rende il sistema capace di ripararsi: qualunque cosa succeda
+ * — un turno annullato, un runner che muore, un pacchetto rotto, un segnale
+ * di fine perso — entro un minuto la coda riparte da sola invece di restare
+ * bloccata finché qualcuno non la sblocca a mano.
+ */
 async function sweepPendingQueues(): Promise<void> {
-  const keys = await redisPub.keys('hive:pending:*');
-  for (const key of keys) {
-    const [, , agentId, channelId] = key.split(':');
-    if (!agentId || !channelId) continue;
-    const active = await db
-      .select({ id: schema.agentRuns.id })
-      .from(schema.agentRuns)
-      .where(
-        and(
-          eq(schema.agentRuns.agentId, agentId),
-          eq(schema.agentRuns.channelId, channelId),
-          inArray(schema.agentRuns.status, ['queued', 'running', 'awaiting_approval']),
-        ),
-      )
-      .limit(1);
-    if (active.length === 0) await flushPendingPrompts(agentId, channelId).catch(() => {});
+  // 1. Lavori mandati in esecuzione ma mai partiti: il consumatore è morto
+  //    prima di prenderli (o il pacchetto era rotto). Li rimandiamo, una
+  //    volta sola, azzerando `dispatchedAt`.
+  const lost = await db
+    .select({ id: schema.agentRuns.id, agentId: schema.agentRuns.agentId, channelId: schema.agentRuns.channelId })
+    .from(schema.agentRuns)
+    .where(
+      and(
+        eq(schema.agentRuns.status, 'queued'),
+        isNotNull(schema.agentRuns.dispatchedAt),
+        isNull(schema.agentRuns.startedAt),
+        lt(schema.agentRuns.dispatchedAt, new Date(Date.now() - 3 * 60_000)),
+      ),
+    )
+    .limit(20);
+  for (const run of lost) {
+    await db
+      .update(schema.agentRuns)
+      .set({ dispatchedAt: null })
+      .where(eq(schema.agentRuns.id, run.id));
+    console.log(`[reaper] turno ${run.id.slice(0, 8)} mai partito: lo rimetto in coda`);
+  }
+
+  // 2. Code con qualcuno in attesa e nessuno che lavora: falle partire.
+  const waiting = await db
+    .selectDistinct({ agentId: schema.agentRuns.agentId, channelId: schema.agentRuns.channelId })
+    .from(schema.agentRuns)
+    .where(and(eq(schema.agentRuns.status, 'queued'), isNull(schema.agentRuns.dispatchedAt)))
+    .limit(50);
+  for (const w of waiting) {
+    await flushPendingPrompts(w.agentId, w.channelId).catch(() => {});
   }
 }
 
