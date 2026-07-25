@@ -34,6 +34,22 @@ function markTitlebar(): void {
   // Tauri non arriva mai. Ce lo dice lui, con `?shell=overlay` sul primo
   // indirizzo, e da lì in poi vale per questo dispositivo: la navigazione
   // interna perde la query, e la finestra non cambia forma per strada.
+  /*
+   * Dentro il guscio Mac la barra in sovrimpressione c'è SEMPRE: è nella sua
+   * configurazione da quando esiste la 0.1.3, e non c'è più nessuna build in
+   * circolazione senza. Quindi basta accorgersi di essere lì.
+   *
+   * Prima lo deducevo dal `?shell=overlay` che il guscio aggiunge quando
+   * premi «Apri»: bastava un percorso diverso — un link, un ricaricamento a
+   * indirizzo pulito — e il segnale non arrivava mai. Niente striscia, niente
+   * trascinamento, e nessun modo di accorgersene guardando.
+   */
+  const inTauri = '__TAURI__' in window;
+  if (inTauri) {
+    document.documentElement.dataset.titlebar = 'overlay';
+    document.documentElement.dataset.shell = 'tauri';
+  }
+
   try {
     const params = new URLSearchParams(location.search);
     if (params.get('shell') === 'overlay') {

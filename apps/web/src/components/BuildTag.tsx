@@ -75,6 +75,9 @@ export function BuildTag({ className }: { className?: string }) {
     >
       Hive · {running}
       {shell ? ` · app ${shell}` : ''}
+      {/* Serve a vedere a colpo d'occhio se la finestra ci lascia disegnare
+          in cima: se manca, la striscia per trascinare non esiste. */}
+      {document.documentElement.dataset.shell === 'tauri' && !shell ? ' · app ?' : ''}
     </div>
   );
 }
