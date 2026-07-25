@@ -5,7 +5,7 @@ import { db, schema } from '../db/index.js';
 import { requireChannelAccess, requireMembership } from '../lib/auth.js';
 import { conflict, notFound } from '../lib/errors.js';
 import { hub } from '../realtime/hub.js';
-import { bumpReplyCount, postMessage } from '../services/messages.js';
+import { bumpReplyCount, cancelRunsTriggeredBy, postMessage } from '../services/messages.js';
 import { serializeChannel, serializeMessages } from '../services/serialize.js';
 import { channelNameSchema, createChannelSchema, postMessageSchema } from '@hive/shared';
 
@@ -317,6 +317,11 @@ export async function channelRoutes(app: FastifyInstance): Promise<void> {
     if (existing.threadRootId && !existing.deletedAt) {
       await bumpReplyCount(workspaceId, existing.threadRootId, -1);
     }
+
+    // Se questo messaggio aveva messo al lavoro un agente, la richiesta si
+    // ritira: rispondere a un messaggio che non c'è più non serve a nessuno,
+    // e nel frattempo costa.
+    if (!existing.deletedAt) await cancelRunsTriggeredBy(messageId);
 
     await hub.publish(workspaceId, {
       packet: { t: 'message.deleted', channelId: existing.channelId, messageId },

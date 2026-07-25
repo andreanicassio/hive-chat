@@ -1,4 +1,13 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 import clsx from 'clsx';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -23,12 +32,14 @@ import {
   FolderOpen,
   MessagesSquare,
   ListChecks,
+  Trash2,
 } from 'lucide-react';
 import { useStore, type RunState } from '../store.js';
 import { ArtifactPanel, ArtifactPinnedStrip } from './ArtifactPanel.js';
 import { DocumentsPanel } from './DocumentsPanel.js';
 import { ChannelMembers } from './ChannelMembers.js';
 import { ChannelAside } from './ChannelAside.js';
+import { Modal } from './Modal.js';
 import { api } from '../lib/api.js';
 import { realtime } from '../lib/ws.js';
 import { Avatar } from './Avatar.js';
@@ -85,6 +96,96 @@ function Attachments({ items }: { items: Message['attachments'] }) {
   );
 }
 
+/* --- L'onda ---------------------------------------------------------------
+
+   Il testo che arriva sta SUBITO tutto nel DOM: le parole non ancora rivelate
+   ci sono già, a `opacity: 0`. Così gli a capo sono definitivi fin dal primo
+   istante e non c'è mai reflow — è il requisito esplicito del documento.
+   Poi il fronte dell'onda avanza per conto suo e le accende in sequenza.
+
+   Il primo tentativo animava ogni parola quando *entrava* nel DOM. Non
+   funzionava: i token dal server arrivano a blocchi, venti parole entrano
+   nello stesso frame e sfumano insieme. Un blocco che appare, non un'onda.
+   Il fronte va quindi disaccoppiato dall'arrivo, ed è quello che fa qui.
+------------------------------------------------------------------------- */
+
+/** Passo pieno, in ms. La dissolvenza dura 600ms: a ~60ms si sovrappongono. */
+const WAVE_MIN = 52;
+const WAVE_JITTER = 34;
+
+/**
+ * Chi ha chiesto meno movimento non vede l'onda: il testo compare e basta.
+ *
+ * Va deciso QUI e non dentro il ticker: è questo valore a mettere `data-wave`
+ * sul contenitore, e senza il ticker che le accende le parole resterebbero
+ * invisibili per sempre. Un'animazione in meno è una preferenza; un messaggio
+ * che non si legge è un guasto.
+ */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+  );
+}
+
+/**
+ * Quanto aspettare prima della prossima parola.
+ *
+ * Le pause dopo la punteggiatura vengono dal documento di design. Il ramo del
+ * recupero no, e serve: il modello scrive circa 70 parole al secondo, cioè
+ * quattro o cinque volte più in fretta dell'onda. A cadenza fissa, su una
+ * risposta lunga il fronte resterebbe indietro di mezzo minuto. Quando la coda
+ * si allunga il passo si accorcia, e l'onda si vede quando c'è il tempo di
+ * vederla.
+ */
+function waveDelay(word: string, backlog: number): number {
+  if (backlog > 24) return 12;
+  const step = WAVE_MIN + Math.random() * WAVE_JITTER;
+  const last = word.slice(-1);
+  if ('.!?'.includes(last)) return step + 260;
+  if (',;:'.includes(last)) return step + 120;
+  return step;
+}
+
+/**
+ * Fa avanzare il fronte dell'onda.
+ *
+ * Accende le parole scrivendo direttamente sul DOM, senza passare da React.
+ * Non è pigrizia: il fronte avanza anche ottanta volte al secondo quando
+ * recupera, e ogni passo che passasse dallo stato farebbe ri-analizzare tutto
+ * il markdown del messaggio. Così invece il componente si ri-rende solo
+ * quando arriva del testo nuovo, come prima, e l'onda costa un attributo.
+ *
+ * Le parole nuove nascono spente (è il CSS a deciderlo, finché il contenitore
+ * ha `data-wave`), quindi non c'è niente da sincronizzare: il fronte le trova
+ * e le accende quando arriva il loro turno.
+ */
+function useWave(host: React.RefObject<HTMLDivElement | null>, active: boolean): void {
+  useEffect(() => {
+    if (!active) return;
+    let cursor = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const nodes = host.current?.querySelectorAll<HTMLElement>('.word');
+      const total = nodes?.length ?? 0;
+      // Il testo è stato sostituito, non allungato: succede quando un turno di
+      // ragionamento si chiude e la bolla riparte da capo.
+      if (cursor > total) cursor = 0;
+      let delay = 40;
+      if (nodes && cursor < total) {
+        const backlog = total - cursor;
+        const jump = backlog > 80 ? Math.ceil(backlog / 24) : 1;
+        const until = Math.min(total, cursor + jump);
+        for (; cursor < until; cursor++) nodes[cursor]!.dataset.in = 'true';
+        delay = waveDelay(nodes[cursor - 1]?.textContent ?? '', backlog);
+      }
+      timer = setTimeout(tick, delay);
+    };
+    timer = setTimeout(tick, WAVE_MIN);
+    return () => clearTimeout(timer);
+  }, [active, host]);
+}
+
 export function MessageBody({
   body,
   streaming,
@@ -96,20 +197,30 @@ export function MessageBody({
 }) {
   const agents = useStore((s) => s.agents);
   const agentHandles = useMemo(() => new Set(agents.map((a) => a.handle)), [agents]);
+  const host = useRef<HTMLDivElement>(null);
+  const waving = streaming === true && !prefersReducedMotion();
+  useWave(host, waving);
+
+  const ctx: WordCtx = { agentHandles, splitting: waving };
 
   return (
-    <div className={clsx('msg-body', className)}>
+    <div ref={host} className={clsx('msg-body', className)} data-wave={waving ? 'true' : undefined}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           // Le menzioni vivono dentro il testo: le intercettiamo qui
           // invece di pre-processare il markdown, così non rompiamo
           // blocchi di codice che contengono la stessa sintassi.
-          p: ({ children }) => <p>{transformChildren(children, agentHandles, streaming)}</p>,
-          li: ({ children }) => <li>{transformChildren(children, agentHandles, streaming)}</li>,
+          p: ({ children }) => <p>{transformChildren(children, ctx)}</p>,
+          li: ({ children }) => <li>{transformChildren(children, ctx)}</li>,
+          h1: ({ children }) => <h1>{transformChildren(children, ctx)}</h1>,
+          h2: ({ children }) => <h2>{transformChildren(children, ctx)}</h2>,
+          h3: ({ children }) => <h3>{transformChildren(children, ctx)}</h3>,
+          td: ({ children }) => <td>{transformChildren(children, ctx)}</td>,
+          th: ({ children }) => <th>{transformChildren(children, ctx)}</th>,
           a: ({ href, children }) => (
             <a href={href} target="_blank" rel="noopener noreferrer">
-              {children}
+              {transformChildren(children, ctx)}
             </a>
           ),
         }}
@@ -120,55 +231,70 @@ export function MessageBody({
   );
 }
 
+interface WordCtx {
+  agentHandles: Set<string>;
+  /** Falso a turno fermo: niente span, il testo va nel DOM così com'è. */
+  splitting: boolean;
+}
+
 /**
- * Avvolge una per una le parole di un pezzo di testo.
+ * Divide un pezzo di testo in parole, una per span.
  *
- * Serve solo mentre l'agente scrive. Ogni parola nuova entra nel DOM con
- * l'animazione `.word-in`; quelle già presenti restano immobili, perché
- * un'animazione CSS parte al montaggio e non si ripete. Non c'è quindi niente
- * da ricordare su cosa sia già stato mostrato — e nessun cursore: i puntini
- * nell'intestazione dicono già che sta scrivendo.
+ * Gli spazi restano testo nudo: la riga va a capo esattamente dove andrebbe
+ * senza gli span. Le parole nascono spente — lo dice il CSS finché il
+ * contenitore è in streaming — e le accende il fronte dell'onda.
  */
 function revealWords(text: string, keyPrefix: string): React.ReactNode {
-  // Lo split che tiene i separatori: gli spazi restano testo nudo, così la
-  // riga va a capo esattamente dove andrebbe senza gli span.
   return text.split(/(\s+)/).map((chunk, i) =>
     chunk === '' || /^\s+$/.test(chunk) ? (
       chunk
     ) : (
-      <span key={`${keyPrefix}-${i}`} className="word-in">
+      <span key={`${keyPrefix}-${i}`} className="word">
         {chunk}
       </span>
     ),
   );
 }
 
-function transformChildren(
-  children: React.ReactNode,
-  agentHandles: Set<string>,
-  streaming?: boolean,
-): React.ReactNode {
+/** Dentro questi il testo non si tocca: spezzarlo romperebbe la formattazione. */
+const INSTANT_TAGS = new Set(['code', 'pre', 'kbd', 'samp']);
+
+function transformChildren(children: React.ReactNode, ctx: WordCtx): React.ReactNode {
   return (Array.isArray(children) ? children : [children]).map((child, i) => {
-    if (typeof child !== 'string') return child;
-    const parts = renderMentions(child, (h) => agentHandles.has(h));
-    return (
-      <span key={i}>
-        {parts.map((part, j) =>
-          typeof part === 'string' ? (
-            streaming ? (
-              revealWords(part, `${i}-${j}`)
+    if (typeof child === 'string') {
+      const parts = renderMentions(child, (h) => ctx.agentHandles.has(h));
+      return (
+        <span key={i}>
+          {parts.map((part, j) =>
+            typeof part === 'string' ? (
+              ctx.splitting ? (
+                revealWords(part, `${i}-${j}`)
+              ) : (
+                part
+              )
             ) : (
-              part
-            )
-          ) : (
-            <span key={j} className="mention" data-kind={part.kind}>
-              {part.kind === 'agent' && <Bot size={11} strokeWidth={2.4} />}
-              {part.kind === 'channel' ? `#${part.handle}` : `@${part.handle}`}
-            </span>
-          ),
-        )}
-      </span>
-    );
+              <span key={j} className="mention" data-kind={part.kind}>
+                {part.kind === 'agent' && <Bot size={11} strokeWidth={2.4} />}
+                {part.kind === 'channel' ? `#${part.handle}` : `@${part.handle}`}
+              </span>
+            ),
+          )}
+        </span>
+      );
+    }
+
+    // Grassetto, corsivo e simili: il testo lì dentro deve entrare nell'onda
+    // come il resto, altrimenti una parola in grassetto comparirebbe di colpo
+    // in mezzo alla frase. Solo i tag nativi: i componenti nostri (`a`)
+    // chiamano già questa funzione da sé, e trattarli qui li conterebbe due
+    // volte.
+    if (isValidElement(child) && typeof child.type === 'string' && !INSTANT_TAGS.has(child.type)) {
+      const inner = (child.props as { children?: React.ReactNode }).children;
+      if (inner !== undefined && inner !== null) {
+        return cloneElement(child, undefined, transformChildren(inner, ctx));
+      }
+    }
+    return child;
   });
 }
 
@@ -573,6 +699,100 @@ function ThreadBar({ message }: { message: Message }) {
 }
 
 /* ========================================================================== */
+/*  Eliminare un proprio messaggio                                             */
+/* ========================================================================== */
+
+/**
+ * Conferma prima di eliminare.
+ *
+ * Il punto non è chiedere «sei sicuro?» — è dire **cosa** succede. Se quel
+ * messaggio ha fatto partire un agente, cancellarlo lo ferma: chi clicca deve
+ * saperlo prima, non scoprirlo dopo vedendo un turno interrotto.
+ */
+function DeleteMessageDialog({ message, onClose }: { message: Message; onClose: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const agents = useStore((s) => s.agents);
+  // I turni che questo messaggio ha innescato e che non sono ancora finiti.
+  const affected = useStore((s) =>
+    [...s.runs.values()].filter(
+      (r) =>
+        r.triggerMessageId === message.id &&
+        (r.status === 'queued' || r.status === 'running' || r.status === 'awaiting_approval'),
+    ),
+  );
+
+  async function remove() {
+    setBusy(true);
+    setFailed(false);
+    try {
+      await api.deleteMessage(message.id);
+      onClose();
+    } catch {
+      setFailed(true);
+      setBusy(false);
+    }
+  }
+
+  const names = affected
+    .map((r) => agents.find((a) => a.id === r.agentId)?.name)
+    .filter((n): n is string => Boolean(n));
+
+  return (
+    <Modal
+      onClose={onClose}
+      title="Eliminare il messaggio?"
+      size="sm"
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button className="btn btn-ghost" onClick={onClose} disabled={busy}>
+            Annulla
+          </button>
+          <button
+            className="btn bg-[var(--color-error)] text-white hover:brightness-110"
+            onClick={() => void remove()}
+            disabled={busy}
+          >
+            {busy ? 'Elimino…' : 'Elimina'}
+          </button>
+        </div>
+      }
+    >
+      <p className="text-[14px] text-[var(--color-ink-soft)]">
+        Il testo sparisce per tutti e non si recupera. Al suo posto resta una riga che dice che
+        c'era un messaggio.
+      </p>
+
+      {names.length > 0 && (
+        <div className="mt-3 flex items-start gap-2.5 rounded-[10px] border border-[color-mix(in_oklab,var(--color-honey)_35%,transparent)] bg-[var(--color-honey-soft)] px-3 py-2.5">
+          <Bot size={15} strokeWidth={2.2} className="mt-0.5 shrink-0" />
+          <p className="text-[13.5px]">
+            {names.length === 1 ? (
+              <>
+                <strong className="font-semibold">{names[0]}</strong> sta rispondendo a questo
+                messaggio: eliminandolo <strong className="font-semibold">fermi anche lui</strong>.
+              </>
+            ) : (
+              <>
+                <strong className="font-semibold">{names.join(', ')}</strong> stanno rispondendo a
+                questo messaggio: eliminandolo{' '}
+                <strong className="font-semibold">fermi anche loro</strong>.
+              </>
+            )}
+          </p>
+        </div>
+      )}
+
+      {failed && (
+        <p className="mt-3 text-[13.5px] text-[var(--color-error)]">
+          Non è stato possibile eliminarlo. Riprova.
+        </p>
+      )}
+    </Modal>
+  );
+}
+
+/* ========================================================================== */
 /*  Citazione del messaggio a cui si risponde                                  */
 /* ========================================================================== */
 
@@ -617,6 +837,11 @@ function MessageRow({
   const onlineUserIds = useStore((s) => s.onlineUserIds);
   const setReplyingTo = useStore((s) => s.setReplyingTo);
   const openThread = useStore((s) => s.openThread);
+  const myUserId = useStore((s) => s.user?.id);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  // Si cancella solo la propria roba. Il server lo ripete comunque: questo
+  // serve a non mostrare un bottone che poi risponderebbe «non puoi».
+  const mine = message.author.type === 'user' && message.author.id === myUserId;
 
   // Messaggi consecutivi dello stesso autore entro 5 minuti si raggruppano:
   // meno rumore visivo, si legge come una conversazione.
@@ -665,7 +890,20 @@ function MessageRow({
         >
           <MessagesSquare size={13} strokeWidth={2.2} /> Nel thread
         </button>
+        {mine && (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="flex items-center gap-1 px-2 py-1 text-[12.5px] text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-error)]"
+            title="Elimina questo messaggio"
+          >
+            <Trash2 size={13} strokeWidth={2.2} /> Elimina
+          </button>
+        )}
       </div>
+
+      {confirmDelete && (
+        <DeleteMessageDialog message={message} onClose={() => setConfirmDelete(false)} />
+      )}
 
       <div className="grid grid-cols-[36px_minmax(0,1fr)] items-start gap-3">
         <div className="w-8 shrink-0">

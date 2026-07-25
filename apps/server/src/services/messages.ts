@@ -494,6 +494,99 @@ async function dispatchJob(job: RunJob): Promise<void> {
 const ACTIVE_RUN_STATES = ['queued', 'running', 'awaiting_approval'];
 
 /**
+ * Ferma un turno, ovunque si trovi.
+ *
+ * Un turno può essere in tre posti diversi, e ognuno vuole il suo segnale:
+ *
+ * 1. **Ancora in coda.** Nessuno lo sta guardando, quindi non c'è niente da
+ *    interrompere: lo marchiamo `cancelled` e chi lo preleverà lo salterà.
+ *    Chiudiamo anche la sua bolla, altrimenti resterebbe un messaggio vuoto
+ *    dell'agente lì per sempre — e uno stato non terminale blocca i messaggi
+ *    successivi per quell'agente in quel canale.
+ * 2. **In esecuzione sul worker del server.** È iscritto a `runCancel`: un
+ *    publish gli fa abortire la query, e sarà lui a scrivere lo stato finale.
+ * 3. **In esecuzione su un runner locale.** Non vede Redis. Lasciamo la
+ *    bandierina `runCancelled`, che il runner incontra al primo invio di
+ *    eventi (ne fa uno ogni mezzo secondo mentre lavora) e allora abortisce.
+ *
+ * Non sappiamo con certezza in quale dei tre casi siamo — fra la SELECT e il
+ * segnale il turno può essere partito — quindi mandiamo tutti e tre. Costano
+ * niente e sono innocui a vuoto.
+ */
+export async function cancelRun(runId: string): Promise<{ alreadyFinished: boolean }> {
+  const rows = await db
+    .select()
+    .from(schema.agentRuns)
+    .where(eq(schema.agentRuns.id, runId))
+    .limit(1);
+  const run = rows[0];
+  if (!run || !ACTIVE_RUN_STATES.includes(run.status)) return { alreadyFinished: true };
+
+  // Dura un'ora: molto più di qualsiasi turno, ma non resta lì per sempre se
+  // il runner che doveva leggerla non torna più.
+  await redisPub.set(redisChannels.runCancelled(runId), '1', 'EX', 3600);
+  await redisPub.publish(redisChannels.runCancel(runId), '1');
+
+  // Solo se è ancora in coda: se è partito, lo stato finale lo scrive chi lo
+  // sta eseguendo, e sovrascriverlo da qui vorrebbe dire correre con lui.
+  const closed = await db
+    .update(schema.agentRuns)
+    .set({ status: 'cancelled', endedAt: new Date() })
+    .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'queued')))
+    .returning();
+
+  if (closed.length > 0 && run.responseMessageId) {
+    const updated = await db
+      .update(schema.messages)
+      .set({ body: '_Richiesta annullata._' })
+      .where(eq(schema.messages.id, run.responseMessageId))
+      .returning();
+    const row = updated[0];
+    if (row) {
+      const message = await serializeMessage(row, null);
+      await hub.publish(run.workspaceId, {
+        packet: { t: 'message.updated', message },
+        channelId: run.channelId,
+      });
+    }
+    await hub.publish(run.workspaceId, {
+      packet: {
+        t: 'run.status',
+        runId,
+        messageId: run.responseMessageId,
+        status: 'cancelled',
+        error: null,
+      },
+      channelId: run.channelId,
+    });
+  }
+
+  return { alreadyFinished: false };
+}
+
+/**
+ * Ferma i turni che un messaggio ha fatto partire.
+ *
+ * Serve quando qualcuno cancella un proprio messaggio: se quel messaggio ha
+ * messo al lavoro un agente, la richiesta va ritirata. Cancellare il testo e
+ * lasciare l'agente a rispondere a qualcosa che non c'è più sarebbe metà
+ * lavoro, e costerebbe pure.
+ */
+export async function cancelRunsTriggeredBy(messageId: string): Promise<number> {
+  const rows = await db
+    .select({ id: schema.agentRuns.id })
+    .from(schema.agentRuns)
+    .where(
+      and(
+        eq(schema.agentRuns.triggerMessageId, messageId),
+        inArray(schema.agentRuns.status, ACTIVE_RUN_STATES),
+      ),
+    );
+  for (const row of rows) await cancelRun(row.id);
+  return rows.length;
+}
+
+/**
  * Turno già in corso per questo agente in questo canale?
  *
  * Serve per non far partire due turni in parallelo sulla stessa sessione:
@@ -579,6 +672,7 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
       agentId: args.agentId,
       channelId: args.channelId,
       messageId: responseMessage.id,
+      triggerMessageId: args.triggerMessageId,
     },
     channelId: args.channelId,
   });

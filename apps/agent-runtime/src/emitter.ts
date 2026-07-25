@@ -1,4 +1,4 @@
-import { eq, sql as raw } from 'drizzle-orm';
+import { and, eq, sql as raw } from 'drizzle-orm';
 import { schema } from '@hive/db';
 import { db } from './db.js';
 import { redis } from './redis.js';
@@ -296,10 +296,13 @@ export class RunEmitter {
   }
 
   async markStarted(): Promise<void> {
+    // Solo se era davvero in attesa. Senza il vincolo, un run annullato mentre
+    // stava in coda tornerebbe `running` proprio qui, e l'annullamento
+    // sparirebbe senza lasciare traccia.
     await db
       .update(schema.agentRuns)
       .set({ status: 'running', startedAt: new Date() })
-      .where(eq(schema.agentRuns.id, this.ctx.runId));
+      .where(and(eq(schema.agentRuns.id, this.ctx.runId), eq(schema.agentRuns.status, 'queued')));
     await this.runStatus('running');
   }
 

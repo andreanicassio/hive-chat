@@ -377,6 +377,7 @@ export const api = {
         id: string;
         agentId: string;
         responseMessageId: string | null;
+        triggerMessageId: string | null;
         status: RunStatus;
         error: string | null;
         /** Quanti passaggi ha fatto l'agente: è il "N passaggi" della tab di lavoro. */

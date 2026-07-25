@@ -602,13 +602,21 @@
      La dissolvenza dura 600ms e le parole distano ~60ms: si sovrappongono, e
      si legge come un'onda che attraversa la frase invece che come parole che
      compaiono a scatti. Nessun cursore: i puntini nell'intestazione dicono
-     già che sta scrivendo, e un secondo elemento in movimento distrae. */
-  @keyframes word-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+     già che sta scrivendo, e un secondo elemento in movimento distrae.
+
+     È una TRANSIZIONE, non un'animazione al montaggio. Al primo tentativo era
+     un'animazione che partiva quando lo span entrava nel DOM, e non
+     funzionava: i token dal server arrivano a blocchi, venti parole entrano
+     nello stesso frame e sfumano insieme — un blocco che appare, non un'onda.
+     Adesso la parola sta nel DOM, invisibile, dal momento in cui arriva (così
+     gli a capo sono definitivi e il testo non salta mai) e ad accenderla è il
+     fronte dell'onda, che avanza per conto suo: vedi `useWave` in Chat.tsx. */
+  .msg-body[data-wave] .word {
+    opacity: 0;
+    transition: opacity 0.6s cubic-bezier(0.33, 0.7, 0.4, 1);
   }
-  .word-in {
-    animation: word-in 0.6s cubic-bezier(0.33, 0.7, 0.4, 1);
+  .msg-body[data-wave] .word[data-in] {
+    opacity: 1;
   }
 
   /* Puntini "sta scrivendo". */

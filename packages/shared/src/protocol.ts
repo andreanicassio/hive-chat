@@ -86,6 +86,11 @@ export type ServerPacket =
       channelId: string;
       /** Bolla-messaggio già creata e vuota, da riempire in streaming. */
       messageId: string;
+      /**
+       * Il messaggio che ha fatto partire il turno. Serve al client per
+       * sapere, prima di cancellarlo, che cancellandolo ferma anche l'agente.
+       */
+      triggerMessageId: string | null;
     }
   | { t: 'run.delta'; runId: string; messageId: string; text: string }
   | {
@@ -190,6 +195,15 @@ export const redisChannels = {
   steerable: (runId: string) => `hive:steerable:${runId}`,
   /** Richieste di annullamento run. */
   runCancel: (runId: string) => `hive:runs:cancel:${runId}`,
+  /**
+   * Bandierina con TTL: «questo run è stato annullato».
+   *
+   * `runCancel` è pub/sub, quindi arriva solo a chi è già in ascolto — cioè al
+   * worker del server, e solo dopo che ha preso il job. Il runner locale non
+   * vede Redis e un job ancora in coda non ha nessuno in ascolto: per loro
+   * serve qualcosa che resti lì finché non lo si legge.
+   */
+  runCancelled: (runId: string) => `hive:runs:cancelled:${runId}`,
   /** Risposta a una richiesta di approvazione, attesa dal worker. */
   approvalReply: (approvalId: string) => `hive:approval:${approvalId}`,
 } as const;

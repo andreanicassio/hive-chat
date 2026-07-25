@@ -109,6 +109,10 @@ export async function startWorker(): Promise<void> {
       continue;
     }
 
+    // Annullato mentre era in coda: nessuno lo stava ascoltando, quindi il
+    // segnale di stop non poteva arrivargli. Se ne accorge chi lo preleva.
+    if (await runWasCancelled(parsed.data.runId)) continue;
+
     active++;
     void dispatch(parsed.data)
       .catch((err) => console.error('[worker] errore non gestito nel run:', err))
@@ -154,6 +158,23 @@ async function dispatch(job: RunJob): Promise<void> {
     return runInContainer(job);
   }
   return executeJob(job);
+}
+
+/**
+ * Il run è stato annullato mentre aspettava in coda?
+ *
+ * Guardiamo sia la bandierina Redis sia lo stato in DB: la prima è quella che
+ * il server lascia sempre, il secondo è la verità e copre anche il caso in cui
+ * la bandierina sia scaduta.
+ */
+async function runWasCancelled(runId: string): Promise<boolean> {
+  if (await redis.exists(redisChannels.runCancelled(runId))) return true;
+  const rows = await db
+    .select({ status: schema.agentRuns.status })
+    .from(schema.agentRuns)
+    .where(eq(schema.agentRuns.id, runId))
+    .limit(1);
+  return rows[0]?.status === 'cancelled';
 }
 
 /** Tipo dell'agente, per decidere l'instradamento senza caricarlo tutto. */

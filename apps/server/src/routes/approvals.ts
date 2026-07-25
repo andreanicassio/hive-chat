@@ -7,6 +7,7 @@ import { badRequest, notFound } from '../lib/errors.js';
 import { redisPub } from '../lib/redis.js';
 import { hub } from '../realtime/hub.js';
 import { serializeApproval } from '../services/serialize.js';
+import { cancelRun } from '../services/messages.js';
 import {
   decideApprovalSchema,
   redisChannels,
@@ -174,12 +175,7 @@ export async function approvalRoutes(app: FastifyInstance): Promise<void> {
     if (!run) throw notFound('Esecuzione non trovata');
     await requireChannelAccess(request, run.channelId, 'member');
 
-    if (run.status === 'done' || run.status === 'error' || run.status === 'cancelled') {
-      return { ok: true, alreadyFinished: true };
-    }
-
-    // Il worker ascolta questo canale e abortisce la query in corso.
-    await redisPub.publish(redisChannels.runCancel(runId), '1');
-    return { ok: true };
+    const { alreadyFinished } = await cancelRun(runId);
+    return { ok: true, ...(alreadyFinished ? { alreadyFinished } : {}) };
   });
 }

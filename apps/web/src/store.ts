@@ -47,6 +47,8 @@ export interface RunState {
   agentId: string;
   /** Serve a mostrare nel pannello Attività solo i run del canale che guardi. */
   channelId: string | null;
+  /** Il messaggio che ha innescato il turno: cancellarlo ferma anche questo run. */
+  triggerMessageId: string | null;
   status: RunStatus;
   /** Eventi in ordine: tool usati, ragionamento, errori. */
   events: TimedRunEvent[];
@@ -488,6 +490,7 @@ export const useStore = create<State>((set, get) => ({
           runId: r.id,
           agentId: r.agentId,
           channelId,
+          triggerMessageId: r.triggerMessageId,
           status: r.status,
           events: [],
           streaming: r.status === 'running',
@@ -814,6 +817,7 @@ export const useStore = create<State>((set, get) => ({
           agentId: string;
           channelId: string;
           messageId: string;
+          triggerMessageId: string | null;
         };
         set((s) => {
           const runs = new Map(s.runs);
@@ -821,6 +825,7 @@ export const useStore = create<State>((set, get) => ({
             runId: p.runId,
             agentId: p.agentId,
             channelId: p.channelId,
+            triggerMessageId: p.triggerMessageId ?? null,
             status: 'queued',
             events: [],
             streaming: false,

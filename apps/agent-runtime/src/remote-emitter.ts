@@ -22,13 +22,25 @@ export class RemoteEmitter implements EmitterLike {
   private seq = 0;
   private pending: Op[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private keepalive: ReturnType<typeof setInterval> | null = null;
   private closed = false;
+  /** Il segnale di stop si consegna una volta sola. */
+  private cancelSeen = false;
 
   constructor(
     private readonly serverUrl: string,
     private readonly token: string,
     private readonly runId: string,
-  ) {}
+    /** Chiamata quando il server dice che il turno è stato annullato. */
+    private readonly onCancel?: () => void,
+  ) {
+    // Battito lento. Il flush normale scatta quando c'è qualcosa da mandare,
+    // ma durante un comando lungo può non esserci niente per minuti — e la
+    // risposta a questo invio è l'unico modo che il server ha di dirci di
+    // fermarci. Ogni 5s la richiesta parte comunque, anche a vuoto.
+    this.keepalive = setInterval(() => void this.flush(true).catch(() => {}), 5000);
+    this.keepalive.unref?.();
+  }
 
   get text(): string {
     return this.buffer;
@@ -42,16 +54,18 @@ export class RemoteEmitter implements EmitterLike {
     }, 500);
   }
 
-  private async flush(): Promise<void> {
+  private async flush(force = false): Promise<void> {
+    // Nessuna guardia su `closed`: l'ultimo flush è proprio quello che parte
+    // dopo la chiusura, ed è quello che porta al server l'esito del turno.
     const ops = this.pending;
-    if (ops.length === 0 && this.buffer === this.lastBody) return;
+    if (!force && ops.length === 0 && this.buffer === this.lastBody) return;
     this.pending = [];
     if (this.buffer !== this.lastBody) {
       ops.push({ op: 'body', text: this.buffer });
       this.lastBody = this.buffer;
     }
     try {
-      await fetch(`${this.serverUrl}/api/runner/events`, {
+      const res = await fetch(`${this.serverUrl}/api/runner/events`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -59,6 +73,11 @@ export class RemoteEmitter implements EmitterLike {
         },
         body: JSON.stringify({ runId: this.runId, ops }),
       });
+      const body = (await res.json().catch(() => ({}))) as { cancel?: boolean };
+      if (body.cancel && !this.cancelSeen) {
+        this.cancelSeen = true;
+        this.onCancel?.();
+      }
     } catch (err) {
       // Rete ballerina: non facciamo cadere il turno per un batch perso.
       console.error('[runner] invio eventi fallito:', (err as Error).message);
@@ -114,6 +133,10 @@ export class RemoteEmitter implements EmitterLike {
     usesSubscription?: boolean;
     sdkSessionId?: string | null;
   }): Promise<void> {
+    if (this.keepalive) {
+      clearInterval(this.keepalive);
+      this.keepalive = null;
+    }
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;

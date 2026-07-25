@@ -154,6 +154,9 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
           // Non è roba di questo runner (altro utente o altro progetto).
           continue;
         }
+        // Annullato mentre aspettava in coda: non c'era nessuno a cui mandare
+        // il segnale di stop, quindi il controllo tocca a chi lo preleva.
+        if (await redisPub.exists(redisChannels.runCancelled(job.runId))) continue;
         const context = await buildAgentContext(db, {
           workspaceId: job.workspaceId,
           channelId: job.channelId,
@@ -253,7 +256,12 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
       messageId: run.responseMessageId!,
     };
     await applyRunnerOps(ctx, ops as RunnerOp[]);
-    return { ok: true };
+    // L'unico canale di ritorno verso un runner che sta lavorando. Il runner
+    // sta su un'altra macchina, non vede Redis, e mentre esegue un turno non
+    // fa poll: l'invio degli eventi è l'unica cosa che continua a passare di
+    // qui, quindi è da qui che gli si dice di fermarsi.
+    const cancelled = await redisPub.exists(redisChannels.runCancelled(run.id));
+    return { ok: true, ...(cancelled ? { cancel: true } : {}) };
   });
 
   /* --------------------------- approvazione inline in chat (dal runner) */

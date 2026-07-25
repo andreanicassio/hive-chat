@@ -274,7 +274,15 @@ async function downloadAttachments(
 
 async function runOne(cfg: Config, data: PollResult): Promise<void> {
   const { job, agent, context, resumeSessionId } = data;
-  const emitter = new RemoteEmitter(cfg.serverUrl, cfg.token, job.runId);
+  // Il runner non vede Redis, quindi il segnale di stop non può arrivargli
+  // come arriva al worker del server: glielo dice il server nella risposta
+  // all'invio degli eventi, che è l'unica cosa che continua a passare mentre
+  // il turno gira.
+  const controller = new AbortController();
+  const emitter = new RemoteEmitter(cfg.serverUrl, cfg.token, job.runId, () => {
+    console.log(`[runner] turno ${job.runId} annullato dalla chat: interrompo.`);
+    controller.abort();
+  });
   const grants = (agent.tools as AgentToolGrant[]) ?? [];
   const kind = (agent.kind as 'assistant' | 'developer') ?? 'developer';
   const { model } = toAnthropicModelId(String(agent.model));
@@ -300,7 +308,7 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
   // Tool hive proxati (Documenti): l'agente locale li usa via HTTPS sul server.
   const hiveServer = buildHiveProxyServer(cfg, job.runId, grants);
 
-  const controller = new AbortController();
+  // Rete di sicurezza: un turno che non finisce non deve restare appeso.
   const timeout = setTimeout(() => controller.abort(), 20 * 60_000);
 
   const options: Options = {
@@ -467,7 +475,9 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
     }
     if (thinkingOpen) await emitter.event({ type: 'thinking.end' });
     await emitter.finish({
-      status: 'done',
+      // Interrotto vuol dire interrotto: chiuderlo come «fatto» direbbe che
+      // l'agente ha finito, e la risposta a metà sembrerebbe quella vera.
+      status: controller.signal.aborted ? 'cancelled' : 'done',
       finalText: finalText || emitter.text,
       numTurns,
       costUsd,
@@ -479,7 +489,14 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
       sdkSessionId: sessionId,
     });
   } catch (err) {
-    await emitter.finish({ status: 'error', error: err instanceof Error ? err.message : String(err) });
+    // L'SDK lancia quando la query viene abortita: non è un errore da mostrare
+    // in chat, è quello che è stato chiesto.
+    if (controller.signal.aborted) await emitter.finish({ status: 'cancelled' });
+    else
+      await emitter.finish({
+        status: 'error',
+        error: err instanceof Error ? err.message : String(err),
+      });
   } finally {
     clearTimeout(timeout);
   }
