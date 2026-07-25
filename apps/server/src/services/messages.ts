@@ -149,7 +149,7 @@ export async function postMessage(args: PostMessageArgs) {
       .where(eq(schema.messages.id, ref))
       .limit(1);
     if (!target[0] || target[0].channelId !== args.channelId) {
-      throw badRequest('bad_reference', 'Il messaggio citato non appartiene a questo canale.');
+      throw badRequest('bad_reference', 'The quoted message is not in this channel.');
     }
   }
 
@@ -194,7 +194,7 @@ export async function postMessage(args: PostMessageArgs) {
       )
       .limit(1);
     row = existing[0];
-    if (!row) throw new Error('impossibile salvare il messaggio');
+    if (!row) throw new Error("couldn't save the message");
     return { message: await serializeMessage(row, null), triggeredRuns: [] as string[] };
   }
 
@@ -542,19 +542,19 @@ export async function cancelRun(runId: string): Promise<{ alreadyFinished: boole
     .returning();
 
   if (closed.length > 0 && run.responseMessageId) {
-    const updated = await db
-      .update(schema.messages)
-      .set({ body: '_Richiesta annullata._' })
-      .where(eq(schema.messages.id, run.responseMessageId))
-      .returning();
-    const row = updated[0];
-    if (row) {
-      const message = await serializeMessage(row, null);
-      await hub.publish(run.workspaceId, {
-        packet: { t: 'message.updated', message },
+    // Il turno era ancora in coda: l'agente non ha letto niente e non ha
+    // scritto niente. La sua bolla non diventa una nota — «richiesta
+    // annullata» racconta un fatto che non è successo — ma sparisce.
+    await db.delete(schema.messages).where(eq(schema.messages.id, run.responseMessageId));
+    await hub.publish(run.workspaceId, {
+      packet: {
+        t: 'message.deleted',
         channelId: run.channelId,
-      });
-    }
+        messageId: run.responseMessageId,
+        purged: true,
+      },
+      channelId: run.channelId,
+    });
     await hub.publish(run.workspaceId, {
       packet: {
         t: 'run.status',
@@ -713,12 +713,12 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
 
   if (budget.exceeded) {
     const note =
-      `_Tetto di spesa raggiunto: questo progetto ha speso $${budget.spentUsd.toFixed(2)} ` +
-      `sui $${budget.limitUsd?.toFixed(2)} previsti per questo mese. Alza il limite in ` +
-      `Impostazioni → Utilizzo per far ripartire gli agenti._`;
+      `_Spending cap reached: this project has spent $${budget.spentUsd.toFixed(2)} ` +
+      `of the $${budget.limitUsd?.toFixed(2)} set for this month. Raise the limit in ` +
+      `Settings → Usage to start the agents again._`;
     await db
       .update(schema.agentRuns)
-      .set({ status: 'error', error: 'budget esaurito', endedAt: new Date() })
+      .set({ status: 'error', error: 'budget exhausted', endedAt: new Date() })
       .where(eq(schema.agentRuns.id, runId));
     await db
       .update(schema.messages)
@@ -742,7 +742,7 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
         runId,
         messageId: responseMessage.id,
         status: 'error',
-        error: 'budget esaurito',
+        error: 'budget exhausted',
       },
       channelId: args.channelId,
     });

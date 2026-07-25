@@ -190,21 +190,31 @@ export class RunEmitter {
       this.buffer = result.finalText;
     }
 
-    // Un run finito senza output lascerebbe una bolla vuota in chat.
-    if (!this.buffer.trim()) {
-      this.buffer =
-        result.status === 'error'
-          ? `_L'esecuzione si è interrotta: ${result.error ?? 'errore sconosciuto'}_`
-          : result.status === 'cancelled'
-            ? '_Esecuzione annullata._'
-            : '_Nessuna risposta prodotta._';
-    }
+    /*
+     * Fermato prima che dicesse una parola: la bolla sparisce.
+     *
+     * Il cartello «esecuzione annullata» al suo posto occupava una riga della
+     * conversazione per dire che non era successo niente. Se invece aveva già
+     * cominciato a rispondere, quel testo resta: è lavoro vero.
+     */
+    const purge = !this.buffer.trim() && result.status === 'cancelled';
 
-    await db
-      .update(schema.messages)
-      .set({ body: this.buffer })
-      .where(eq(schema.messages.id, this.ctx.messageId));
-    this.persisted = this.buffer;
+    if (!purge) {
+      // Un run finito senza output lascerebbe una bolla vuota in chat.
+      if (!this.buffer.trim()) {
+        this.buffer =
+          result.status === 'error'
+            ? `_L'esecuzione si è interrotta: ${result.error ?? 'errore sconosciuto'}_`
+            : '_Nessuna risposta prodotta._';
+      }
+      await db
+        .update(schema.messages)
+        .set({ body: this.buffer })
+        .where(eq(schema.messages.id, this.ctx.messageId));
+      this.persisted = this.buffer;
+    } else {
+      await db.delete(schema.messages).where(eq(schema.messages.id, this.ctx.messageId));
+    }
 
     await db
       .update(schema.agentRuns)
@@ -225,6 +235,16 @@ export class RunEmitter {
 
     await this.runStatus(result.status, result.error ?? null);
     await this.status('idle', null);
+
+    if (purge) {
+      await this.publish({
+        t: 'message.deleted',
+        channelId: this.ctx.channelId,
+        messageId: this.ctx.messageId,
+        purged: true,
+      });
+      return;
+    }
 
     // Ripubblica il messaggio completo: chi si è collegato a metà stream
     // così vede comunque il testo intero. Carichiamo anche i dati veri

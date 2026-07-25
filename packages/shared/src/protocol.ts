@@ -63,7 +63,12 @@ export type ServerPacket =
   /* --- messaggi --- */
   | { t: 'message.new'; message: Message }
   | { t: 'message.updated'; message: Message }
-  | { t: 'message.deleted'; channelId: string; messageId: string }
+  /*
+   * `purged`: il messaggio va tolto dall'elenco, non sostituito da «messaggio
+   * eliminato». Serve alla bolla di un agente fermato prima che dicesse una
+   * parola: non c'è niente da commemorare, quel turno non è mai esistito.
+   */
+  | { t: 'message.deleted'; channelId: string; messageId: string; purged?: boolean }
   | {
       t: 'reaction.changed';
       channelId: string;

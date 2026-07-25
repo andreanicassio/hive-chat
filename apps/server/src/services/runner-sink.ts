@@ -67,16 +67,29 @@ async function applyFinish(ctx: RunSinkContext, op: Extract<RunnerOp, { op: 'fin
       .from(schema.messages)
       .where(eq(schema.messages.id, ctx.messageId))
       .limit(1);
-    body = cur[0]?.body?.trim()
-      ? cur[0].body
-      : op.status === 'error'
-        ? `_L'esecuzione si è interrotta: ${op.error ?? 'errore sconosciuto'}_`
-        : op.status === 'cancelled'
-          ? '_Esecuzione annullata._'
-          : '_Nessuna risposta prodotta._';
+    body = cur[0]?.body?.trim() ?? '';
   }
 
-  await db.update(schema.messages).set({ body }).where(eq(schema.messages.id, ctx.messageId));
+  /*
+   * Fermato prima che dicesse una parola: la bolla sparisce.
+   *
+   * Un cartello «esecuzione annullata» al suo posto è peggio del silenzio —
+   * occupa una riga della conversazione per dire che non è successo niente.
+   * Se invece aveva già cominciato a rispondere, quel testo resta: è roba
+   * vera, e cancellarla sarebbe buttare via lavoro fatto.
+   */
+  const purge = !body.trim() && op.status === 'cancelled';
+  if (purge) {
+    await db.delete(schema.messages).where(eq(schema.messages.id, ctx.messageId));
+  } else {
+    if (!body.trim()) {
+      body =
+        op.status === 'error'
+          ? `_L'esecuzione si è interrotta: ${op.error ?? 'errore sconosciuto'}_`
+          : '_Nessuna risposta prodotta._';
+    }
+    await db.update(schema.messages).set({ body }).where(eq(schema.messages.id, ctx.messageId));
+  }
   await db
     .update(schema.agentRuns)
     .set({
@@ -100,6 +113,16 @@ async function applyFinish(ctx: RunSinkContext, op: Extract<RunnerOp, { op: 'fin
     error: op.error ?? null,
   });
   await applyStatus(ctx, 'idle', null);
+
+  if (purge) {
+    await publish(ctx, {
+      t: 'message.deleted',
+      channelId: ctx.channelId,
+      messageId: ctx.messageId,
+      purged: true,
+    });
+    return;
+  }
 
   // Ripubblica il messaggio completo con l'autore reale (nome/avatar).
   const [rows, agentRows] = await Promise.all([

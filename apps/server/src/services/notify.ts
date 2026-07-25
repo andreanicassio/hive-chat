@@ -169,7 +169,7 @@ export async function notifyApproval(args: {
         // notificato — è bloccante, e la card si può perdere nello scroll.
         kind: 'approvals',
         payload: {
-          title: `${args.agentName} chiede un permesso`,
+          title: `${args.agentName} needs an approval`,
           body: args.title,
           url: `/c/${args.channelId}`,
           tag: `approval:${args.channelId}`,
@@ -193,8 +193,8 @@ export async function notifyRunFinished(args: {
     channelId: args.channelId,
     kind: 'runFinished',
     payload: {
-      title: `${args.agentName} ha finito`,
-      body: args.cancelled ? 'Turno interrotto.' : `In #${args.channelName}`,
+      title: `${args.agentName} has finished`,
+      body: args.cancelled ? 'Turn stopped.' : `In #${args.channelName}`,
       url: `/c/${args.channelId}/m/${args.messageId}/lavoro`,
       tag: `run:${args.messageId}`,
     },
@@ -217,8 +217,8 @@ export async function notifyRunnerOffline(args: {
     kind: 'runnerOffline',
     groupKey: `offline:${args.agentName}`,
     payload: {
-      title: 'Il tuo runner è spento',
-      body: `${args.agentName} non può partire finché la tua macchina è offline.`,
+      title: 'Your runner is off',
+      body: `${args.agentName} can't start while your machine is offline.`,
       url: '/attivita',
       tag: 'runner-offline',
     },
@@ -259,7 +259,7 @@ export async function notifyMentionForMessage(args: {
     .from(schema.channels)
     .where(eq(schema.channels.id, args.channelId))
     .limit(1);
-  const channelName = rows[0]?.name ?? 'canale';
+  const channelName = rows[0]?.name ?? 'channel';
 
   const excerpt = args.body
     .replace(/<@([a-z0-9._-]+)>/g, '@$1')
@@ -315,7 +315,7 @@ export async function notifyRunFinishedById(runId: string): Promise<void> {
     userId: run.authorId,
     agentName: run.agentName,
     channelId: run.channelId,
-    channelName: channelRows[0]?.name ?? 'canale',
+    channelName: channelRows[0]?.name ?? 'channel',
     messageId: run.responseMessageId,
     cancelled: run.status === 'cancelled',
   });

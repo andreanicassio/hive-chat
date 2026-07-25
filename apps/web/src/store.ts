@@ -807,9 +807,10 @@ export const useStore = create<State>((set, get) => ({
       }
 
       case 'message.deleted': {
-        const { channelId, messageId } = packet as unknown as {
+        const { channelId, messageId, purged } = packet as unknown as {
           channelId: string;
           messageId: string;
+          purged?: boolean;
         };
         set((s) => {
           const next = new Map(s.messagesByChannel);
@@ -817,9 +818,16 @@ export const useStore = create<State>((set, get) => ({
           if (list) {
             next.set(
               channelId,
-              list.map((m) =>
-                m.id === messageId ? { ...m, deletedAt: new Date().toISOString(), body: '' } : m,
-              ),
+              // `purged` = sparisce davvero. È la bolla di un agente fermato
+              // prima che scrivesse: una lapide «messaggio eliminato» al suo
+              // posto sarebbe un altro modo di lasciare traccia di niente.
+              purged
+                ? list.filter((m) => m.id !== messageId)
+                : list.map((m) =>
+                    m.id === messageId
+                      ? { ...m, deletedAt: new Date().toISOString(), body: '' }
+                      : m,
+                  ),
             );
           }
           return { messagesByChannel: next };

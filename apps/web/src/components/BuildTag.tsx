@@ -44,14 +44,14 @@ export function BuildTag({ className }: { className?: string }) {
     return (
       <button
         onClick={() => applyUpdate()}
-        title={`Stai eseguendo ${running}${latest ? `, pubblicata ${latest}` : ''}`}
+        title={`You're running ${running}${latest ? `, published ${latest}` : ''}`}
         className={clsx(
           'flex w-full items-center gap-1.5 rounded-[7px] px-1.5 py-1 text-left text-[11px] font-medium text-[var(--color-honey)] transition-colors hover:bg-[color-mix(in_oklab,var(--color-honey)_10%,transparent)]',
           className,
         )}
       >
         <RefreshCw size={11} strokeWidth={2.6} className="shrink-0" />
-        <span className="truncate">Versione nuova — ricarica</span>
+        <span className="truncate">New version — reload</span>
       </button>
     );
   }

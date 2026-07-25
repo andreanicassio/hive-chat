@@ -64,7 +64,7 @@ export function AgentDetail({
           </span>
           {agent.kind === 'developer' && (
             <span className="flex items-center gap-1 rounded bg-[var(--color-sunken)] px-1.5 text-[10.5px] font-medium text-[var(--color-ink-soft)]">
-              <Terminal size={9} /> sviluppatore
+              <Terminal size={9} /> developer
             </span>
           )}
         </span>
@@ -74,9 +74,9 @@ export function AgentDetail({
         <button
           onClick={() => onEdit(agent)}
           className="btn btn-ghost btn-sm shrink-0"
-          title="Modifica nome, modello, tool, canali…"
+          title="Edit name, model, tools, channels…"
         >
-          <SlidersHorizontal size={13} /> Modifica tutto
+          <SlidersHorizontal size={13} /> Edit everything
         </button>
       }
     >
@@ -105,14 +105,14 @@ export function AgentDetail({
               {/* dove gira */}
               <div>
                 <label className="mb-1.5 flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-ink-soft)]">
-                  <Cpu size={14} strokeWidth={2.1} /> Dove gira
+                  <Cpu size={14} strokeWidth={2.1} /> Where it runs
                   {savingCfg && <Loader2 size={11} className="animate-spin" />}
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   {(
                     [
-                      { v: 'server', t: 'Sul server', d: 'Sempre attivo, isolato in container.' },
-                      { v: 'local', t: 'Sul mio computer', d: 'Runner locale, sul tuo codice.' },
+                      { v: 'server', t: 'On the server', d: 'Always on, isolated in a container.' },
+                      { v: 'local', t: 'On my computer', d: 'Local runner, on your code.' },
                     ] as const
                   ).map((o) => (
                     <button
@@ -139,13 +139,13 @@ export function AgentDetail({
               {/* permessi */}
               <div>
                 <label className="mb-1.5 flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-ink-soft)]">
-                  <ShieldCheck size={14} strokeWidth={2.1} /> Permessi
+                  <ShieldCheck size={14} strokeWidth={2.1} /> Approvals
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   {(
                     [
-                      { v: 'ask', t: 'Chiede conferma', d: 'Le azioni delicate passano da te.' },
-                      { v: 'bypass', t: 'Autonomia totale', d: 'Non chiede mai: fa tutto da solo.' },
+                      { v: 'ask', t: 'Asks first', d: 'Sensitive actions go through you.' },
+                      { v: 'bypass', t: 'Full autonomy', d: 'Never asks: does everything alone.' },
                     ] as const
                   ).map((o) => (
                     <button
@@ -202,7 +202,7 @@ function ClaudeMdEditor({ agent, execution }: { agent: Agent; execution: string 
       setSource(r.source);
       setExists(r.exists);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Non riesco a leggere il file.');
+      setError(err instanceof ApiError ? err.message : 'Cannot read the file.');
     } finally {
       setLoading(false);
     }
@@ -223,7 +223,7 @@ function ClaudeMdEditor({ agent, execution }: { agent: Agent; execution: string 
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Salvataggio fallito.');
+      setError(err instanceof ApiError ? err.message : 'Save failed.');
     } finally {
       setSaving(false);
     }
@@ -232,25 +232,25 @@ function ClaudeMdEditor({ agent, execution }: { agent: Agent; execution: string 
   return (
     <div>
       <label className="mb-1.5 flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-ink-soft)]">
-        <FileCode2 size={14} strokeWidth={2.1} /> CLAUDE.md del progetto
+        <FileCode2 size={14} strokeWidth={2.1} /> Project CLAUDE.md
       </label>
       <p className="mb-2 text-[12px] leading-relaxed text-[var(--color-ink-faint)]">
-        Le istruzioni che l'agente legge a ogni turno, come Claude Code da terminale.
+        The instructions the agent reads on every turn, like Claude Code from the terminal.
         {path && (
           <>
             {' '}
-            File reale:{' '}
+            Real file:{' '}
             <code className="rounded bg-[var(--color-sunken)] px-1 py-px font-mono text-[11px]">
               {path}
             </code>
-            {source === 'runner' && ' (sul tuo computer)'}
+            {source === 'runner' && ' (on your computer)'}
           </>
         )}
       </p>
 
       {loading ? (
         <div className="flex items-center gap-2 py-4 text-[13px] text-[var(--color-ink-faint)]">
-          <Loader2 size={14} className="animate-spin" /> Leggo il file…
+          <Loader2 size={14} className="animate-spin" /> Reading the file…
         </div>
       ) : error ? (
         <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-sunken)] p-3">
@@ -259,14 +259,14 @@ function ClaudeMdEditor({ agent, execution }: { agent: Agent; execution: string 
             <span>{error}</span>
           </div>
           <button className="btn btn-ghost btn-sm mt-2" onClick={() => void load()}>
-            Riprova
+            Try again
           </button>
         </div>
       ) : (
         <>
           {!exists && (
             <p className="mb-1.5 text-[12px] text-[var(--color-ink-faint)]">
-              Non esiste ancora: salvando lo crei.
+              It doesn't exist yet: saving creates it.
             </p>
           )}
           <textarea

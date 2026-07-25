@@ -135,7 +135,7 @@ export function Modal({
             {headerRight}
             <button
               onClick={onClose}
-              aria-label="Chiudi"
+              aria-label="Close"
               className="shrink-0 rounded-lg p-1.5 text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)] hover:text-[var(--color-ink)]"
             >
               <X size={17} />

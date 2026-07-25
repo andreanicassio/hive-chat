@@ -96,10 +96,16 @@ Redis porta le code dei run, la presenza dei runner e il fanout realtime fra i n
   branch: qui non si usano. Nel messaggio va il **perché**, non l'elenco dei
   file — quello lo dice già il diff. Il `git push`, invece, si chiede: mandare
   su GitHub è un'altra cosa dal committare.
-- **Il codice parla italiano**: commenti, messaggi d'errore, testi dell'interfaccia. I nomi di variabili e funzioni restano in inglese.
+- **Everything in the product is in English.** UI copy, API error messages,
+  tool catalog labels, the agents' system prompt, code comments, commit
+  messages. The project started in Italian and is being converted: if you
+  touch a file that still has Italian in it, translate what you touch.
+  The one thing that stays: the agents' rule «reply in the language of the
+  person who wrote to you» — Andrea writes in Italian and expects Italian
+  back. Product language and conversation language are different things.
 - **I commenti spiegano il perché**, non il cosa. Se una riga è ovvia, niente commento.
 - Niente `any` gratuiti: i tipi condivisi stanno in `@hive/shared`, si estendono lì.
-- L'interfaccia dà del tu e non usa gergo tecnico dove può farne a meno.
+- The interface speaks plainly, in the second person, and avoids jargon where it can.
 - Ogni pop-up passa dal componente `Modal` (`apps/web/src/components/Modal.tsx`): dà Esc, click fuori, blocco dello scroll e impilamento coerenti.
 
 ## Trappole già scoperte

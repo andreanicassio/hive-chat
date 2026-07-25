@@ -51,7 +51,7 @@ export function Avatar({
             // L'anello riprende il fondo così il pallino sembra ritagliato.
             ['--tw-ring-color' as string]: 'var(--color-panel)',
           }}
-          title={online ? 'Online' : 'Non in linea'}
+          title={online ? 'Online' : 'Offline'}
         />
       )}
     </div>
