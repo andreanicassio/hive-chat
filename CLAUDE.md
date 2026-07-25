@@ -64,6 +64,11 @@ Redis porta le code dei run, la presenza dei runner e il fanout realtime fra i n
 
 ## Convenzioni
 
+- **Il commit lo gestisce l'agente, sempre.** Lavoro finito = commit su `main`,
+  senza chiedere il permesso e senza lasciare il working tree sporco. Niente
+  branch: qui non si usano. Nel messaggio va il **perché**, non l'elenco dei
+  file — quello lo dice già il diff. Il `git push`, invece, si chiede: mandare
+  su GitHub è un'altra cosa dal committare.
 - **Il codice parla italiano**: commenti, messaggi d'errore, testi dell'interfaccia. I nomi di variabili e funzioni restano in inglese.
 - **I commenti spiegano il perché**, non il cosa. Se una riga è ovvia, niente commento.
 - Niente `any` gratuiti: i tipi condivisi stanno in `@hive/shared`, si estendono lì.

@@ -132,13 +132,38 @@ function ActivityLog({ runs }: { runs: RunState[] }) {
   );
 }
 
+/** Quante tracce concluse tirare giù per riempire il registro. */
+const LOG_DEPTH = 5;
+
 function ActivityTab({ channelId }: { channelId: string }) {
   const runs = useStore((s) => s.runs);
+  const loadRunEvents = useStore((s) => s.loadRunEvents);
   const mine = useMemo(
     () => [...runs.values()].filter((r) => r.channelId === channelId),
     [runs, channelId],
   );
   const active = mine.filter((r) => r.status === 'running' || r.status === 'queued');
+
+  // All'apertura del canale le tracce dei run già conclusi non sono in memoria:
+  // senza questo, dopo un ricaricamento il registro resta vuoto e sembra rotto.
+  // Ne chiediamo poche, e solo qui: è un pannello che si apre apposta, non
+  // qualcosa che pesa su ogni canale.
+  const recent = useMemo(() => {
+    const byId = new Map(mine.map((r) => [r.runId, r] as const));
+    return [...byId.values()]
+      .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))
+      .slice(0, LOG_DEPTH)
+      .map((r) => r.runId);
+  }, [mine]);
+
+  useEffect(() => {
+    for (const runId of recent) {
+      const entry = [...runs.entries()].find(([, r]) => r.runId === runId);
+      if (entry && !entry[1].eventsLoaded) void loadRunEvents(entry[0]);
+    }
+    // `recent` cambia solo quando cambia l'insieme dei run: `loadRunEvents`
+    // segna subito la voce come caricata, quindi non si ripete.
+  }, [recent, runs, loadRunEvents]);
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3.5 py-3">

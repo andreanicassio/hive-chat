@@ -841,10 +841,12 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [value]);
 
-  // Quando si sceglie di rispondere, il cursore va subito nel campo.
+  // Quando si sceglie di rispondere, il cursore va subito nel campo. Ma solo
+  // nel composer del canale: citare un messaggio lì non deve spostare il fuoco
+  // dentro il thread, che è un'altra conversazione.
   useEffect(() => {
-    if (replyingTo) textarea.current?.focus();
-  }, [replyingTo]);
+    if (replyingTo && !threadRootId) textarea.current?.focus();
+  }, [replyingTo, threadRootId]);
 
   const suggestions = useMemo(() => {
     if (mentionQuery === null) return [];
@@ -1044,7 +1046,9 @@ export function Composer({
       )}
 
       <div className="composer">
-        {replyingTo && (
+        {/* La citazione appartiene al canale: nel thread il contesto è già il
+            thread, e mostrarla lì direbbe una cosa che non succede. */}
+        {replyingTo && !threadRootId && (
           <div className="flex items-center gap-2 border-b border-[var(--color-line)] px-3.5 pt-2 pb-1.5 text-[12.5px]">
             <CornerUpLeft size={13} strokeWidth={2.2} className="shrink-0 text-[var(--color-ink-faint)]" />
             <span className="text-[var(--color-ink-soft)]">
