@@ -13,6 +13,7 @@ import {
 } from '@hive/shared';
 import { toAnthropicModelId } from './models.js';
 import { RemoteEmitter } from './remote-emitter.js';
+import { createLocalSteering } from './steering.js';
 
 /**
  * Runner LOCALE a token.
@@ -279,10 +280,30 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
   // all'invio degli eventi, che è l'unica cosa che continua a passare mentre
   // il turno gira.
   const controller = new AbortController();
-  const emitter = new RemoteEmitter(cfg.serverUrl, cfg.token, job.runId, () => {
-    console.log(`[runner] turno ${job.runId} annullato dalla chat: interrompo.`);
-    controller.abort();
-  });
+  /*
+   * Steering a caldo.
+   *
+   * Il prompt non è più una stringa ma un flusso che resta aperto per tutta
+   * la durata del turno: quello che scrivi in chat mentre l'agente lavora ci
+   * entra dentro e lui lo legge al passaggio successivo, senza ricominciare
+   * e senza perdere il contesto. Sul worker del server il testo arriva da
+   * Redis; qui arriva dal server nella risposta all'invio degli eventi,
+   * perché questa macchina Redis non lo vede.
+   */
+  const steering = createLocalSteering(context.prompt);
+  const emitter = new RemoteEmitter(
+    cfg.serverUrl,
+    cfg.token,
+    job.runId,
+    () => {
+      console.log(`[runner] turno ${job.runId} annullato dalla chat: interrompo.`);
+      controller.abort();
+    },
+    (text) => {
+      console.log(`[runner] messaggio a caldo nel turno ${job.runId}`);
+      steering.inject(text);
+    },
+  );
   const grants = (agent.tools as AgentToolGrant[]) ?? [];
   const kind = (agent.kind as 'assistant' | 'developer') ?? 'developer';
   const { model } = toAnthropicModelId(String(agent.model));
@@ -396,7 +417,7 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
 
   await emitter.status('thinking', null);
   try {
-    for await (const message of query({ prompt: context.prompt, options })) {
+    for await (const message of query({ prompt: steering.prompt, options })) {
       const msg = message as SDKMessage & Record<string, unknown>;
       switch (msg.type) {
         case 'system':
@@ -455,6 +476,9 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
           break;
         }
         case 'result': {
+          // Fine di un giro: se nel frattempo è arrivato altro il flusso lo
+          // consegna e il turno prosegue, altrimenti si chiude qui.
+          steering.turnFinished();
           const r = msg as {
             result?: string;
             is_error?: boolean;
@@ -474,6 +498,8 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
       }
     }
     if (thinkingOpen) await emitter.event({ type: 'thinking.end' });
+    // Il flusso è esaurito: da qui in poi niente più iniezioni.
+    await steering.stop();
     await emitter.finish({
       // Interrotto vuol dire interrotto: chiuderlo come «fatto» direbbe che
       // l'agente ha finito, e la risposta a metà sembrerebbe quella vera.
@@ -491,6 +517,7 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
   } catch (err) {
     // L'SDK lancia quando la query viene abortita: non è un errore da mostrare
     // in chat, è quello che è stato chiesto.
+    await steering.stop();
     if (controller.signal.aborted) await emitter.finish({ status: 'cancelled' });
     else
       await emitter.finish({

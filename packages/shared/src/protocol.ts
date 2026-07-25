@@ -155,7 +155,19 @@ export type ServerPacket =
    * connessa e lasciare che sia il guscio a mostrare la notifica di sistema.
    * Chi ha le push la ignora, altrimenti riceverebbe tutto due volte.
    */
-  | { t: 'notify'; payload: PushPayload };
+  | { t: 'notify'; payload: PushPayload }
+  /*
+   * Il messaggio è entrato nel turno che l'agente sta già facendo, invece di
+   * aprirne uno nuovo. Senza questo segnale in chat non si vedrebbe niente —
+   * nessuna bolla nuova, nessuna riga in coda — e sembrerebbe ignorato.
+   */
+  | {
+      t: 'steer.delivered';
+      channelId: string;
+      messageId: string;
+      runId: string;
+      agentId: string;
+    };
 
 /* --------------------------------- Canali Redis -------------------------- */
 
@@ -221,6 +233,17 @@ export const redisChannels = {
    * messaggi a caldo. Se manca, il messaggio va nella coda normale.
    */
   steerable: (runId: string) => `hive:steerable:${runId}`,
+  /**
+   * I testi in attesa di essere iniettati nel turno.
+   *
+   * La lista esiste perché il pub/sub non basta: raggiunge solo chi è
+   * connesso a Redis, e il runner locale gira sulla macchina di chi lo ha
+   * installato, che Redis non ce l'ha. Lì il testo se lo porta indietro il
+   * viaggio che il runner fa già ogni pochi secondi per sapere se l'hai
+   * fermato. Il canale `steer` resta come campanello per chi invece Redis
+   * lo vede.
+   */
+  steerQueue: (runId: string) => `hive:steer:q:${runId}`,
   /** Richieste di annullamento run. */
   runCancel: (runId: string) => `hive:runs:cancel:${runId}`,
   /**

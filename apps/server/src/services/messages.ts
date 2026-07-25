@@ -639,10 +639,43 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
   //  - altrimenti creiamo il turno ma lo lasciamo in coda.
   const queueBehind = await activeRunFor(args.agentId, args.channelId);
   if (queueBehind && (await redisPub.exists(redisChannels.steerable(queueBehind)))) {
-    const delivered = await redisPub.publish(redisChannels.steer(queueBehind), args.prompt);
-    // `publish` dice a quanti è arrivato: se a nessuno, il turno non stava
-    // più ascoltando e ripieghiamo sulla coda.
-    if (delivered > 0) return queueBehind;
+    /*
+     * Il testo va su una lista, non su un canale pub/sub.
+     *
+     * Il pub/sub raggiunge solo chi è connesso a Redis, cioè il worker del
+     * server. Il runner locale gira sulla macchina di chi lo ha installato e
+     * Redis non lo vede: se ne accorgeva nessuno, e ogni messaggio finiva in
+     * coda anche mentre l'agente stava lì a lavorare. La lista invece la
+     * svuota chi può — il worker al campanello, il runner al primo viaggio
+     * di ritorno degli eventi.
+     */
+    const key = redisChannels.steerQueue(queueBehind);
+    await redisPub.lpush(key, args.prompt);
+    await redisPub.expire(key, 3600);
+    await redisPub.publish(redisChannels.steer(queueBehind), '1');
+
+    // Il turno può essere finito nell'istante fra il controllo e la spinta:
+    // in quel caso nessuno svuoterà più la lista, quindi ci riprendiamo il
+    // testo e lo trattiamo come un messaggio normale. Meglio un turno in più
+    // che una richiesta persa in silenzio.
+    if (await activeRunFor(args.agentId, args.channelId)) {
+      // Nessuna bolla nuova comparirà: senza un segnale, in chat sembrerebbe
+      // che il messaggio sia stato ignorato.
+      if (args.triggerMessageId) {
+        await hub.publish(args.workspaceId, {
+          packet: {
+            t: 'steer.delivered',
+            channelId: args.channelId,
+            messageId: args.triggerMessageId,
+            runId: queueBehind,
+            agentId: args.agentId,
+          },
+          channelId: args.channelId,
+        });
+      }
+      return queueBehind;
+    }
+    await redisPub.rpop(key).catch(() => null);
   }
 
   const runId = randomUUID();

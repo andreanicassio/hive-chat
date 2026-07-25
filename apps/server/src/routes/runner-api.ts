@@ -226,8 +226,14 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
   /* --------------------------------------- eventi di esecuzione dal runner */
   app.post('/api/runner/events', async (request) => {
     const { userId } = await requireRunner(request);
-    const { runId, ops } = z
-      .object({ runId: z.uuid(), ops: z.array(z.any()).max(500) })
+    const { runId, ops, steerable } = z
+      .object({
+        runId: z.uuid(),
+        ops: z.array(z.any()).max(500),
+        // I runner vecchi non lo mandano: per loro niente steering, e i
+        // messaggi continuano ad accodarsi come prima.
+        steerable: z.boolean().optional(),
+      })
       .parse(request.body);
 
     const runRows = await db
@@ -262,7 +268,32 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
     // fa poll: l'invio degli eventi è l'unica cosa che continua a passare di
     // qui, quindi è da qui che gli si dice di fermarsi.
     const cancelled = await redisPub.exists(redisChannels.runCancelled(run.id));
-    return { ok: true, ...(cancelled ? { cancel: true } : {}) };
+
+    /*
+     * Steering a caldo per un turno che gira su un'altra macchina.
+     *
+     * Il marcatore vive quanto due battiti di questo invio: se il runner
+     * smette di farsi vivo, la chat torna ad accodare invece di infilare
+     * messaggi in una lista che nessuno svuoterà più.
+     */
+    let steer: string[] | undefined;
+    if (steerable && !cancelled) {
+      await redisPub.set(redisChannels.steerable(run.id), '1', 'EX', 15);
+      const key = redisChannels.steerQueue(run.id);
+      const texts: string[] = [];
+      for (;;) {
+        const text = await redisPub.rpop(key);
+        if (!text) break;
+        texts.push(text);
+      }
+      if (texts.length > 0) steer = texts;
+    }
+
+    return {
+      ok: true,
+      ...(cancelled ? { cancel: true } : {}),
+      ...(steer ? { steer } : {}),
+    };
   });
 
   /* --------------------------- approvazione inline in chat (dal runner) */

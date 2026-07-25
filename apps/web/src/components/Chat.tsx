@@ -1000,6 +1000,7 @@ export function MessageRow({
   const myUserId = useStore((s) => s.user?.id);
   const allRuns = useStore((s) => s.runs);
   const allAgents = useStore((s) => s.agents);
+  const steeredBy = useStore((s) => s.steered.get(message.id));
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Chi è in coda per rispondere PROPRIO a questo messaggio. La mappa dei run
@@ -1148,6 +1149,16 @@ export function MessageRow({
                   style={{ animationDelay: `${i * 0.18}s` }}
                 />
               ))}
+            </div>
+          )}
+
+          {steeredBy && (
+            // Consegnato a un turno già in corso: non nascerà nessuna bolla
+            // nuova, quindi senza questa riga sembrerebbe caduto nel vuoto.
+            <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-[color-mix(in_oklab,var(--color-online)_35%,transparent)] bg-[color-mix(in_oklab,var(--color-online)_10%,transparent)] px-2 py-[3px] text-[11.5px] text-[var(--color-ink-soft)]">
+              <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--color-online)]" />
+              {allAgents.find((a) => a.id === steeredBy)?.name ?? 'L’agente'} lo sta leggendo mentre
+              lavora
             </div>
           )}
 

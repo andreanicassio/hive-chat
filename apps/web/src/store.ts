@@ -130,6 +130,11 @@ interface State {
   typingByChannel: Map<string, Map<string, { name: string; at: number }>>;
   onlineUserIds: Set<string>;
   runs: Map<string, RunState>;
+  /**
+   * Messaggi consegnati a un turno GIÀ in corso invece che a uno nuovo.
+   * Chiave: id del messaggio → id dell'agente che lo sta leggendo.
+   */
+  steered: Map<string, string>;
   /** Stato volatile degli agenti, per la barra in basso. */
   agentActivity: Map<string, { status: AgentStatus; label: string | null }>;
   approvals: Approval[];
@@ -344,6 +349,7 @@ export const useStore = create<State>((set, get) => ({
   typingByChannel: new Map(),
   onlineUserIds: new Set(),
   runs: new Map(),
+  steered: new Map(),
   agentActivity: new Map(),
   approvals: [],
 
@@ -1068,6 +1074,16 @@ export const useStore = create<State>((set, get) => ({
       case 'document.changed': {
         const p = packet as unknown as { workspaceId: string; document: DocumentNode };
         set((s) => upsertDocument(s.documentsByWorkspace, p.workspaceId, p.document));
+        break;
+      }
+
+      case 'steer.delivered': {
+        const p = packet as unknown as { messageId: string; agentId: string };
+        set((s) => {
+          const next = new Map(s.steered);
+          next.set(p.messageId, p.agentId);
+          return { steered: next };
+        });
         break;
       }
 

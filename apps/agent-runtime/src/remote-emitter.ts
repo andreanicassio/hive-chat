@@ -33,6 +33,15 @@ export class RemoteEmitter implements EmitterLike {
     private readonly runId: string,
     /** Chiamata quando il server dice che il turno è stato annullato. */
     private readonly onCancel?: () => void,
+    /**
+     * Chiamata con i messaggi scritti in chat MENTRE il turno gira.
+     *
+     * Questo viaggio è l'unico filo che resta aperto verso un runner al
+     * lavoro: già portava il «fermati», adesso porta anche il testo nuovo.
+     * Se manca, il server non marca il turno come raggiungibile e i messaggi
+     * si accodano come prima — nessun regresso per i runner vecchi.
+     */
+    private readonly onSteer?: (text: string) => void,
   ) {
     // Battito lento. Il flush normale scatta quando c'è qualcosa da mandare,
     // ma durante un comando lungo può non esserci niente per minuti — e la
@@ -71,13 +80,24 @@ export class RemoteEmitter implements EmitterLike {
           'content-type': 'application/json',
           authorization: `Bearer ${this.token}`,
         },
-        body: JSON.stringify({ runId: this.runId, ops }),
+        body: JSON.stringify({
+          runId: this.runId,
+          ops,
+          // Dichiararlo a ogni invio è anche il battito che tiene vivo il
+          // marcatore lato server: smettiamo di farci vivi, e la chat torna
+          // ad accodare da sola.
+          steerable: Boolean(this.onSteer),
+        }),
       });
-      const body = (await res.json().catch(() => ({}))) as { cancel?: boolean };
+      const body = (await res.json().catch(() => ({}))) as {
+        cancel?: boolean;
+        steer?: string[];
+      };
       if (body.cancel && !this.cancelSeen) {
         this.cancelSeen = true;
         this.onCancel?.();
       }
+      for (const text of body.steer ?? []) this.onSteer?.(text);
     } catch (err) {
       // Rete ballerina: non facciamo cadere il turno per un batch perso.
       console.error('[runner] invio eventi fallito:', (err as Error).message);
