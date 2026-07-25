@@ -5,7 +5,7 @@ import { db, schema } from '../db/index.js';
 import { requireChannelAccess, requireMembership } from '../lib/auth.js';
 import { conflict, notFound } from '../lib/errors.js';
 import { hub } from '../realtime/hub.js';
-import { postMessage } from '../services/messages.js';
+import { bumpReplyCount, postMessage } from '../services/messages.js';
 import { serializeChannel, serializeMessages } from '../services/serialize.js';
 import { channelNameSchema, createChannelSchema, postMessageSchema } from '@hive/shared';
 
@@ -311,6 +311,12 @@ export async function channelRoutes(app: FastifyInstance): Promise<void> {
       .update(schema.messages)
       .set({ deletedAt: new Date(), body: '' })
       .where(eq(schema.messages.id, messageId));
+
+    // Una risposta cancellata non conta più nel thread: senza questo il numero
+    // sulla radice cresce e non torna mai indietro.
+    if (existing.threadRootId && !existing.deletedAt) {
+      await bumpReplyCount(workspaceId, existing.threadRootId, -1);
+    }
 
     await hub.publish(workspaceId, {
       packet: { t: 'message.deleted', channelId: existing.channelId, messageId },

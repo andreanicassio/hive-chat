@@ -30,3 +30,7 @@ chrome-headless-shell/
 
 # Backup temporanei (possono contenere segreti)
 *.bak
+
+# Cartella di lavoro del runner: ci finiscono gli allegati che le persone
+# caricano in chat. Sono dati loro, non sorgenti.
+.hive/

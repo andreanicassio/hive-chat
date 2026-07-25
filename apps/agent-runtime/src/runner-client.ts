@@ -365,6 +365,22 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
   let outputTokens: number | null = null;
   let sessionId: string | null = resumeSessionId;
   let thinkingOpen = false;
+  // Testo del turno in corso: serve solo a capire dove finisce un turno di
+  // ragionamento, i delta viaggiano già a parte.
+  let turnText = '';
+
+  /**
+   * Il testo scritto prima di uno strumento è ragionamento concluso: a fine
+   * run il corpo del messaggio viene sovrascritto con la risposta finale e
+   * andrebbe perso, quindi lo salviamo come evento. Richiamarlo senza testo
+   * nuovo (due strumenti di fila) non emette niente.
+   */
+  const flushTextBlock = async (): Promise<void> => {
+    const text = turnText.trim();
+    turnText = '';
+    if (!text) return;
+    await emitter.event({ type: 'text.block', text });
+  };
 
   await emitter.status('thinking', null);
   try {
@@ -384,6 +400,7 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
                 await emitter.event({ type: 'thinking.end' });
                 await emitter.status('working', null);
               }
+              turnText += ev.delta.text;
               await emitter.delta(ev.delta.text);
             } else if (ev.delta?.type === 'thinking_delta' && ev.delta.thinking) {
               if (!thinkingOpen) {
@@ -402,6 +419,7 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
           for (const block of content) {
             const b = block as { type?: string; id?: string; name?: string; input?: unknown };
             if (b.type === 'tool_use' && b.id && b.name) {
+              await flushTextBlock();
               const label = describeTool(b.name, b.input);
               await emitter.status('working', label);
               await emitter.event({ type: 'tool.start', toolUseId: b.id, name: b.name, label, input: b.input });

@@ -17,12 +17,20 @@ import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
 import type { Channel } from '@hive/shared';
 
+/* Misure della voce di barra. `.rail-item` vive in index.css: qui si aggiunge
+   solo quello che il design chiede e che il foglio condiviso non fissa. */
+const RAIL = 'rail-item h-[31px] tracking-[-0.005em]';
+
+/* La pillola del canale attivo vive in index.css, su
+   `.rail-item[data-active='true']`: è uno stato della voce, non una variante
+   locale, e lì non serve scavalcare niente con `!important`. */
+
 /**
  * Barra laterale.
  *
- * Ricalca la reference: gruppi di canali con intestazione discreta, canale
- * attivo evidenziato da un riquadro morbido, non letti resi con il peso del
- * testo invece che con un badge. In fondo l'utente corrente.
+ * Gruppi di canali con intestazione discreta, canale attivo su pillola chiara,
+ * non letti resi con il peso del testo (le menzioni, quelle sì, con un badge).
+ * In fondo l'utente corrente.
  */
 export function Sidebar({
   onOpenAgents,
@@ -118,21 +126,21 @@ export function Sidebar({
       <div className="px-3 pt-3 pb-2">
         <button
           onClick={onSearch}
-          className="flex w-full items-center gap-2 rounded-[9px] border border-[color-mix(in_oklab,var(--color-ink)_8%,transparent)] bg-[color-mix(in_oklab,#ffffff_38%,transparent)] px-2.5 py-[7px] text-[13.5px] text-[var(--color-ink-faint)] transition-colors hover:bg-[color-mix(in_oklab,#ffffff_60%,transparent)]"
+          className="flex h-[32px] w-full items-center gap-2 rounded-[9px] border border-[rgba(28,34,40,0.15)] bg-[rgba(255,255,255,0.5)] px-2.5 text-[13.5px] text-[var(--color-ink-faint)] transition-colors duration-[120ms] hover:bg-[rgba(255,255,255,0.72)]"
         >
           <Search size={14} strokeWidth={2.2} />
           <span className="flex-1 text-left">Cerca ovunque</span>
-          <kbd className="font-sans text-[11px] tracking-wide opacity-70">⌘K</kbd>
+          <kbd className="font-mono text-[11px] opacity-70">⌘K</kbd>
         </button>
       </div>
 
       {/* --- collegamenti fissi --- */}
       <nav className="px-3 pb-1">
-        <button className="rail-item">
+        <button className={RAIL}>
           <Inbox size={15.5} strokeWidth={2} />
           <span>In arrivo</span>
         </button>
-        <button className="rail-item" onClick={onOpenAgents}>
+        <button className={RAIL} onClick={onOpenAgents}>
           <Bot size={15.5} strokeWidth={2} />
           <span>Agenti</span>
           {agents.length > 0 && (
@@ -151,7 +159,7 @@ export function Sidebar({
             <section key={section.id} className="mb-3">
               <button
                 onClick={() => toggle(section.id)}
-                className="group mb-0.5 flex w-full items-center gap-1.5 px-1.5 py-0.5 text-[12.5px] font-medium text-[var(--color-ink-faint)] transition-colors hover:text-[var(--color-ink-soft)]"
+                className="group mb-0.5 flex w-full items-center gap-1.5 px-1.5 py-0.5 text-[11.5px] font-semibold tracking-[0.04em] text-[var(--color-ink-faint)] uppercase transition-colors duration-[120ms] hover:text-[var(--color-ink-soft)]"
               >
                 <ChevronDown
                   size={12}
@@ -172,7 +180,11 @@ export function Sidebar({
                   // Rinomina in linea: doppio clic sul nome del canale.
                   if (renamingId === channel.id) {
                     return (
-                      <div key={channel.id} className="rail-item" data-active={active}>
+                      <div
+                        key={channel.id}
+                        className={RAIL}
+                        data-active={active}
+                      >
                         {channel.visibility === 'private' ? (
                           <Lock size={13.5} strokeWidth={2.2} className="opacity-65" />
                         ) : (
@@ -198,7 +210,7 @@ export function Sidebar({
                   return (
                     <button
                       key={channel.id}
-                      className="rail-item group"
+                      className={clsx(RAIL, 'group')}
                       data-active={active}
                       data-unread={unread && !active}
                       onClick={() => void openChannel(channel.id)}
@@ -237,7 +249,7 @@ export function Sidebar({
                       )}
 
                       {channel.hasMention ? (
-                        <span className="ml-auto rounded-full bg-[var(--color-clay)] px-1.5 text-[11px] font-semibold text-white tabular-nums">
+                        <span className="ml-auto inline-flex h-[17px] shrink-0 items-center rounded-full bg-[var(--color-honey)] px-1.5 text-[11px] leading-none font-semibold text-[var(--color-panel)] tabular-nums">
                           {channel.unreadCount}
                         </span>
                       ) : unread ? (
@@ -252,7 +264,7 @@ export function Sidebar({
 
         <button
           onClick={onNewChannel}
-          className="rail-item text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
+          className={clsx(RAIL, 'text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]')}
         >
           <Plus size={14} strokeWidth={2.4} />
           <span>Aggiungi canale</span>
@@ -304,21 +316,33 @@ export function Sidebar({
           </>
         )}
 
-        <Avatar
-          name={user?.name ?? '?'}
-          emoji={user?.avatarEmoji}
-          color={user?.avatarColor}
-          size={30}
-          online={connected}
-        />
+        <div className="relative shrink-0">
+          <Avatar
+            name={user?.name ?? '?'}
+            emoji={user?.avatarEmoji}
+            color={user?.avatarColor}
+            size={34}
+          />
+          {/* Il pallino lo disegna la barra, non <Avatar>: l'anello di Avatar
+              riprende --color-panel, quasi bianco, e qui il fondo è il
+              gradiente freddo — si vedrebbe l'alone. */}
+          <span
+            className="absolute right-[-1px] bottom-[-1px] h-[11px] w-[11px] rounded-full"
+            style={{
+              background: connected ? 'var(--color-online)' : 'var(--color-ink-faint)',
+              boxShadow: '0 0 0 2.5px var(--color-shell-deep)',
+            }}
+            title={connected ? 'Online' : 'Non in linea'}
+          />
+        </div>
         <button
           onClick={() => setWsMenu((v) => !v)}
-          className="group/ws flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-[color-mix(in_oklab,var(--color-ink)_5%,transparent)]"
+          className="group/ws flex min-w-0 flex-1 items-center gap-1 rounded-[7px] px-1 py-0.5 text-left transition-colors duration-[120ms] hover:bg-[color-mix(in_oklab,var(--color-ink)_5%,transparent)]"
           title="Cambia progetto"
         >
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[13.5px] font-medium leading-tight">{user?.name}</div>
-            <div className="flex items-center gap-1 truncate text-[12px] text-[var(--color-ink-faint)]">
+            <div className="truncate text-[13.5px] leading-tight font-semibold">{user?.name}</div>
+            <div className="flex items-center gap-1 truncate text-[12px] text-[var(--color-ink-soft)]">
               <span>{workspace?.iconEmoji}</span>
               <span className="truncate">{workspace?.name}</span>
             </div>
@@ -337,7 +361,7 @@ export function Sidebar({
         )}
         <button
           onClick={onOpenSettings}
-          className="shrink-0 rounded-lg p-1.5 text-[var(--color-ink-faint)] transition-colors hover:bg-[color-mix(in_oklab,var(--color-ink)_7%,transparent)] hover:text-[var(--color-ink)]"
+          className="shrink-0 rounded-[8px] p-1.5 text-[var(--color-ink-faint)] transition-colors duration-[120ms] hover:bg-[var(--color-sunken)] hover:text-[var(--color-ink)]"
           title="Impostazioni del progetto"
         >
           <Settings2 size={15} strokeWidth={2.1} />

@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql as raw } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql as raw } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import type {
   ActorRef,
@@ -116,6 +116,13 @@ export function resolveActor(
 type MessageRow = typeof schema.messages.$inferSelect;
 
 /**
+ * Quanti volti mostrare nella barra «N risposte». Il conteggio resta
+ * `replyCount`: questi servono solo alla pila di avatar, che oltre i 4
+ * diventa illeggibile.
+ */
+const THREAD_FACES = 4;
+
+/**
  * Trasforma le righe messaggio in DTO completi, caricando in blocco
  * autori, reazioni e allegati.
  *
@@ -218,6 +225,63 @@ export async function serializeMessages(
     }
   }
 
+  // Riepilogo dei thread. Una query sola per tutte le radici del set: il
+  // raggruppamento per (radice, autore) fa uscire poche righe anche da thread
+  // lunghissimi, e la finestra sulla partizione porta con sé l'ora dell'ultima
+  // risposta senza una seconda passata.
+  const rootIds = rows.filter((r) => r.replyCount > 0).map((r) => r.id);
+  const lastReplyAt = new Map<string, string>();
+  const participantsByRoot = new Map<string, ActorRef[]>();
+  if (rootIds.length > 0) {
+    const summary = await db
+      .select({
+        rootId: schema.messages.threadRootId,
+        authorType: schema.messages.authorType,
+        authorId: schema.messages.authorId,
+        // Le date calcolate in SQL tornano come testo grezzo (il driver
+        // applica i suoi parser solo alle colonne vere), quindi le facciamo
+        // già formattare in ISO da Postgres: niente parsing a indovinare.
+        firstAt: raw<string>`to_char(min(${schema.messages.createdAt}) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+        lastAt: raw<string>`to_char((max(max(${schema.messages.createdAt})) over (partition by ${schema.messages.threadRootId})) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+      })
+      .from(schema.messages)
+      .where(
+        and(
+          inArray(schema.messages.threadRootId, rootIds),
+          isNull(schema.messages.deletedAt),
+        ),
+      )
+      .groupBy(
+        schema.messages.threadRootId,
+        schema.messages.authorType,
+        schema.messages.authorId,
+      );
+
+    const threadActors = await loadActors(
+      summary.map((s) => ({ type: s.authorType, id: s.authorId })),
+    );
+
+    const byRoot = new Map<string, typeof summary>();
+    for (const s of summary) {
+      if (!s.rootId) continue;
+      const list = byRoot.get(s.rootId) ?? [];
+      list.push(s);
+      byRoot.set(s.rootId, list);
+    }
+    for (const [rootId, list] of byRoot) {
+      // Ordine di prima comparsa: su date ISO in UTC il confronto testuale
+      // è già l'ordine cronologico.
+      list.sort((a, b) => (a.firstAt < b.firstAt ? -1 : a.firstAt > b.firstAt ? 1 : 0));
+      lastReplyAt.set(rootId, list[0]!.lastAt);
+      participantsByRoot.set(
+        rootId,
+        list
+          .slice(0, THREAD_FACES)
+          .map((s) => resolveActor(threadActors, s.authorType, s.authorId)),
+      );
+    }
+  }
+
   return rows.map((r) => ({
     id: r.id,
     channelId: r.channelId,
@@ -231,6 +295,8 @@ export async function serializeMessages(
     attachments: attachmentsByMessage.get(r.id) ?? [],
     runId: r.runId,
     replyCount: r.replyCount,
+    threadLastReplyAt: lastReplyAt.get(r.id) ?? null,
+    threadParticipants: participantsByRoot.get(r.id) ?? [],
     createdAt: r.createdAt.toISOString(),
     editedAt: r.editedAt?.toISOString() ?? null,
     deletedAt: r.deletedAt?.toISOString() ?? null,

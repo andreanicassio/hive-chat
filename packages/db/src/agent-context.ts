@@ -19,6 +19,14 @@ export interface AgentContext {
 
 const HISTORY_LIMIT = 40;
 
+/**
+ * Quante righe di canale dare come sfondo quando il turno vive in un thread.
+ * Un thread nasce quasi sempre da qualcosa detto poco prima nel canale: senza
+ * quelle righe i riferimenti («come dicevo sopra») restano appesi. Poche, però:
+ * la conversazione vera è il thread.
+ */
+const THREAD_BACKGROUND_LIMIT = 10;
+
 export async function buildAgentContext(
   db: Database,
   args: {
@@ -26,6 +34,8 @@ export async function buildAgentContext(
     channelId: string;
     agentId: string;
     triggerMessageId: string | null;
+    /** Thread in cui si svolge il turno, `null` se si parla nel canale. */
+    threadRootId: string | null;
     rawPrompt: string;
     fromAgentHandle: string | null;
   },
@@ -75,13 +85,49 @@ export async function buildAgentContext(
       and(eq(schema.channels.workspaceId, args.workspaceId), isNull(schema.channels.archivedAt)),
     );
 
-  const historyRows = await db
+  const inThread = Boolean(args.threadRootId);
+
+  // Il canale mostra solo le radici: le risposte dei thread stanno in un filo
+  // loro, e mescolarle qui produceva una trascrizione dove discorsi diversi si
+  // accavallavano riga per riga.
+  const channelHistory = await db
     .select()
     .from(schema.messages)
-    .where(and(eq(schema.messages.channelId, args.channelId), isNull(schema.messages.deletedAt)))
+    .where(
+      and(
+        eq(schema.messages.channelId, args.channelId),
+        isNull(schema.messages.deletedAt),
+        isNull(schema.messages.threadRootId),
+      ),
+    )
     .orderBy(desc(schema.messages.createdAt))
-    .limit(HISTORY_LIMIT);
-  historyRows.reverse();
+    .limit(inThread ? THREAD_BACKGROUND_LIMIT : HISTORY_LIMIT);
+  channelHistory.reverse();
+
+  // Dentro un thread la conversazione è la radice più le sue risposte.
+  let threadHistory: typeof channelHistory = [];
+  if (args.threadRootId) {
+    const [rootRows, replyRows] = await Promise.all([
+      db
+        .select()
+        .from(schema.messages)
+        .where(eq(schema.messages.id, args.threadRootId))
+        .limit(1),
+      db
+        .select()
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.threadRootId, args.threadRootId),
+            isNull(schema.messages.deletedAt),
+          ),
+        )
+        .orderBy(desc(schema.messages.createdAt))
+        .limit(HISTORY_LIMIT),
+    ]);
+    replyRows.reverse();
+    threadHistory = [...rootRows.filter((r) => !r.deletedAt), ...replyRows];
+  }
 
   const userByHandle = new Map(memberRows.map((m) => [m.handle, m.name]));
   const agentByHandle = new Map(agentRoster.map((a) => [a.handle, a.name]));
@@ -102,17 +148,21 @@ export async function buildAgentContext(
   for (const a of agentRoster) nameById.set(`agent:${a.id}`, a.name);
   nameById.set(`agent:${agent.id}`, agent.name);
 
-  const transcript = historyRows
-    .filter((m) => m.body.trim().length > 0)
-    .map((m) => {
-      const who =
-        m.authorType === 'system'
-          ? 'Sistema'
-          : (nameById.get(`${m.authorType}:${m.authorId}`) ?? 'Sconosciuto');
-      const marker = m.authorType === 'agent' ? ' (agente)' : '';
-      return `${who}${marker}: ${toPlainText(m.body, resolve)}`;
-    })
-    .join('\n');
+  const renderTranscript = (rows: typeof channelHistory): string =>
+    rows
+      .filter((m) => m.body.trim().length > 0)
+      .map((m) => {
+        const who =
+          m.authorType === 'system'
+            ? 'Sistema'
+            : (nameById.get(`${m.authorType}:${m.authorId}`) ?? 'Sconosciuto');
+        const marker = m.authorType === 'agent' ? ' (agente)' : '';
+        return `${who}${marker}: ${toPlainText(m.body, resolve)}`;
+      })
+      .join('\n');
+
+  const channelTranscript = renderTranscript(channelHistory);
+  const threadTranscript = renderTranscript(threadHistory);
 
   const roster = agentRoster
     .map(
@@ -159,8 +209,23 @@ export async function buildAgentContext(
     );
   }
 
-  if (transcript) {
-    sections.push(`\n## Conversazione recente in #${channel?.name ?? '?'}`, transcript);
+  if (channelTranscript) {
+    sections.push(
+      inThread
+        ? `\n## Sfondo: ultimi messaggi nel canale #${channel?.name ?? '?'} (fuori dal thread)`
+        : `\n## Conversazione recente in #${channel?.name ?? '?'}`,
+      channelTranscript,
+    );
+  }
+
+  if (threadTranscript) {
+    sections.push(
+      `\n## Il thread in cui stai rispondendo`,
+      `La prima riga è il messaggio che ha aperto il thread, poi le risposte.`,
+      threadTranscript,
+      `La tua risposta finisce dentro questo thread, non nel canale: sta su questo ` +
+        `discorso, il resto del canale è solo sfondo.`,
+    );
   }
 
   if (args.fromAgentHandle) {

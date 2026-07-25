@@ -13,6 +13,7 @@ export function buildContext(args: {
   channelId: string;
   agentId: string;
   triggerMessageId: string | null;
+  threadRootId: string | null;
   rawPrompt: string;
   fromAgentHandle: string | null;
 }): Promise<AgentContext> {

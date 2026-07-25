@@ -117,6 +117,12 @@ export class OpenRouterRunner implements Runner {
         break;
       }
 
+      // Qui il modello ha scritto qualcosa e poi ha chiesto uno strumento:
+      // quel testo è ragionamento concluso. Il corpo del messaggio verrà
+      // sovrascritto dalla risposta finale, quindi lo salviamo come evento.
+      const reasoning = turn.text.trim();
+      if (reasoning) await emitter.event({ type: 'text.block', text: reasoning });
+
       messages.push({
         role: 'assistant',
         content: turn.text || null,

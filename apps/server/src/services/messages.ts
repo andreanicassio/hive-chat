@@ -198,10 +198,7 @@ export async function postMessage(args: PostMessageArgs) {
   }
 
   if (args.threadRootId) {
-    await db
-      .update(schema.messages)
-      .set({ replyCount: raw`${schema.messages.replyCount} + 1` })
-      .where(eq(schema.messages.id, args.threadRootId));
+    await bumpReplyCount(args.workspaceId, args.threadRootId, 1);
   }
 
   // Aggancia gli allegati caricati prima dell'invio. Solo i propri e solo
@@ -243,6 +240,38 @@ export async function postMessage(args: PostMessageArgs) {
   }
 
   return { message, triggeredRuns };
+}
+
+/**
+ * Muove il contatore delle risposte di una radice e ne ripubblica il DTO.
+ *
+ * Senza la ripubblicazione la barra «N risposte» resta ferma sul numero che il
+ * client aveva quando ha caricato il canale: il thread vive in un'altra vista,
+ * quindi nessun altro pacchetto la aggiorna. Il conteggio non scende sotto zero
+ * — una cancellazione di troppo lo manderebbe in negativo per sempre.
+ */
+export async function bumpReplyCount(
+  workspaceId: string,
+  rootId: string,
+  delta: 1 | -1,
+): Promise<void> {
+  const updated = await db
+    .update(schema.messages)
+    .set({
+      replyCount:
+        delta > 0
+          ? raw`${schema.messages.replyCount} + 1`
+          : raw`greatest(${schema.messages.replyCount} - 1, 0)`,
+    })
+    .where(eq(schema.messages.id, rootId))
+    .returning();
+  const root = updated[0];
+  if (!root) return;
+  const message = await serializeMessage(root, null);
+  await hub.publish(workspaceId, {
+    packet: { t: 'message.updated', message },
+    channelId: root.channelId,
+  });
 }
 
 /* ---------------------------------------------------------------------------
@@ -330,6 +359,10 @@ async function triggerAgents(args: TriggerArgs): Promise<string[]> {
       agentId: agent.id,
       channelId: args.channelId,
       triggerMessageId: args.message.id,
+      // Si risponde dove ci si è parlati: se l'innesco sta dentro un thread,
+      // l'agente risponde lì. Se l'innesco è la RADICE di un thread
+      // (`threadRootId` nullo) resta una conversazione di canale.
+      threadRootId: args.message.threadRootId,
       prompt: args.message.body,
       hop: args.hop,
       fromAgentHandle:
@@ -345,6 +378,8 @@ export interface EnqueueRunArgs {
   agentId: string;
   channelId: string;
   triggerMessageId: string | null;
+  /** Thread in cui l'agente deve rispondere, `null` per il canale. */
+  threadRootId?: string | null;
   prompt: string;
   hop: number;
   fromAgentHandle: string | null;
@@ -499,10 +534,13 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
   // non parte. Lo diciamo in chat invece di far sparire il messaggio.
   const budget = await budgetState(args.workspaceId);
 
+  const threadRootId = args.threadRootId ?? null;
+
   const placeholder = await db
     .insert(schema.messages)
     .values({
       channelId: args.channelId,
+      threadRootId,
       authorType: 'agent',
       authorId: args.agentId,
       body: '',
@@ -513,6 +551,10 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
     .returning();
 
   const responseMessage = placeholder[0]!;
+
+  // Anche la bolla dell'agente è una risposta del thread: conta nel totale
+  // della radice come conterebbe quella di una persona.
+  if (threadRootId) await bumpReplyCount(args.workspaceId, threadRootId, 1);
 
   await db.insert(schema.agentRuns).values({
     id: runId,
@@ -548,6 +590,7 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
     channelId: args.channelId,
     triggerMessageId: args.triggerMessageId,
     responseMessageId: responseMessage.id,
+    threadRootId,
     prompt: args.prompt,
     fromAgentHandle: args.fromAgentHandle,
     hop: args.hop + 1,

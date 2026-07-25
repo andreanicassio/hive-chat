@@ -3,40 +3,44 @@
 /* ===========================================================================
    Sistema di design
    ---------------------------------------------------------------------------
-   Palette calda su base crema, ricavata dalla reference. L'idea è che
-   l'interfaccia sia di carta, non di vetro: fondo caldo, pannello quasi
-   bianco che ci galleggia sopra, ombre morbide e nessun blu di sistema.
+   Fondo freddo grigio-azzurro, pannello non più bianco pieno, accento
+   terracotta. L'idea resta la stessa — l'interfaccia è di carta, non di
+   vetro — ma il foglio ora galleggia su una luce fredda: il contrasto è più
+   alto e l'unico colore caldo è l'accento, così si nota.
+
+   Il nome `--color-honey` è rimasto anche se l'accento non è più miele:
+   rinominarlo vorrebbe dire toccare 40+ occorrenze senza guadagno.
    ======================================================================== */
 
 @theme {
   /* --- Superfici --- */
-  --color-shell: #d9dec7; /* valore medio del gradiente, usato come fallback */
-  --color-shell-deep: #ded8bf; /* bordo e zone in ombra */
-  --color-rail: transparent; /* la sidebar sta a filo sul crema */
-  --color-panel: #ffffff; /* pannello conversazione: bianco puro, come nella reference */
-  --color-panel-alt: #faf8ef; /* righe alternate, blocchi citati */
-  --color-sunken: #f2eee0; /* campi, pillole, stati premuti */
+  --color-shell: #cfd6db; /* valore medio del gradiente, usato come fallback */
+  --color-shell-deep: #bbc5cd; /* bordo e zone in ombra */
+  --color-rail: transparent; /* la sidebar sta a filo sul fondo */
+  --color-panel: #f9f9f8; /* pannello conversazione: non bianco pieno */
+  --color-panel-alt: #f1f2f1; /* righe alternate, blocchi citati, log di lavoro */
+  --color-sunken: #eaebea; /* campi, pillole, stati premuti */
 
   /* --- Testo --- */
-  --color-ink: #1f1e19; /* testo principale */
-  --color-ink-soft: #57544a; /* testo secondario */
-  --color-ink-faint: #8b8778; /* metadati, orari */
+  --color-ink: #16181a; /* testo principale */
+  --color-ink-soft: #4b5057; /* testo secondario */
+  --color-ink-faint: #7d848b; /* metadati, orari */
 
   /* --- Tratti --- */
-  --color-line: #e2ddc8;
-  --color-line-strong: #d2ccb4;
+  --color-line: #dfe2e4;
+  --color-line-strong: #c8ccd0;
 
   /* --- Accenti --- */
-  --color-honey: #c8922f; /* accento primario */
-  --color-honey-soft: #f3e6c4;
-  --color-terracotta: #c0663c;
-  --color-sage: #6b7f56;
-  --color-clay: #a8503f;
+  --color-honey: #b5532f; /* accento primario: terracotta */
+  --color-honey-soft: #f2e0d8;
+  --color-terracotta: #b5532f;
+  --color-sage: #4d7a58;
+  --color-clay: #9e4229;
 
   /* --- Stati --- */
-  --color-online: #5b9e6a;
+  --color-online: #549a68;
   --color-busy: #d9a441;
-  --color-error: #b6503f;
+  --color-error: #b04a34;
 
   /* --- Tipografia --- */
   --font-sans:
@@ -46,10 +50,10 @@
   /* --- Raggi --- */
   --radius-pill: 999px;
 
-  /* --- Ombre: basse e larghe, mai nette --- */
-  --shadow-panel: 0 1px 2px rgb(60 52 30 / 0.04), 0 8px 24px -8px rgb(60 52 30 / 0.1);
-  --shadow-pop: 0 2px 6px rgb(60 52 30 / 0.08), 0 16px 40px -12px rgb(60 52 30 / 0.22);
-  --shadow-inset: inset 0 1px 2px rgb(60 52 30 / 0.06);
+  /* --- Ombre: basse e larghe, mai nette. Fredde, come il fondo. --- */
+  --shadow-panel: 0 1px 2px rgb(28 34 40 / 0.05), 0 8px 24px -8px rgb(28 34 40 / 0.12);
+  --shadow-pop: 0 2px 6px rgb(28 34 40 / 0.09), 0 16px 40px -12px rgb(28 34 40 / 0.24);
+  --shadow-inset: inset 0 1px 2px rgb(28 34 40 / 0.07);
 }
 
 /* --- Modalità scura ------------------------------------------------------
@@ -72,7 +76,8 @@
   --color-line: #322e27;
   --color-line-strong: #423d34;
 
-  --color-honey-soft: #3a3122;
+  /* Tinta dell'accento: segue la terracotta, non più il miele. */
+  --color-honey-soft: #3a2620;
   --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -8px rgb(0 0 0 / 0.5);
   --shadow-pop: 0 2px 6px rgb(0 0 0 / 0.4), 0 16px 40px -12px rgb(0 0 0 / 0.6);
 }
@@ -116,14 +121,12 @@
     pointer-events: none;
     background: linear-gradient(
       180deg,
-      #e5e5bd 0%,
-      #e2e3c0 12%,
-      #dee0c3 25%,
-      #dadec7 38%,
-      #d6dbca 50%,
-      #d3d9cf 65%,
-      #ced5d3 80%,
-      #c8d1d7 100%
+      #d9dee2 0%,
+      #d4dade 22%,
+      #cfd6db 45%,
+      #c9d1d7 68%,
+      #c2cbd2 85%,
+      #bbc5cd 100%
     );
   }
 
@@ -191,8 +194,15 @@
     background: color-mix(in oklab, var(--color-ink) 5%, transparent);
     color: var(--color-ink);
   }
+  /* Il canale attivo è una pillola CHIARA, non uno scurimento.
+     La barra sta sul gradiente grigio-azzurro, che è già un mezzotono: un velo
+     scuro sopra un mezzotono dà un grigio fangoso, che l'occhio legge come
+     "premuto" invece che come "selezionato". Funzionava sul crema di prima.
+     La pillola chiara stacca verso l'alto e riprende il foglio della
+     conversazione: la stessa metafora di carta del resto dell'interfaccia. */
   .rail-item[data-active='true'] {
-    background: color-mix(in oklab, var(--color-ink) 9%, transparent);
+    background: var(--color-panel);
+    box-shadow: 0 1px 2px rgb(28 34 40 / 0.1);
     color: var(--color-ink);
     font-weight: 500;
   }
@@ -572,20 +582,33 @@
     border-top: 1px solid var(--color-line);
   }
 
-  /* Cursore che lampeggia mentre l'agente sta scrivendo. */
-  .streaming-caret::after {
-    content: '';
-    display: inline-block;
-    width: 2px;
-    height: 1.05em;
-    margin-left: 2px;
-    vertical-align: text-bottom;
-    background: var(--color-honey);
-    animation: caret 1s steps(2) infinite;
+  /* Testo dentro la tab di lavoro: subordinato alla risposta finale.
+     La gerarchia fra "lavoro" e "risposta" è il punto della tab; dargli lo
+     stesso corpo di 15px la annullerebbe. */
+  .msg-body.msg-body-work {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--color-ink-soft);
+    letter-spacing: -0.005em;
   }
-  @keyframes caret {
-    0%, 50% { opacity: 1; }
-    51%, 100% { opacity: 0; }
+  .msg-body.msg-body-work strong {
+    color: var(--color-ink);
+  }
+
+  /* Rivelazione parola per parola mentre l'agente scrive.
+     È un'animazione, non una transizione: parte da sola quando lo span entra
+     nel DOM, quindi non serve tenere il conto di quali parole sono già state
+     mostrate. Le parole già presenti non si rianimano.
+     La dissolvenza dura 600ms e le parole distano ~60ms: si sovrappongono, e
+     si legge come un'onda che attraversa la frase invece che come parole che
+     compaiono a scatti. Nessun cursore: i puntini nell'intestazione dicono
+     già che sta scrivendo, e un secondo elemento in movimento distrae. */
+  @keyframes word-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .word-in {
+    animation: word-in 0.6s cubic-bezier(0.33, 0.7, 0.4, 1);
   }
 
   /* Puntini "sta scrivendo". */

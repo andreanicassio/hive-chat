@@ -28,15 +28,41 @@ import { realtime } from './lib/ws.js';
  * l'intera chat a ogni token.
  */
 
+/** Le due schede del pannello laterale del canale. */
+export type AsideTab = 'activity' | 'thread';
+
+/**
+ * Un evento con l'ora a cui è successo. Il tempo non viaggia nei pacchetti
+ * realtime, quindi dal vivo è l'ora di arrivo; ricaricando la pagina è quella
+ * registrata dal server. In entrambi i casi basta a misurare quanto è durata
+ * un'operazione, che è ciò che mostra la tab di lavoro.
+ */
+export interface TimedRunEvent {
+  event: RunEvent;
+  at: number;
+}
+
 export interface RunState {
   runId: string;
   agentId: string;
+  /** Serve a mostrare nel pannello Attività solo i run del canale che guardi. */
+  channelId: string | null;
   status: RunStatus;
   /** Eventi in ordine: tool usati, ragionamento, errori. */
-  events: RunEvent[];
+  events: TimedRunEvent[];
   /** Vero mentre il testo sta ancora arrivando. */
   streaming: boolean;
   error: string | null;
+  /** Passaggi dichiarati dal server: c'è anche quando la traccia non è caricata. */
+  numTurns: number;
+  startedAt: number | null;
+  endedAt: number | null;
+  /**
+   * La traccia completa è già stata chiesta al server? Per i run conclusi non
+   * la carichiamo all'apertura del canale — sarebbero decine di tracce per
+   * niente — ma solo quando qualcuno apre la tab di lavoro.
+   */
+  eventsLoaded: boolean;
 }
 
 interface Member extends Pick<PublicUser, 'id' | 'name' | 'handle' | 'avatarEmoji' | 'avatarColor'> {
@@ -73,6 +99,16 @@ interface State {
   loadingChannel: boolean;
   hasMoreByChannel: Map<string, boolean>;
 
+  /* --- thread ---
+     Le risposte di un thread NON stanno nell'elenco del canale: nel canale il
+     thread è rappresentato solo dalla barra "N risposte" sotto la radice. */
+  threadsByRoot: Map<string, Message[]>;
+  /** Thread mostrato nel pannello laterale, se ce n'è uno. */
+  openThreadRootId: string | null;
+  /** Pannello laterale del canale: attività dell'agente e thread. */
+  asideOpen: boolean;
+  asideTab: AsideTab;
+
   /* --- artifacts (checklist e documenti accanto alla chat) --- */
   artifactsByChannel: Map<string, Artifact[]>;
   /** Pannello laterale aperto/chiuso, e quale artifact è a fuoco. */
@@ -99,8 +135,19 @@ interface State {
   openChannel: (channelId: string) => Promise<void>;
   hydrateRuns: (channelId: string, messages: Message[]) => Promise<void>;
   loadOlder: (channelId: string) => Promise<void>;
-  sendMessage: (channelId: string, body: string, attachmentIds?: string[]) => Promise<void>;
+  sendMessage: (
+    channelId: string,
+    body: string,
+    attachmentIds?: string[],
+    threadRootId?: string | null,
+  ) => Promise<void>;
   setReplyingTo: (message: Message | null) => void;
+  /** Carica la traccia di un run: la chiediamo solo quando serve davvero. */
+  loadRunEvents: (messageId: string) => Promise<void>;
+  openThread: (rootId: string) => void;
+  loadThread: (channelId: string, rootId: string) => Promise<void>;
+  setAsideOpen: (open: boolean) => void;
+  setAsideTab: (tab: AsideTab) => void;
   loadArtifacts: (channelId: string) => Promise<void>;
   createArtifact: (channelId: string, input: CreateArtifactInput) => Promise<Artifact | null>;
   updateArtifactRemote: (artifactId: string, patch: UpdateArtifactInput) => Promise<void>;
@@ -141,7 +188,6 @@ function upsertArtifact(
   return { artifactsByChannel: next };
 }
 
-/** Inserisce o sostituisce un messaggio mantenendo l'ordine cronologico. */
 /** Inserisce o sostituisce un nodo documento nell'albero del workspace. */
 function upsertDocument(
   byWorkspace: Map<string, DocumentNode[]>,
@@ -155,6 +201,7 @@ function upsertDocument(
   return { documentsByWorkspace: next };
 }
 
+/** Inserisce o sostituisce un messaggio mantenendo l'ordine cronologico. */
 function upsertMessage(list: Message[], message: Message): Message[] {
   const index = list.findIndex((m) => m.id === message.id);
   if (index !== -1) {
@@ -168,6 +215,91 @@ function upsertMessage(list: Message[], message: Message): Message[] {
   if (!last || last.createdAt <= message.createdAt) return [...list, message];
   const at = list.findIndex((m) => m.createdAt > message.createdAt);
   return [...list.slice(0, at), message, ...list.slice(at)];
+}
+
+/**
+ * Modifica un messaggio ovunque si trovi: nel canale o dentro un thread.
+ *
+ * Un agente attivato dentro un thread risponde nel thread, quindi la bolla che
+ * si riempie in streaming può stare in una delle due mappe: cercare solo fra i
+ * messaggi del canale lascerebbe quelle risposte mute.
+ */
+function patchMessage(
+  s: State,
+  messageId: string,
+  patch: (m: Message) => Message,
+): Partial<State> {
+  for (const [channelId, list] of s.messagesByChannel) {
+    const idx = list.findIndex((m) => m.id === messageId);
+    if (idx === -1) continue;
+    const updated = list.slice();
+    updated[idx] = patch(updated[idx]!);
+    const next = new Map(s.messagesByChannel);
+    next.set(channelId, updated);
+    return { messagesByChannel: next };
+  }
+  for (const [rootId, list] of s.threadsByRoot) {
+    const idx = list.findIndex((m) => m.id === messageId);
+    if (idx === -1) continue;
+    const updated = list.slice();
+    updated[idx] = patch(updated[idx]!);
+    const next = new Map(s.threadsByRoot);
+    next.set(rootId, updated);
+    return { threadsByRoot: next };
+  }
+  return {};
+}
+
+/**
+ * Mette un messaggio dove va: nel canale se è una radice, nel thread se è una
+ * risposta.
+ *
+ * Il realtime trasmette tutto a chi è nel canale, thread compresi — non
+ * esistono sottoscrizioni per thread. Senza questo smistamento le risposte
+ * comparirebbero in mezzo al canale, mentre la lettura via REST le esclude:
+ * due percorsi che raccontano cose diverse. Qui vince la regola del design —
+ * nel canale un thread è solo la sua barra "N risposte".
+ */
+function absorbMessage(s: State, message: Message): Partial<State> {
+  if (!message.threadRootId) {
+    const next = new Map(s.messagesByChannel);
+    const list = next.get(message.channelId);
+    if (list) next.set(message.channelId, upsertMessage(list, message));
+    return { messagesByChannel: next };
+  }
+
+  const rootId = message.threadRootId;
+  const threads = new Map(s.threadsByRoot);
+  const known = threads.get(rootId);
+  // Se il thread non l'abbiamo mai aperto non lo popoliamo a metà: sarebbe
+  // un elenco con dei buchi. Il conteggio sulla radice basta a mostrarlo.
+  const wasKnown = known !== undefined;
+  if (wasKnown) threads.set(rootId, upsertMessage(known, message));
+
+  const channels = new Map(s.messagesByChannel);
+  const list = channels.get(message.channelId);
+  const idx = list ? list.findIndex((m) => m.id === rootId) : -1;
+  if (list && idx !== -1) {
+    const root = list[idx]!;
+    // Solo per un messaggio nuovo: un `message.updated` di una risposta già
+    // vista non deve far salire il conteggio una seconda volta.
+    const isNew = !wasKnown || !known.some((m) => m.id === message.id);
+    const updated = list.slice();
+    const participants = root.threadParticipants.some(
+      (p) => p.id === message.author.id && p.type === message.author.type,
+    )
+      ? root.threadParticipants
+      : [...root.threadParticipants, message.author].slice(-4);
+    updated[idx] = {
+      ...root,
+      replyCount: isNew ? root.replyCount + 1 : root.replyCount,
+      threadLastReplyAt: message.createdAt,
+      threadParticipants: participants,
+    };
+    channels.set(message.channelId, updated);
+  }
+
+  return { threadsByRoot: threads, messagesByChannel: channels };
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -188,6 +320,11 @@ export const useStore = create<State>((set, get) => ({
   messagesByChannel: new Map(),
   loadingChannel: false,
   hasMoreByChannel: new Map(),
+
+  threadsByRoot: new Map(),
+  openThreadRootId: null,
+  asideOpen: false,
+  asideTab: 'activity',
 
   artifactsByChannel: new Map(),
   artifactPanelOpen: false,
@@ -221,6 +358,10 @@ export const useStore = create<State>((set, get) => ({
       joinedChannelIds: new Set(data.joinedChannelIds),
       capabilities: data.capabilities,
       messagesByChannel: new Map(),
+      threadsByRoot: new Map(),
+      openThreadRootId: null,
+      asideOpen: false,
+      asideTab: 'activity',
       artifactsByChannel: new Map(),
       artifactPanelOpen: false,
       documentsByWorkspace: new Map(),
@@ -267,7 +408,15 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openChannel(channelId) {
-    set({ activeChannelId: channelId, loadingChannel: true, replyingTo: null });
+    // Il thread aperto appartiene al canale che si sta lasciando: portarselo
+    // dietro mostrerebbe risposte di un'altra conversazione.
+    set((s) => ({
+      activeChannelId: channelId,
+      loadingChannel: true,
+      replyingTo: null,
+      openThreadRootId: null,
+      asideTab: s.asideTab === 'thread' ? 'activity' : s.asideTab,
+    }));
     realtime.subscribe([channelId]);
     // Gli artifact del canale li carichiamo dietro le quinte.
     void get().loadArtifacts(channelId);
@@ -314,7 +463,9 @@ export const useStore = create<State>((set, get) => ({
    * di solito zero o una — perché sono le uniche che stanno scrivendo adesso e
    * le uniche per cui la sezione dei tool deve tornare viva. Per le altre basta
    * la voce nella mappa: senza, i pacchetti `run.event` che arrivano dopo
-   * verrebbero buttati via.
+   * verrebbero buttati via, e la tab di lavoro chiusa mostra comunque passaggi
+   * e durata, che vengono dall'elenco dei run. La traccia dettagliata di un
+   * run concluso arriva quando qualcuno apre la tab (`loadRunEvents`).
    */
   async hydrateRuns(channelId, messages) {
     const byMessage = new Set(messages.map((m) => m.id));
@@ -336,10 +487,15 @@ export const useStore = create<State>((set, get) => ({
         next.set(r.responseMessageId!, {
           runId: r.id,
           agentId: r.agentId,
+          channelId,
           status: r.status,
           events: [],
           streaming: r.status === 'running',
           error: r.error,
+          numTurns: r.numTurns,
+          startedAt: r.startedAt ? new Date(r.startedAt).getTime() : null,
+          endedAt: r.endedAt ? new Date(r.endedAt).getTime() : null,
+          eventsLoaded: false,
         });
       }
       return { runs: next };
@@ -347,23 +503,79 @@ export const useStore = create<State>((set, get) => ({
 
     const active = mine.filter((r) => r.status === 'running' || r.status === 'queued');
     for (const r of active) {
-      try {
-        const { events } = await api.runEvents(r.id);
-        set((s) => {
-          const next = new Map(s.runs);
-          const cur = next.get(r.responseMessageId!);
-          // Gli eventi arrivati dal vivo nel frattempo vincono: rimetterci
-          // sotto lo storico li duplicherebbe.
-          if (cur && cur.events.length === 0) {
-            next.set(r.responseMessageId!, { ...cur, events: events.map((e) => e.payload) });
-          }
-          return { runs: next };
-        });
-      } catch {
-        // Un run di cui non riusciamo a leggere la traccia non è un problema:
-        // resta la bolla col testo, che è la cosa che conta.
-      }
+      await get().loadRunEvents(r.responseMessageId!);
     }
+  },
+
+  /**
+   * Scarica la traccia completa di un run e la mette nella mappa.
+   *
+   * Gli eventi arrivati dal vivo nel frattempo vincono: rimetterci sotto lo
+   * storico li duplicherebbe.
+   */
+  async loadRunEvents(messageId) {
+    const run = get().runs.get(messageId);
+    if (!run || run.eventsLoaded) return;
+    // Segniamo subito, altrimenti due aperture ravvicinate della tab fanno
+    // due richieste per la stessa traccia.
+    set((s) => {
+      const next = new Map(s.runs);
+      const cur = next.get(messageId);
+      if (cur) next.set(messageId, { ...cur, eventsLoaded: true });
+      return { runs: next };
+    });
+    try {
+      const { events } = await api.runEvents(run.runId);
+      set((s) => {
+        const next = new Map(s.runs);
+        const cur = next.get(messageId);
+        if (cur && cur.events.length === 0) {
+          next.set(messageId, {
+            ...cur,
+            events: events.map((e) => ({ event: e.payload, at: new Date(e.createdAt).getTime() })),
+          });
+        }
+        return { runs: next };
+      });
+    } catch {
+      // Un run di cui non riusciamo a leggere la traccia non è un problema:
+      // resta la bolla col testo, che è la cosa che conta. Riproviamo alla
+      // prossima apertura.
+      set((s) => {
+        const next = new Map(s.runs);
+        const cur = next.get(messageId);
+        if (cur) next.set(messageId, { ...cur, eventsLoaded: false });
+        return { runs: next };
+      });
+    }
+  },
+
+  openThread(rootId) {
+    const channelId = get().activeChannelId;
+    set({ openThreadRootId: rootId, asideOpen: true, asideTab: 'thread' });
+    if (channelId) void get().loadThread(channelId, rootId);
+  },
+
+  async loadThread(channelId, rootId) {
+    try {
+      const { messages } = await api.messages(channelId, { threadRootId: rootId, limit: 100 });
+      set((s) => {
+        const next = new Map(s.threadsByRoot);
+        next.set(rootId, messages);
+        return { threadsByRoot: next };
+      });
+    } catch {
+      // Se il caricamento fallisce il pannello resta con quello che ha già:
+      // meglio di svuotarlo.
+    }
+  },
+
+  setAsideOpen(open) {
+    set({ asideOpen: open });
+  },
+
+  setAsideTab(tab) {
+    set({ asideTab: tab });
   },
 
   async loadOlder(channelId) {
@@ -384,26 +596,25 @@ export const useStore = create<State>((set, get) => ({
     });
   },
 
-  async sendMessage(channelId, body, attachmentIds) {
+  async sendMessage(channelId, body, attachmentIds, threadRootId) {
     // Nonce di idempotenza: se la rete inciampa e il client ritenta,
     // il server non crea un doppione.
     const clientNonce = randomId();
-    const replyToId = get().replyingTo?.id ?? null;
-    set({ replyingTo: null });
+    // Rispondere dentro un thread è un'altra cosa dal citare un messaggio nel
+    // canale: la citazione resta al composer del canale.
+    const replyToId = threadRootId ? null : (get().replyingTo?.id ?? null);
+    if (!threadRootId) set({ replyingTo: null });
     const { message } = await api.postMessage(channelId, {
       body,
       clientNonce,
       replyToId,
+      ...(threadRootId ? { threadRootId } : {}),
       ...(attachmentIds?.length ? { attachmentIds } : {}),
     });
     // Lo mostriamo subito invece di aspettare il websocket: se la socket è
     // giù il messaggio non comparirebbe affatto. `upsertMessage` è per id,
     // quindi il pacchetto che arriverà dopo lo sostituisce senza duplicati.
-    set((s) => {
-      const next = new Map(s.messagesByChannel);
-      next.set(channelId, upsertMessage(next.get(channelId) ?? [], message));
-      return { messagesByChannel: next };
-    });
+    set((s) => absorbMessage(s, message));
   },
 
   setReplyingTo(message) {
@@ -495,13 +706,16 @@ export const useStore = create<State>((set, get) => ({
       case 'message.updated': {
         let message = packet.message as Message;
         set((s) => {
-          const next = new Map(s.messagesByChannel);
-          const list = next.get(message.channelId);
+          const list = s.messagesByChannel.get(message.channelId);
+          const inThread = message.threadRootId
+            ? s.threadsByRoot.get(message.threadRootId)
+            : undefined;
           // Aggiornamento robusto: un message.updated parziale (es. quello
           // finale di un run) non deve cancellare campi che il mittente non
           // conosce. Preserviamo la citazione già presente sul messaggio.
-          if (packet.t === 'message.updated' && list) {
-            const prev = list.find((m) => m.id === message.id);
+          if (packet.t === 'message.updated') {
+            const prev =
+              list?.find((m) => m.id === message.id) ?? inThread?.find((m) => m.id === message.id);
             if (prev) {
               message = {
                 ...message,
@@ -511,12 +725,23 @@ export const useStore = create<State>((set, get) => ({
                 // manda vuoti, e senza questo sparivano dalla bolla appena
                 // l'agente finiva di scrivere.
                 attachments: message.attachments.length ? message.attachments : prev.attachments,
+                // E per il thread: `replyCount` arriva sempre dalla riga del
+                // DB anche nelle ripubblicazioni fatte a mano, quindi è
+                // autorevole e va preso com'è — anche quando scende a zero.
+                // Ultima risposta e partecipanti invece lì non ci sono, e
+                // senza questa rete la barra "N risposte" perdeva volti e ora
+                // a fine turno di un agente.
+                threadLastReplyAt: message.threadLastReplyAt ?? prev.threadLastReplyAt,
+                threadParticipants: message.threadParticipants.length
+                  ? message.threadParticipants
+                  : prev.threadParticipants,
               };
             }
           }
           // Se non abbiamo il canale in memoria non lo popoliamo adesso:
           // verrà caricato all'apertura.
-          if (list) next.set(message.channelId, upsertMessage(list, message));
+          const absorbed = absorbMessage(s, message);
+          const next = absorbed.messagesByChannel ?? new Map(s.messagesByChannel);
 
           const isActive = s.activeChannelId === message.channelId;
           const fromMe = message.author.type === 'user' && message.author.id === s.user?.id;
@@ -537,7 +762,7 @@ export const useStore = create<State>((set, get) => ({
                 )
               : s.channels;
 
-          return { messagesByChannel: next, channels };
+          return { ...absorbed, messagesByChannel: next, channels };
         });
         break;
       }
@@ -587,6 +812,7 @@ export const useStore = create<State>((set, get) => ({
         const p = packet as unknown as {
           runId: string;
           agentId: string;
+          channelId: string;
           messageId: string;
         };
         set((s) => {
@@ -594,10 +820,16 @@ export const useStore = create<State>((set, get) => ({
           runs.set(p.messageId, {
             runId: p.runId,
             agentId: p.agentId,
+            channelId: p.channelId,
             status: 'queued',
             events: [],
             streaming: false,
             error: null,
+            numTurns: 0,
+            startedAt: Date.now(),
+            endedAt: null,
+            // Nasce adesso: la traccia è quella che stiamo ricevendo.
+            eventsLoaded: true,
           });
           return { runs };
         });
@@ -609,19 +841,14 @@ export const useStore = create<State>((set, get) => ({
         set((s) => {
           // Il testo si accumula direttamente sul messaggio: la bolla in
           // chat è la stessa, si riempie mentre arriva.
-          const next = new Map(s.messagesByChannel);
-          for (const [channelId, list] of next) {
-            const idx = list.findIndex((m) => m.id === p.messageId);
-            if (idx === -1) continue;
-            const updated = list.slice();
-            updated[idx] = { ...updated[idx]!, body: (updated[idx]!.body ?? '') + p.text };
-            next.set(channelId, updated);
-            break;
-          }
+          const patched = patchMessage(s, p.messageId, (m) => ({
+            ...m,
+            body: (m.body ?? '') + p.text,
+          }));
           const runs = new Map(s.runs);
           const run = runs.get(p.messageId);
           if (run) runs.set(p.messageId, { ...run, streaming: true, status: 'running' });
-          return { messagesByChannel: next, runs };
+          return { ...patched, runs };
         });
         break;
       }
@@ -631,8 +858,21 @@ export const useStore = create<State>((set, get) => ({
         set((s) => {
           const runs = new Map(s.runs);
           const run = runs.get(p.messageId);
-          if (run) runs.set(p.messageId, { ...run, events: [...run.events, p.event] });
-          return { runs };
+          if (run) {
+            runs.set(p.messageId, {
+              ...run,
+              events: [...run.events, { event: p.event, at: Date.now() }],
+            });
+          }
+          // Un turno di ragionamento si è chiuso: quel testo ora vive nella
+          // tab di lavoro, quindi va tolto dalla bolla. Senza questo il
+          // ragionamento resterebbe nel canale fino a fine turno, che è
+          // esattamente ciò che la tab serve a evitare.
+          const patched =
+            p.event.type === 'text.block'
+              ? patchMessage(s, p.messageId, (m) => ({ ...m, body: '' }))
+              : {};
+          return { ...patched, runs };
         });
         break;
       }
@@ -647,11 +887,14 @@ export const useStore = create<State>((set, get) => ({
           const runs = new Map(s.runs);
           const run = runs.get(p.messageId);
           if (run) {
+            const finished =
+              p.status === 'done' || p.status === 'error' || p.status === 'cancelled';
             runs.set(p.messageId, {
               ...run,
               status: p.status,
               error: p.error ?? null,
               streaming: p.status === 'running',
+              endedAt: finished ? (run.endedAt ?? Date.now()) : run.endedAt,
             });
           }
           return { runs };
@@ -802,6 +1045,10 @@ export const useStore = create<State>((set, get) => ({
       members: [],
       activeChannelId: null,
       messagesByChannel: new Map(),
+      threadsByRoot: new Map(),
+      openThreadRootId: null,
+      asideOpen: false,
+      asideTab: 'activity',
       artifactsByChannel: new Map(),
       artifactPanelOpen: false,
       documentsByWorkspace: new Map(),

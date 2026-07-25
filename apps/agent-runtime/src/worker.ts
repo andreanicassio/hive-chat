@@ -235,6 +235,7 @@ export async function executeJob(job: RunJob): Promise<void> {
       channelId: job.channelId,
       agentId: agent.id,
       triggerMessageId: job.triggerMessageId,
+      threadRootId: job.threadRootId,
       rawPrompt: job.prompt,
       fromAgentHandle: job.fromAgentHandle,
     });

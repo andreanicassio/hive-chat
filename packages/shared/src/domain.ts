@@ -199,6 +199,10 @@ export interface Message {
   runId: string | null;
   /** Conteggio risposte se il messaggio è la radice di un thread. */
   replyCount: number;
+  /** Ora dell'ultima risposta nel thread, per la barra "N risposte". */
+  threadLastReplyAt: string | null;
+  /** Chi ha risposto nel thread, in ordine di prima comparsa. */
+  threadParticipants: ActorRef[];
   createdAt: string;
   editedAt: string | null;
   deletedAt: string | null;
@@ -669,6 +673,14 @@ export interface AgentRun {
  */
 export type RunEvent =
   | { type: 'text.delta'; text: string }
+  /**
+   * Un turno di testo dell'agente si è concluso e ne comincia un altro (di
+   * norma perché sta per usare uno strumento). È il ragionamento: finisce
+   * nella tab di lavoro, non nel corpo del messaggio, dove resta solo la
+   * risposta finale. Senza questo evento andrebbe perso: a fine turno il
+   * corpo viene comunque sovrascritto con il testo conclusivo.
+   */
+  | { type: 'text.block'; text: string }
   | { type: 'thinking.start' }
   | { type: 'thinking.delta'; text: string }
   | { type: 'thinking.end' }

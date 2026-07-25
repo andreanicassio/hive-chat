@@ -271,6 +271,22 @@ export class ClaudeCodeRunner implements Runner {
     let sessionId: string | null = null;
     const openTools = new Map<string, string>();
     let thinkingOpen = false;
+    // Testo del turno in corso. Serve solo per capire dove finisce un turno di
+    // ragionamento: i delta viaggiano già a parte.
+    let turnText = '';
+
+    /**
+     * Il testo scritto prima di uno strumento è ragionamento concluso: a fine
+     * run il corpo del messaggio viene sovrascritto con la risposta finale e
+     * andrebbe perso, quindi lo salviamo come evento. Richiamarlo senza testo
+     * nuovo (due strumenti di fila) non emette niente.
+     */
+    const flushTextBlock = async (): Promise<void> => {
+      const text = turnText.trim();
+      turnText = '';
+      if (!text) return;
+      await emitter.event({ type: 'text.block', text });
+    };
 
     // Input a caldo: la chat può iniettare messaggi DENTRO questo turno, come
     // scrivere nel terminale mentre Claude Code lavora.
@@ -301,6 +317,7 @@ export class ClaudeCodeRunner implements Runner {
                 await emitter.event({ type: 'thinking.end' });
                 await emitter.status('working', null);
               }
+              turnText += ev.delta.text;
               await emitter.delta(ev.delta.text);
             } else if (ev.delta?.type === 'thinking_delta' && ev.delta.thinking) {
               if (!thinkingOpen) {
@@ -321,6 +338,7 @@ export class ClaudeCodeRunner implements Runner {
           for (const block of content) {
             const b = block as { type?: string; id?: string; name?: string; input?: unknown };
             if (b.type === 'tool_use' && b.id && b.name) {
+              await flushTextBlock();
               const label = describeTool(b.name, b.input);
               openTools.set(b.id, label);
               await emitter.status('working', label);

@@ -193,6 +193,13 @@ export const runJobSchema = z.object({
   channelId: z.uuid(),
   triggerMessageId: z.uuid().nullable(),
   responseMessageId: z.uuid(),
+  /**
+   * Thread in cui si svolge il turno: la risposta va lì e il contesto è quello
+   * del thread. `null` quando il turno vive nel canale.
+   * Ha un default perché i job già in coda al momento dell'aggiornamento non
+   * hanno il campo, e non devono far fallire il parse.
+   */
+  threadRootId: z.uuid().nullable().default(null),
   /** Il testo con cui è stato invocato l'agente. */
   prompt: z.string(),
   /** Handle dell'agente che ha fatto handoff, se questo run nasce da un passaggio. */

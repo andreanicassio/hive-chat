@@ -21,11 +21,14 @@ import {
   CornerUpLeft,
   PanelRight,
   FolderOpen,
+  MessagesSquare,
+  ListChecks,
 } from 'lucide-react';
 import { useStore, type RunState } from '../store.js';
 import { ArtifactPanel, ArtifactPinnedStrip } from './ArtifactPanel.js';
 import { DocumentsPanel } from './DocumentsPanel.js';
 import { ChannelMembers } from './ChannelMembers.js';
+import { ChannelAside } from './ChannelAside.js';
 import { api } from '../lib/api.js';
 import { realtime } from '../lib/ws.js';
 import { Avatar } from './Avatar.js';
@@ -82,20 +85,28 @@ function Attachments({ items }: { items: Message['attachments'] }) {
   );
 }
 
-function MessageBody({ body, streaming }: { body: string; streaming: boolean }) {
+export function MessageBody({
+  body,
+  streaming,
+  className,
+}: {
+  body: string;
+  streaming?: boolean;
+  className?: string;
+}) {
   const agents = useStore((s) => s.agents);
   const agentHandles = useMemo(() => new Set(agents.map((a) => a.handle)), [agents]);
 
   return (
-    <div className={clsx('msg-body', streaming && 'streaming-caret')}>
+    <div className={clsx('msg-body', className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           // Le menzioni vivono dentro il testo: le intercettiamo qui
           // invece di pre-processare il markdown, così non rompiamo
           // blocchi di codice che contengono la stessa sintassi.
-          p: ({ children }) => <p>{transformChildren(children, agentHandles)}</p>,
-          li: ({ children }) => <li>{transformChildren(children, agentHandles)}</li>,
+          p: ({ children }) => <p>{transformChildren(children, agentHandles, streaming)}</p>,
+          li: ({ children }) => <li>{transformChildren(children, agentHandles, streaming)}</li>,
           a: ({ href, children }) => (
             <a href={href} target="_blank" rel="noopener noreferrer">
               {children}
@@ -109,7 +120,34 @@ function MessageBody({ body, streaming }: { body: string; streaming: boolean }) 
   );
 }
 
-function transformChildren(children: React.ReactNode, agentHandles: Set<string>): React.ReactNode {
+/**
+ * Avvolge una per una le parole di un pezzo di testo.
+ *
+ * Serve solo mentre l'agente scrive. Ogni parola nuova entra nel DOM con
+ * l'animazione `.word-in`; quelle già presenti restano immobili, perché
+ * un'animazione CSS parte al montaggio e non si ripete. Non c'è quindi niente
+ * da ricordare su cosa sia già stato mostrato — e nessun cursore: i puntini
+ * nell'intestazione dicono già che sta scrivendo.
+ */
+function revealWords(text: string, keyPrefix: string): React.ReactNode {
+  // Lo split che tiene i separatori: gli spazi restano testo nudo, così la
+  // riga va a capo esattamente dove andrebbe senza gli span.
+  return text.split(/(\s+)/).map((chunk, i) =>
+    chunk === '' || /^\s+$/.test(chunk) ? (
+      chunk
+    ) : (
+      <span key={`${keyPrefix}-${i}`} className="word-in">
+        {chunk}
+      </span>
+    ),
+  );
+}
+
+function transformChildren(
+  children: React.ReactNode,
+  agentHandles: Set<string>,
+  streaming?: boolean,
+): React.ReactNode {
   return (Array.isArray(children) ? children : [children]).map((child, i) => {
     if (typeof child !== 'string') return child;
     const parts = renderMentions(child, (h) => agentHandles.has(h));
@@ -117,7 +155,11 @@ function transformChildren(children: React.ReactNode, agentHandles: Set<string>)
       <span key={i}>
         {parts.map((part, j) =>
           typeof part === 'string' ? (
-            part
+            streaming ? (
+              revealWords(part, `${i}-${j}`)
+            ) : (
+              part
+            )
           ) : (
             <span key={j} className="mention" data-kind={part.kind}>
               {part.kind === 'agent' && <Bot size={11} strokeWidth={2.4} />}
@@ -131,74 +173,272 @@ function transformChildren(children: React.ReactNode, agentHandles: Set<string>)
 }
 
 /* ========================================================================== */
-/*  Attività dell'agente: tool usati, ragionamento                            */
+/*  Tab di lavoro: dove finisce tutto quello che non è la risposta             */
 /* ========================================================================== */
 
-function RunActivity({ run }: { run: RunState }) {
-  const [open, setOpen] = useState(false);
+/**
+ * Un passaggio del lavoro dell'agente: o un pezzo di ragionamento, o
+ * un'operazione con uno strumento.
+ */
+type WorkStep =
+  | { kind: 'text'; key: string; text: string }
+  | {
+      kind: 'tool';
+      key: string;
+      name: string;
+      label: string;
+      done: boolean;
+      error: boolean;
+      startedAt: number;
+      endedAt: number | null;
+    };
 
-  const tools = useMemo(() => {
-    const started = new Map<string, { label: string; done: boolean; error: boolean }>();
-    for (const e of run.events) {
-      if (e.type === 'tool.start') {
-        started.set(e.toolUseId, { label: e.label, done: false, error: false });
-      } else if (e.type === 'tool.end') {
-        const entry = started.get(e.toolUseId);
-        if (entry) {
-          entry.done = true;
-          entry.error = e.isError;
-        }
+/** Orologio che scorre: si aggiorna solo mentre serve davvero. */
+export function useTicker(active: boolean): number {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setTick((n) => n + 1), 250);
+    return () => clearInterval(id);
+  }, [active]);
+  return Date.now();
+}
+
+/** "0,31 s" per le operazioni: sotto il minuto il decimo conta. */
+function shortDuration(ms: number): string {
+  if (ms < 60_000) return `${(ms / 1000).toFixed(2).replace('.', ',')} s`;
+  const m = Math.floor(ms / 60_000);
+  return `${m}m ${Math.round((ms % 60_000) / 1000)}s`;
+}
+
+/** "2m 14s" per il totale del turno: qui i decimi non servono. */
+function totalDuration(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+}
+
+function buildSteps(run: RunState): WorkStep[] {
+  const steps: WorkStep[] = [];
+  const byToolUse = new Map<string, Extract<WorkStep, { kind: 'tool' }>>();
+  for (const [i, timed] of run.events.entries()) {
+    const e = timed.event;
+    if (e.type === 'text.block') {
+      steps.push({ kind: 'text', key: `t${i}`, text: e.text });
+    } else if (e.type === 'tool.start') {
+      const step = {
+        kind: 'tool' as const,
+        key: e.toolUseId,
+        name: e.name,
+        label: e.label,
+        done: false,
+        error: false,
+        startedAt: timed.at,
+        endedAt: null as number | null,
+      };
+      byToolUse.set(e.toolUseId, step);
+      steps.push(step);
+    } else if (e.type === 'tool.end') {
+      const step = byToolUse.get(e.toolUseId);
+      if (step) {
+        step.done = true;
+        step.error = e.isError;
+        step.endedAt = timed.at;
       }
     }
-    return [...started.values()];
-  }, [run.events]);
+  }
+  return steps;
+}
 
-  const thinking = run.events.some((e) => e.type === 'thinking.start');
-  if (tools.length === 0 && !thinking) return null;
+/** Nome corto dello strumento per i chip: `mcp__hive__read_document` → `read_document`. */
+export function toolChipName(name: string): string {
+  const parts = name.split('__');
+  return (parts[parts.length - 1] ?? name).toLowerCase();
+}
 
-  const running = tools.filter((t) => !t.done).length;
+/** Una riga del registro operazioni. */
+function OpRow({
+  step,
+  now,
+  alt,
+}: {
+  step: Extract<WorkStep, { kind: 'tool' }>;
+  /** Ora corrente se il turno è in corso, ora di fine se è già concluso: senza
+      questo, un'operazione rimasta senza `tool.end` (un turno interrotto)
+      mostrerebbe una durata che continua a crescere per sempre. */
+  now: number;
+  alt: boolean;
+}) {
+  const elapsed = Math.max(0, (step.endedAt ?? now) - step.startedAt);
+  return (
+    <div
+      className={clsx(
+        'grid grid-cols-[16px_46px_minmax(0,1fr)_52px] items-center gap-2.5 px-[11px] py-[7px]',
+        alt && 'bg-[var(--color-panel-alt)]',
+      )}
+    >
+      {step.done ? (
+        step.error ? (
+          <X size={10} strokeWidth={3} className="mx-auto text-[var(--color-error)]" />
+        ) : (
+          <Check size={10} strokeWidth={3} className="mx-auto text-[var(--color-online)]" />
+        )
+      ) : (
+        <span className="mx-auto h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-online)]" />
+      )}
+      <span className="truncate font-mono text-[10.5px] text-[var(--color-ink-soft)]">
+        {toolChipName(step.name)}
+      </span>
+      <span className="truncate font-mono text-[11px] text-[var(--color-ink-soft)]">
+        {step.label}
+      </span>
+      <span className="text-right font-mono text-[10.5px] text-[var(--color-ink-faint)] tabular-nums">
+        {shortDuration(elapsed)}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Il lavoro dell'agente, chiuso in una tab.
+ *
+ * La regola è che, chiusa, occupi due righe: un agente verboso non deve poter
+ * rendere illeggibile un canale. Fuori dalla tab resta solo la risposta.
+ *
+ * Il ragionamento arriva come eventi `text.block` — senza quelli sarebbe
+ * perso, perché a fine turno il corpo del messaggio viene sovrascritto con il
+ * testo conclusivo. Per un turno già finito la traccia non è in memoria: la
+ * chiediamo al server solo quando qualcuno apre la tab.
+ */
+export function WorkTab({ run, messageId }: { run: RunState; messageId: string }) {
+  const live = run.status === 'running' || run.status === 'queued';
+  // Chiusa sempre, anche mentre lavora: l'intestazione dice già che sta
+  // lavorando, a che passaggio è e da quanto. Aprirla da sola farebbe crescere
+  // il canale sotto agli occhi di chi sta leggendo altro. Se la apri tu,
+  // resta aperta: non te la richiudiamo a fine turno.
+  const [open, setOpen] = useState(false);
+  const loadRunEvents = useStore((s) => s.loadRunEvents);
+
+  const now = useTicker(live);
+  const steps = useMemo(() => buildSteps(run), [run.events]);
+  const tools = steps.filter((s): s is Extract<WorkStep, { kind: 'tool' }> => s.kind === 'tool');
+  const thinking = run.events.some((e) => e.event.type === 'thinking.start');
+
+  // Una risposta secca non ha "lavoro svolto": un solo passaggio e nessuno
+  // strumento vuol dire che l'agente ha semplicemente risposto, e mettergli
+  // sopra una tab vuota sarebbe rumore su ogni singolo messaggio. Dopo un
+  // ricaricamento la traccia non è in memoria, ma `numTurns` basta a
+  // distinguere i due casi.
+  const stepCount = Math.max(run.numTurns, tools.length);
+  if (stepCount < 2 && tools.length === 0 && steps.length === 0 && !thinking) return null;
+
+  const elapsed = run.startedAt ? (run.endedAt ?? now) - run.startedAt : null;
+  const chips = [...new Set(tools.map((t) => toolChipName(t.name)))].slice(-3);
+
+  function toggle() {
+    if (!open) void loadRunEvents(messageId);
+    setOpen(!open);
+  }
 
   return (
-    <div className="mt-1.5">
+    <div
+      className={clsx(
+        'mt-2 max-w-[620px] overflow-hidden rounded-[9px] border bg-[var(--color-panel-alt)]',
+        live ? 'border-[var(--color-line-strong)]' : 'border-[var(--color-line)]',
+      )}
+    >
       <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-[12.5px] text-[var(--color-ink-faint)] transition-colors hover:text-[var(--color-ink-soft)]"
+        onClick={toggle}
+        className="flex h-[34px] w-full items-center gap-[9px] px-[11px] text-left transition-colors hover:bg-[var(--color-sunken)]"
       >
         <ChevronRight
-          size={12}
-          strokeWidth={2.5}
-          className={clsx('transition-transform', open && 'rotate-90')}
+          size={11}
+          strokeWidth={2.6}
+          className={clsx(
+            'shrink-0 text-[var(--color-ink-faint)] transition-transform duration-150',
+            open && 'rotate-90',
+          )}
         />
-        {running > 0 ? (
-          <>
-            <Loader2 size={11.5} className="animate-spin" />
-            <span>{tools.find((t) => !t.done)?.label ?? 'Al lavoro'}</span>
-          </>
-        ) : (
-          <span>
-            {tools.length} {tools.length === 1 ? 'operazione' : 'operazioni'}
-            {thinking && ' · ha ragionato'}
+        <span className="shrink-0 text-[12.5px] font-semibold tracking-[-0.005em] text-[var(--color-ink-soft)]">
+          {live ? 'Sta lavorando' : 'Lavoro svolto'}
+        </span>
+        <span className="shrink-0 text-[11.5px] text-[var(--color-ink-faint)]">
+          {live
+            ? `passaggio ${stepCount || 1}`
+            : `${stepCount} ${stepCount === 1 ? 'passaggio' : 'passaggi'}`}
+        </span>
+        <span className="flex-1" />
+        {!live && chips.length > 0 && (
+          <span className="hidden shrink-0 gap-1 sm:flex">
+            {chips.map((c) => (
+              <span
+                key={c}
+                className="rounded-[4px] bg-[var(--color-sunken)] px-[5px] py-px font-mono text-[10px] text-[var(--color-ink-soft)]"
+              >
+                {c}
+              </span>
+            ))}
+          </span>
+        )}
+        {live && (
+          <span className="h-[9px] w-[9px] shrink-0 animate-spin rounded-full border-[1.5px] border-[var(--color-line-strong)] border-t-[var(--color-ink-faint)]" />
+        )}
+        {elapsed !== null && (
+          <span className="shrink-0 font-mono text-[10.5px] text-[var(--color-ink-faint)] tabular-nums">
+            {totalDuration(elapsed)}
           </span>
         )}
       </button>
 
-      {open && tools.length > 0 && (
-        <div className="mt-1.5 flex flex-col items-start gap-1">
-          {tools.map((t, i) => (
-            <span key={i} className="tool-chip">
-              {t.done ? (
-                t.error ? (
-                  <X size={11} className="text-[var(--color-error)]" strokeWidth={2.6} />
-                ) : (
-                  <Check size={11} className="text-[var(--color-online)]" strokeWidth={2.6} />
-                )
-              ) : (
-                <Loader2 size={11} className="animate-spin" />
-              )}
-              <span className="truncate">{t.label}</span>
-            </span>
-          ))}
+      {open && (
+        <div className="border-t border-[var(--color-line)] bg-[var(--color-panel)]">
+          {steps.length === 0 ? (
+            <div className="px-[14px] py-3 text-[13px] text-[var(--color-ink-faint)]">
+              {thinking ? 'Ha ragionato, senza usare strumenti.' : 'Traccia non disponibile.'}
+            </div>
+          ) : (
+            <WorkSteps steps={steps} now={run.endedAt ?? now} />
+          )}
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Ragionamento e operazioni in ordine.
+ *
+ * La tipografia qui è più piccola del messaggio finale (13,5px contro 15px):
+ * la gerarchia fra "lavoro" e "risposta" è il punto della tab, e darle lo
+ * stesso corpo la annullerebbe.
+ */
+function WorkSteps({ steps, now }: { steps: WorkStep[]; now: number }) {
+  // Le operazioni consecutive stanno in un unico registro, con le righe
+  // alternate: una tabella si legge, una sequenza di card no.
+  const groups: Array<WorkStep | Extract<WorkStep, { kind: 'tool' }>[]> = [];
+  for (const step of steps) {
+    const last = groups[groups.length - 1];
+    if (step.kind === 'tool' && Array.isArray(last)) last.push(step);
+    else if (step.kind === 'tool') groups.push([step]);
+    else groups.push(step);
+  }
+
+  return (
+    <div className="flex flex-col gap-3 py-[13px]">
+      {groups.map((group, i) =>
+        Array.isArray(group) ? (
+          <div key={`ops-${i}`} className="overflow-hidden">
+            {group.map((step, j) => (
+              <OpRow key={step.key} step={step} now={now} alt={j % 2 === 1} />
+            ))}
+          </div>
+        ) : group.kind === 'text' ? (
+          <MessageBody
+            key={group.key}
+            body={group.text}
+            className="msg-body-work px-[14px]"
+          />
+        ) : null,
       )}
     </div>
   );
@@ -256,6 +496,83 @@ function ApprovalCard({ approval }: { approval: Approval }) {
 }
 
 /* ========================================================================== */
+/*  Intestazione di un turno in corso: puntini, cronometro, stop               */
+/* ========================================================================== */
+
+function LiveHint({ run }: { run: RunState }) {
+  const now = useTicker(true);
+  const seconds = run.startedAt ? Math.floor((now - run.startedAt) / 1000) : 0;
+
+  return (
+    <span className="flex items-center gap-2 text-[11.5px] text-[var(--color-ink-faint)]">
+      <span className="flex items-center gap-[3px]">
+        {[0, 0.18, 0.36].map((delay) => (
+          <span
+            key={delay}
+            className="typing-dot h-1 w-1 rounded-full bg-[var(--color-ink-faint)]"
+            style={{ animationDelay: `${delay}s` }}
+          />
+        ))}
+      </span>
+      <span className="tabular-nums">
+        sta scrivendo · {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
+      </span>
+      <button
+        onClick={() => void api.cancelRun(run.runId).catch(() => {})}
+        className="rounded-md border border-[var(--color-line)] bg-[var(--color-panel-alt)] px-2 py-px transition-colors hover:border-[color-mix(in_oklab,var(--color-error)_35%,var(--color-line))] hover:text-[var(--color-error)]"
+        title="Ferma questo turno"
+      >
+        Ferma
+      </button>
+    </span>
+  );
+}
+
+/* ========================================================================== */
+/*  Barra "N risposte": nel canale, un thread è solo questo                    */
+/* ========================================================================== */
+
+function ThreadBar({ message }: { message: Message }) {
+  const openThread = useStore((s) => s.openThread);
+  const last = message.threadLastReplyAt ? new Date(message.threadLastReplyAt) : null;
+
+  return (
+    <button
+      onClick={() => openThread(message.id)}
+      className="-ml-[5px] mt-[9px] inline-flex items-center gap-2 rounded-lg border border-transparent py-1 pr-[9px] pl-[5px] transition-colors hover:border-[var(--color-line)] hover:bg-[var(--color-panel-alt)]"
+    >
+      {message.threadParticipants.length > 0 && (
+        <span className="flex">
+          {message.threadParticipants.slice(0, 3).map((p, i) => (
+            <span
+              key={`${p.type}-${p.id}`}
+              className="rounded-full border-[1.5px] border-[var(--color-panel)]"
+              style={{ marginLeft: i === 0 ? 0 : -6 }}
+            >
+              <Avatar
+                name={p.name}
+                emoji={p.avatarEmoji}
+                color={p.avatarColor}
+                size={20}
+                isAgent={p.type === 'agent'}
+              />
+            </span>
+          ))}
+        </span>
+      )}
+      <span className="text-[12.5px] font-semibold tracking-[-0.005em] text-[var(--color-honey)]">
+        {message.replyCount} {message.replyCount === 1 ? 'risposta' : 'risposte'}
+      </span>
+      {last && (
+        <span className="text-[11.5px] text-[var(--color-ink-faint)]">
+          ultima alle {format(last, 'HH:mm')}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/* ========================================================================== */
 /*  Citazione del messaggio a cui si risponde                                  */
 /* ========================================================================== */
 
@@ -299,6 +616,7 @@ function MessageRow({
 }) {
   const onlineUserIds = useStore((s) => s.onlineUserIds);
   const setReplyingTo = useStore((s) => s.setReplyingTo);
+  const openThread = useStore((s) => s.openThread);
 
   // Messaggi consecutivi dello stesso autore entro 5 minuti si raggruppano:
   // meno rumore visivo, si legge come una conversazione.
@@ -327,22 +645,29 @@ function MessageRow({
     <div
       id={`msg-${message.id}`}
       className={clsx(
-        'group relative px-5 transition-colors hover:bg-[color-mix(in_oklab,var(--color-ink)_2.5%,transparent)]',
-        grouped ? 'py-0.5' : 'pt-2 pb-0.5',
+        'group relative px-5 transition-colors hover:bg-[var(--color-panel-alt)]',
+        grouped ? 'py-0.5' : 'pt-2 pb-[9px]',
       )}
     >
-      {/* Azioni al passaggio del mouse: per ora, rispondi. */}
-      <div className="absolute right-4 -top-2 z-10 hidden rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] shadow-[var(--shadow-panel)] group-hover:flex">
+      {/* Azioni al passaggio del mouse: citare nel canale, o aprire un thread. */}
+      <div className="absolute right-4 -top-2 z-10 hidden divide-x divide-[var(--color-line)] rounded-lg border border-[var(--color-line)] bg-[var(--color-panel)] shadow-[var(--shadow-panel)] group-hover:flex">
         <button
           onClick={() => setReplyingTo(message)}
           className="flex items-center gap-1 px-2 py-1 text-[12.5px] text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-ink)]"
-          title="Rispondi a questo messaggio"
+          title="Cita questo messaggio nel canale"
         >
           <Reply size={13} strokeWidth={2.2} /> Rispondi
         </button>
+        <button
+          onClick={() => openThread(message.id)}
+          className="flex items-center gap-1 px-2 py-1 text-[12.5px] text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-ink)]"
+          title="Apri un thread: le risposte restano a parte, fuori dal canale"
+        >
+          <MessagesSquare size={13} strokeWidth={2.2} /> Nel thread
+        </button>
       </div>
 
-      <div className="flex gap-2.5">
+      <div className="grid grid-cols-[36px_minmax(0,1fr)] items-start gap-3">
         <div className="w-8 shrink-0">
           {grouped ? (
             <span className="mt-0.5 hidden text-[10.5px] text-[var(--color-ink-faint)] tabular-nums group-hover:block">
@@ -367,16 +692,25 @@ function MessageRow({
           {message.replyTo && <QuotedReply reply={message.replyTo} />}
 
           {!grouped && (
-            <div className="mb-0.5 flex items-baseline gap-1.5">
-              <span className="text-[13px] font-semibold">{message.author.name}</span>
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <span className="text-[14px] font-semibold tracking-[-0.01em]">
+                {message.author.name}
+              </span>
               {isAgent && (
-                <span className="rounded bg-[var(--color-sunken)] px-1 py-px text-[9.5px] font-medium tracking-wide text-[var(--color-ink-faint)] uppercase">
+                <span className="rounded-[5px] border border-[var(--color-line)] bg-[var(--color-sunken)] px-[5px] py-px text-[10px] font-semibold tracking-[0.07em] text-[var(--color-ink-soft)] uppercase">
                   agente
                 </span>
               )}
-              <span className="text-[11px] text-[var(--color-ink-faint)] tabular-nums">{time}</span>
+              <span className="text-[11.5px] text-[var(--color-ink-faint)] tabular-nums">
+                {time}
+              </span>
+              {streaming && run && <LiveHint run={run} />}
             </div>
           )}
+
+          {/* Il lavoro sta sopra la risposta e dentro la sua tab: quello che
+              resta qui fuori è ciò che l'agente ha da dire. */}
+          {run && !queued && <WorkTab run={run} messageId={message.id} />}
 
           {queued ? (
             <div className="flex items-center gap-2 py-1 text-[13.5px] text-[var(--color-ink-faint)]">
@@ -384,14 +718,16 @@ function MessageRow({
               <span>In coda…</span>
             </div>
           ) : message.body ? (
-            <MessageBody body={message.body} streaming={streaming} />
-          ) : (
+            <div className={clsx(run && 'mt-3')}>
+              <MessageBody body={message.body} streaming={streaming} />
+            </div>
+          ) : streaming ? null : (
             <div className="flex items-center gap-1.5 py-1">
               {[0, 1, 2].map((i) => (
                 <span
                   key={i}
                   className="typing-dot h-1.5 w-1.5 rounded-full bg-[var(--color-ink-faint)]"
-                  style={{ animationDelay: `${i * 0.16}s` }}
+                  style={{ animationDelay: `${i * 0.18}s` }}
                 />
               ))}
             </div>
@@ -399,7 +735,7 @@ function MessageRow({
 
           <Attachments items={message.attachments} />
 
-          {run && <RunActivity run={run} />}
+          {message.replyCount > 0 && <ThreadBar message={message} />}
 
           {waiting &&
             approvals
@@ -445,10 +781,12 @@ function DayDivider({ date }: { date: Date }) {
       ? 'Ieri'
       : format(date, "EEEE d MMMM", { locale: it });
   return (
-    <div className="sticky top-0 z-10 flex justify-center py-3">
-      <span className="rounded-full border border-[var(--color-line)] bg-[var(--color-panel)] px-3 py-0.5 text-[12px] font-medium text-[var(--color-ink-soft)] capitalize shadow-[var(--shadow-panel)]">
+    <div className="flex items-center gap-3 px-5 py-3.5">
+      <span className="h-px flex-1 bg-[var(--color-line)]" />
+      <span className="text-[11.5px] font-semibold text-[var(--color-ink-faint)] lowercase">
         {label}
       </span>
+      <span className="h-px flex-1 bg-[var(--color-line)]" />
     </div>
   );
 }
@@ -466,7 +804,18 @@ interface PendingAttachment {
   id: string | null;
 }
 
-function Composer({ channelId, channelName }: { channelId: string; channelName: string }) {
+export function Composer({
+  channelId,
+  channelName,
+  threadRootId,
+  compact,
+}: {
+  channelId: string;
+  channelName: string;
+  /** Se valorizzato, quello che si scrive resta nel thread. */
+  threadRootId?: string;
+  compact?: boolean;
+}) {
   const [value, setValue] = useState('');
   const [sending, setSending] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -553,7 +902,12 @@ function Composer({ channelId, channelName }: { channelId: string; channelName: 
     setValue('');
     setPending([]);
     try {
-      await sendMessage(channelId, body || '(immagine)', ready.map((p) => p.id!));
+      await sendMessage(
+        channelId,
+        body || '(immagine)',
+        ready.map((p) => p.id!),
+        threadRootId ?? null,
+      );
     } catch {
       // Rimettiamo tutto nel campo: perderlo sarebbe imperdonabile.
       setValue(body);
@@ -606,7 +960,7 @@ function Composer({ channelId, channelName }: { channelId: string; channelName: 
 
   return (
     <div
-      className="relative px-4 pb-4"
+      className={compact ? 'relative px-3.5 pt-2 pb-3.5' : 'relative px-5 pt-1 pb-4'}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes('Files')) {
           e.preventDefault();
@@ -716,27 +1070,30 @@ function Composer({ channelId, channelName }: { channelId: string; channelName: 
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={`Scrivi in #${channelName}`}
-          rows={1}
-          className="w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[15px] leading-relaxed outline-none placeholder:text-[var(--color-ink-faint)]"
+          placeholder={threadRootId ? 'Rispondi nel thread…' : `Scrivi in #${channelName}`}
+          rows={compact ? 2 : 1}
+          className={clsx(
+            'w-full resize-none bg-transparent leading-[1.55] tracking-[-0.005em] outline-none placeholder:text-[var(--color-ink-faint)]',
+            compact ? 'px-3 pt-2.5 pb-0.5 text-[14px]' : 'px-3.5 pt-3 pb-1 text-[14.5px]',
+          )}
         />
-        <div className="flex items-center gap-0.5 px-2.5 pb-2">
+        <div className="flex items-center gap-0.5 pt-1 pr-2 pb-2 pl-2.5">
           <button
-            className="rounded-md p-1.5 text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)] hover:text-[var(--color-ink-soft)]"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)] hover:text-[var(--color-ink)]"
             title="Menziona qualcuno"
             onClick={() => {
               setValue((v) => `${v}@`);
               textarea.current?.focus();
             }}
           >
-            <AtSign size={16} strokeWidth={2} />
+            <AtSign size={15} strokeWidth={2} />
           </button>
           <button
-            className="rounded-md p-1.5 text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)] hover:text-[var(--color-ink-soft)]"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)] hover:text-[var(--color-ink)]"
             title="Allega un file"
             onClick={() => filePicker.current?.click()}
           >
-            <Paperclip size={16} strokeWidth={2} />
+            <Paperclip size={15} strokeWidth={2} />
           </button>
           {/* Nessun `accept`: qualsiasi tipo di file è benvenuto. */}
           <input
@@ -753,24 +1110,28 @@ function Composer({ channelId, channelName }: { channelId: string; channelName: 
             }}
           />
           <button
-            className="rounded-md p-1.5 text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)] hover:text-[var(--color-ink-soft)]"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)] hover:text-[var(--color-ink)]"
             title="Emoji"
           >
-            <Smile size={16} strokeWidth={2} />
+            <Smile size={15} strokeWidth={2} />
           </button>
 
+          <span className="ml-auto mr-2 font-mono text-[10.5px] text-[var(--color-ink-faint)]">
+            ⌘↵
+          </span>
           <button
             onClick={() => void send()}
             disabled={!value.trim() || sending}
             className={clsx(
-              'ml-auto flex h-[30px] w-[30px] items-center justify-center rounded-full transition-all',
+              'flex items-center justify-center rounded-full border transition-colors',
+              compact ? 'h-[26px] w-[26px]' : 'h-[30px] w-[30px]',
               value.trim()
-                ? 'bg-[var(--color-ink)] text-[var(--color-panel)] hover:scale-105'
-                : 'bg-[var(--color-sunken)] text-[var(--color-ink-faint)]',
+                ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-panel)]'
+                : 'border-[var(--color-line)] bg-[var(--color-sunken)] text-[var(--color-ink-faint)] hover:border-[var(--color-ink)] hover:bg-[var(--color-ink)] hover:text-[var(--color-panel)]',
             )}
             title="Invia (Invio)"
           >
-            <ArrowUp size={16} strokeWidth={2.6} />
+            <ArrowUp size={compact ? 14 : 16} strokeWidth={2.6} />
           </button>
         </div>
       </div>
@@ -781,6 +1142,12 @@ function Composer({ channelId, channelName }: { channelId: string; channelName: 
 /* ========================================================================== */
 /*  Vista canale                                                               */
 /* ========================================================================== */
+
+/** I controlli dell'intestazione sono tutti uguali: una forma sola, qui. */
+const HEADER_BTN =
+  'flex h-[27px] items-center gap-1.5 rounded-lg border border-[var(--color-line)] bg-[var(--color-sunken)] px-2.5 text-[12.5px] text-[var(--color-ink-soft)] transition-colors hover:border-[var(--color-line-strong)] hover:text-[var(--color-ink)]';
+const HEADER_BTN_ON =
+  'border-[color-mix(in_oklab,var(--color-honey)_45%,transparent)] bg-[var(--color-honey-soft)] text-[var(--color-ink)]';
 
 export function Chat() {
   const activeChannelId = useStore((s) => s.activeChannelId);
@@ -797,6 +1164,8 @@ export function Chat() {
   const artifactCount = useStore((s) =>
     activeChannelId ? (s.artifactsByChannel.get(activeChannelId)?.length ?? 0) : 0,
   );
+  const asideOpen = useStore((s) => s.asideOpen);
+  const setAsideOpen = useStore((s) => s.setAsideOpen);
   const [membersOpen, setMembersOpen] = useState(false);
   const channelMemberCount = useStore((s) =>
     activeChannelId
@@ -853,19 +1222,23 @@ export function Chat() {
 
   return (
     <div className="flex min-w-0 flex-1 gap-1">
-    <div className="panel flex min-w-0 flex-1 flex-col overflow-hidden">
+    {/* Il pannello laterale sta DENTRO il foglio della conversazione, diviso
+        da una sola riga: è un'altra vista della stessa conversazione, non un
+        secondo foglio che ci galleggia accanto. */}
+    <div className="panel flex min-w-0 flex-1 overflow-hidden">
+    <div className="flex min-w-0 flex-1 flex-col">
       {/* --- intestazione --- */}
-      <header className="flex shrink-0 items-center gap-2 border-b border-[var(--color-line)] px-5 py-3">
+      <header className="flex h-[54px] shrink-0 items-center gap-2 border-b border-[var(--color-line)] px-[18px]">
         {channel.visibility === 'private' ? (
-          <Lock size={16} strokeWidth={2.2} className="text-[var(--color-ink-soft)]" />
+          <Lock size={17} strokeWidth={2.2} className="text-[var(--color-ink-faint)]" />
         ) : (
-          <Hash size={17} strokeWidth={2.4} className="text-[var(--color-ink-soft)]" />
+          <Hash size={20} strokeWidth={2.2} className="text-[var(--color-ink-faint)]" />
         )}
-        <h1 className="text-[16.5px] font-semibold tracking-[-0.01em]">{channel.name}</h1>
+        <h1 className="text-[17px] font-semibold tracking-[-0.02em]">{channel.name}</h1>
         {channel.topic && (
           <>
             <span className="text-[var(--color-line-strong)]">·</span>
-            <span className="truncate text-[13.5px] text-[var(--color-ink-soft)]">
+            <span className="truncate text-[13px] text-[var(--color-ink-faint)]">
               {channel.topic}
             </span>
           </>
@@ -873,7 +1246,7 @@ export function Chat() {
 
         <div className="ml-auto flex items-center gap-1.5">
           {channelAgents.length > 0 && (
-            <div className="flex items-center gap-1 rounded-full bg-[var(--color-sunken)] px-2 py-1">
+            <div className="flex h-[27px] items-center gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-sunken)] px-2">
               {channelAgents.slice(0, 4).map((a) => (
                 <span key={a.id} title={`${a.name} · ${a.model}`} className="text-[13px]">
                   {a.avatarEmoji}
@@ -883,28 +1256,30 @@ export function Chat() {
           )}
           <button
             onClick={() => setMembersOpen(true)}
-            className="flex items-center gap-1.5 rounded-full bg-[var(--color-sunken)] px-2.5 py-1 text-[13px] text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-ink)]"
+            className={HEADER_BTN}
             title="Chi c'è in questo canale e quali agenti rispondono qui"
           >
             <Users size={14} strokeWidth={2.2} />
             <span className="tabular-nums">{channelMemberCount}</span>
           </button>
           <button
-            onClick={() => setArtifactPanelOpen(!artifactPanelOpen)}
-            className={
-              'hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] transition-colors lg:flex ' +
-              (artifactPanelOpen
-                ? 'bg-[var(--color-honey-soft)] text-[var(--color-ink)]'
-                : 'bg-[var(--color-sunken)] text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]')
-            }
-            title="Checklist e documenti"
+            onClick={() => setAsideOpen(!asideOpen)}
+            className={clsx(HEADER_BTN, 'hidden lg:flex', asideOpen && HEADER_BTN_ON)}
+            title="Attività degli agenti e thread"
           >
             <PanelRight size={14} strokeWidth={2.2} />
+          </button>
+          <button
+            onClick={() => setArtifactPanelOpen(!artifactPanelOpen)}
+            className={clsx(HEADER_BTN, 'hidden lg:flex', artifactPanelOpen && HEADER_BTN_ON)}
+            title="Checklist e documenti condivisi"
+          >
+            <ListChecks size={14} strokeWidth={2.2} />
             {artifactCount > 0 && <span className="tabular-nums">{artifactCount}</span>}
           </button>
           <button
             onClick={() => setDocumentsPanelOpen(true)}
-            className="flex items-center gap-1.5 rounded-full bg-[var(--color-sunken)] px-2.5 py-1 text-[13px] text-[var(--color-ink-soft)] transition-colors hover:text-[var(--color-ink)]"
+            className={HEADER_BTN}
             title="Documenti del progetto"
           >
             <FolderOpen size={14} strokeWidth={2.2} />
@@ -975,6 +1350,8 @@ export function Chat() {
 
       <Composer channelId={channel.id} channelName={channel.name} />
     </div>
+      {asideOpen && <ChannelAside channelId={channel.id} channelName={channel.name} />}
+    </div>
       {artifactPanelOpen && <ArtifactPanel channelId={channel.id} />}
       {documentsPanelOpen && workspaceId && <DocumentsPanel workspaceId={workspaceId} />}
       {membersOpen && (
@@ -991,30 +1368,47 @@ export function Chat() {
 export function AgentStatusBar() {
   const activity = useStore((s) => s.agentActivity);
   const agents = useStore((s) => s.agents);
+  const runs = useStore((s) => s.runs);
+  // Il cronometro serve solo se c'è qualcuno al lavoro.
+  const now = useTicker(activity.size > 0);
 
   const active = [...activity.entries()]
-    .map(([id, state]) => ({ agent: agents.find((a) => a.id === id), state }))
+    .map(([id, state]) => ({
+      agent: agents.find((a) => a.id === id),
+      state,
+      startedAt: [...runs.values()].find(
+        (r) => r.agentId === id && (r.status === 'running' || r.status === 'queued'),
+      )?.startedAt,
+    }))
     .filter((x) => x.agent);
 
   if (active.length === 0) return null;
 
   return (
-    <div className="flex items-center gap-3 px-4 py-1.5 text-[12.5px]">
-      {active.slice(0, 3).map(({ agent, state }) => (
-        <span key={agent!.id} className="flex min-w-0 items-center gap-1.5">
-          <span>{agent!.avatarEmoji}</span>
-          <span className="font-medium">{agent!.name}:</span>
-          <span className="truncate text-[var(--color-ink-soft)]">
-            {state.label ??
-              (state.status === 'thinking'
-                ? 'sta ragionando'
-                : state.status === 'waiting'
-                  ? 'in attesa di conferma'
-                  : 'al lavoro')}
+    <div className="flex h-10 items-center gap-4 px-4 text-[12.5px]">
+      {active.slice(0, 3).map(({ agent, state, startedAt }) => {
+        const seconds = startedAt ? Math.floor((now - startedAt) / 1000) : null;
+        return (
+          <span key={agent!.id} className="flex min-w-0 items-center gap-2">
+            <span>{agent!.avatarEmoji}</span>
+            <span className="font-semibold">{agent!.name}</span>
+            <span className="min-w-0 truncate font-mono text-[11.5px] text-[var(--color-ink-soft)]">
+              {state.label ??
+                (state.status === 'thinking'
+                  ? 'sta ragionando'
+                  : state.status === 'waiting'
+                    ? 'in attesa di conferma'
+                    : 'al lavoro')}
+            </span>
+            <span className="h-2.5 w-2.5 shrink-0 animate-spin rounded-full border-[1.5px] border-[var(--color-line-strong)] border-t-[var(--color-ink-faint)]" />
+            {seconds !== null && (
+              <span className="shrink-0 text-[11.5px] text-[var(--color-ink-faint)] tabular-nums">
+                {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
+              </span>
+            )}
           </span>
-          <Loader2 size={11} className="animate-spin text-[var(--color-ink-faint)]" />
-        </span>
-      ))}
+        );
+      })}
     </div>
   );
 }

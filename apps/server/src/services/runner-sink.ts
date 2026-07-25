@@ -138,6 +138,9 @@ async function applyFinish(ctx: RunSinkContext, op: Extract<RunnerOp, { op: 'fin
         attachments: [],
         runId: row.runId,
         replyCount: row.replyCount,
+        // È la risposta di un agente, non una radice: nessun thread appeso.
+        threadLastReplyAt: null,
+        threadParticipants: [],
         createdAt: row.createdAt.toISOString(),
         editedAt: row.editedAt?.toISOString() ?? null,
         deletedAt: null,

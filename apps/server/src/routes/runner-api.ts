@@ -159,6 +159,7 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
           channelId: job.channelId,
           agentId: job.agentId,
           triggerMessageId: job.triggerMessageId,
+          threadRootId: job.threadRootId,
           rawPrompt: job.prompt,
           fromAgentHandle: job.fromAgentHandle,
         });

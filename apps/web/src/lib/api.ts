@@ -372,15 +372,27 @@ export const api = {
 
   /** Esecuzioni recenti del canale: servono a ricostruire lo stato dopo un refresh. */
   channelRuns: (channelId: string) =>
-    get<{ runs: Array<{ id: string; agentId: string; responseMessageId: string | null; status: RunStatus; error: string | null }> }>(
-      `/api/channels/${channelId}/runs`,
-    ),
+    get<{
+      runs: Array<{
+        id: string;
+        agentId: string;
+        responseMessageId: string | null;
+        status: RunStatus;
+        error: string | null;
+        /** Quanti passaggi ha fatto l'agente: è il "N passaggi" della tab di lavoro. */
+        numTurns: number;
+        startedAt: string | null;
+        endedAt: string | null;
+      }>;
+    }>(`/api/channels/${channelId}/runs`),
 
   /** Traccia di un run: tool usati, ragionamento, errori. */
   runEvents: (runId: string) =>
-    get<{ events: Array<{ seq: number; type: string; payload: RunEvent }> }>(
-      `/api/runs/${runId}/events`,
-    ),
+    get<{
+      // `createdAt` è l'unico orario per-operazione che esista: i pacchetti
+      // realtime non lo portano, quindi le durate reali si ricavano solo da qui.
+      events: Array<{ seq: number; type: string; payload: RunEvent; createdAt: string }>;
+    }>(`/api/runs/${runId}/events`),
 
   /* --- inviti --- */
   createInvite: (workspaceId: string, input: { role?: string; email?: string | null }) =>
