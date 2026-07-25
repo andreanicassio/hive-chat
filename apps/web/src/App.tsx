@@ -270,6 +270,46 @@ function WorkspaceShell() {
   );
 }
 
+/*
+ * Trascinare la finestra dal guscio Mac.
+ *
+ * `data-tauri-drag-region` da solo non bastava: è l'attributo che il guscio
+ * riconosce, ma resta in piedi solo se il suo script interno è agganciato e
+ * se il permesso c'è. Chiamare l'API a mano è la stessa cosa detta in modo
+ * esplicito — e soprattutto è codice nostro, che si aggiorna ricaricando la
+ * pagina invece di richiedere una build nuova dell'app.
+ *
+ * Fuori dall'app Mac non fa niente e non dà fastidio.
+ */
+interface TauriWindowApi {
+  getCurrentWindow?: () => {
+    startDragging?: () => Promise<void>;
+    toggleMaximize?: () => Promise<void>;
+  };
+}
+
+function tauriWindow(): TauriWindowApi | null {
+  return (window as { __TAURI__?: { window?: TauriWindowApi } }).__TAURI__?.window ?? null;
+}
+
+function startWindowDrag(event: React.MouseEvent): void {
+  // Solo il tasto sinistro: col destro macOS apre il suo menu di finestra.
+  if (event.button !== 0) return;
+  try {
+    void tauriWindow()?.getCurrentWindow?.()?.startDragging?.();
+  } catch {
+    /* non siamo nel guscio, o il permesso manca: la striscia resta inerte */
+  }
+}
+
+function toggleWindowMaximize(): void {
+  try {
+    void tauriWindow()?.getCurrentWindow?.()?.toggleMaximize?.();
+  } catch {
+    /* come sopra */
+  }
+}
+
 export function App() {
   const user = useStore((s) => s.user);
   const bootLoading = useStore((s) => s.bootLoading);
@@ -291,7 +331,12 @@ export function App() {
           dove la finestra ci lascia disegnare fin lassù: altrove sarebbe
           32px di pagina che non risponde al clic. */}
       {document.documentElement.dataset.titlebar === 'overlay' && (
-        <div className="titlebar-drag" data-tauri-drag-region />
+        <div
+          className="titlebar-drag"
+          data-tauri-drag-region
+          onMouseDown={startWindowDrag}
+          onDoubleClick={toggleWindowMaximize}
+        />
       )}
       <Routes>
         <Route path="/accedi" element={user ? <Navigate to="/" replace /> : <AuthPage />} />
