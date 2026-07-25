@@ -65,6 +65,22 @@ jobs:
             echo "Hive.app non trovato, cerco:"; find apps/desktop/src-tauri/target -maxdepth 6 -name "*.app" -type d
             exit 1
           fi
+
+          # Firma ad-hoc DEL BUNDLE, non solo dell'eseguibile.
+          #
+          # Senza identità Apple, tauri non firma il .app: resta la firma che
+          # il linker mette sul binario, la quale però dichiara di avere un
+          # bundle con le sue risorse. macOS trova la contraddizione
+          # («code has no resources but signature indicates they must be
+          # present») e uccide il processo all'avvio, senza una riga di
+          # errore. Ci sono volute due build per capirlo.
+          codesign --force --deep --sign - "$APP"
+
+          # E adesso si controlla, PRIMA di pubblicare. Una build che compila
+          # non è una build che si apre: questa differenza è costata un
+          # pomeriggio, e da qui in poi la macchina la verifica al posto mio.
+          codesign -vvv --strict --deep "$APP"
+          codesign -dvv "$APP" 2>&1 | head -5
           # ditto preserva firma, symlink e attributi del bundle (a differenza di tar).
           ditto -c -k --keepParent "$APP" hive-mac.zip
           VER="${GITHUB_REF_NAME#desktop-v}"

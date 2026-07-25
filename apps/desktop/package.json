@@ -1,6 +1,6 @@
 {
   "name": "@hive/desktop",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "description": "App nativa di Hive (Tauri): finestra della chat + runner locale integrato.",
   "scripts": {

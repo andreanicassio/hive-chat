@@ -555,6 +555,23 @@ export async function cancelRun(runId: string): Promise<{ alreadyFinished: boole
       },
       channelId: run.channelId,
     });
+    /*
+     * E adesso si risveglia la coda.
+     *
+     * Un turno che finisce da solo chiama `flushPendingPrompts` e fa partire
+     * chi aspettava dietro di lui. Un turno ANNULLATO non passava di lì:
+     * cancellandone uno in coda, i messaggi arrivati dopo restavano nella
+     * lista Redis e non partiva più niente — la chat sembrava viva e non
+     * rispondeva più. Nessuno se ne accorgeva perché non c'era nessun errore
+     * da nessuna parte: semplicemente non succedeva niente.
+     */
+    void (async () => {
+      // Solo se non è rimasto nient'altro in corso qui: altrimenti sarebbero
+      // due turni in parallelo sulla stessa cartella di lavoro.
+      if (await activeRunFor(run.agentId, run.channelId)) return;
+      await flushPendingPrompts(run.agentId, run.channelId);
+    })().catch(() => {});
+
     await hub.publish(run.workspaceId, {
       packet: {
         t: 'run.status',
