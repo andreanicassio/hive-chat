@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { Activity, ChevronLeft, Hexagon, MessageSquare, User } from 'lucide-react';
@@ -145,11 +146,8 @@ export function MobileShell({
         <Route path="/c/:channelId/m/:messageId/lavoro" element={<MobileWork />} />
         <Route path="/c/:channelId/m/:messageId/thread" element={<MobileThread />} />
         <Route path="/attivita" element={<MobileActivity />} />
-        <Route
-          path="/alveare"
-          element={<MobileRedirect run={onOpenAgents} label="Alveare" />}
-        />
-        <Route path="/tu" element={<MobileRedirect run={onOpenSettings} label="Tu" />} />
+        <Route path="/alveare" element={<OpenSheet run={onOpenAgents} />} />
+        <Route path="/tu" element={<OpenSheet run={onOpenSettings} />} />
         <Route path="*" element={<MobileChannels />} />
       </Routes>
     </div>
@@ -158,28 +156,23 @@ export function MobileShell({
 
 /**
  * Alveare e Tu non hanno ancora una schermata propria: aprono i fogli che
- * esistono già. Meglio riusarli che disegnare due schermate a metà — ma la
- * rotta c'è, così il posto è già suo quando la schermata arriverà.
+ * esistono già.
+ *
+ * Non disegna niente. La prima versione mostrava una schermata vuota con un
+ * bottone «Apri», che è un passaggio in più per non fare nulla: qui il foglio
+ * sale subito e l'indirizzo torna all'elenco, così chiudendolo ci si ritrova
+ * dove si era. La rotta resta perché un link deve poter portare qui.
  */
-function MobileRedirect({ run, label }: { run: () => void; label: string }) {
+function OpenSheet({ run }: { run: () => void }) {
   const navigate = useNavigate();
-  return (
-    <WithTabs>
-      <MobileHeader title={label} large />
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
-        <p className="text-[14px] text-[var(--color-ink-soft)]">
-          {label === 'Alveare' ? 'Gli agenti del progetto.' : 'Il tuo profilo e le impostazioni.'}
-        </p>
-        <button
-          className="btn btn-primary h-11"
-          onClick={() => {
-            run();
-            navigate('/');
-          }}
-        >
-          Apri
-        </button>
-      </div>
-    </WithTabs>
-  );
+  const opened = useRef(false);
+  useEffect(() => {
+    // Una volta sola: i gestori arrivano come funzioni nuove a ogni render del
+    // guscio, e senza questo l'effetto ripartirebbe a ogni giro.
+    if (opened.current) return;
+    opened.current = true;
+    run();
+    navigate('/', { replace: true });
+  }, [run, navigate]);
+  return null;
 }
