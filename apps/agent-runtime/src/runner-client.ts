@@ -583,7 +583,11 @@ export async function startRunnerClient(): Promise<void> {
           const next = await newerVersionPublished(cfg.serverUrl);
           if (next) {
             console.log(`[runner] disponibile la versione ${next}: mi riavvio per prenderla`);
-            return;
+            // `return` non basta: il loop dei comandi gira in parallelo e
+            // tiene vivo il processo, che resta appeso senza più prendere
+            // turni (e quindi risulta «offline» pur essendo acceso).
+            // Usciamo davvero: allo script wrapper tocca riavviarci.
+            process.exit(0);
           }
         }
         continue;

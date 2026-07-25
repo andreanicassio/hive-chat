@@ -407,14 +407,24 @@ async function dispatchJob(job: RunJob): Promise<void> {
       );
       return;
     }
+    // Una macchina vista da poco probabilmente si sta solo riavviando (es.
+    // per un aggiornamento): il lavoro resta in coda e lo prende appena
+    // torna, invece di far comparire un errore per pochi secondi di assenza.
     let machine: string | null = null;
+    let seenRecently = false;
     if (target) {
       const t = await db
-        .select({ label: schema.runnerTokens.label })
+        .select({ label: schema.runnerTokens.label, lastSeenAt: schema.runnerTokens.lastSeenAt })
         .from(schema.runnerTokens)
         .where(eq(schema.runnerTokens.id, target))
         .limit(1);
       machine = t[0]?.label ?? null;
+      const seen = t[0]?.lastSeenAt;
+      seenRecently = Boolean(seen && Date.now() - seen.getTime() < 5 * 60_000);
+    }
+    if (seenRecently && target) {
+      await redisPub.lpush(redisChannels.runnerQueueById(target), JSON.stringify(job));
+      return;
     }
     await failRunnerOffline(job.runId, job.responseMessageId, job.workspaceId, job.channelId, machine);
     return;
