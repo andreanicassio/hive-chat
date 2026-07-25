@@ -97,6 +97,7 @@ interface State {
   switchWorkspace: (workspaceId: string) => Promise<void>;
   createWorkspace: (name: string, icon: string) => Promise<string>;
   openChannel: (channelId: string) => Promise<void>;
+  hydrateRuns: (channelId: string, messages: Message[]) => Promise<void>;
   loadOlder: (channelId: string) => Promise<void>;
   sendMessage: (channelId: string, body: string, attachmentIds?: string[]) => Promise<void>;
   setReplyingTo: (message: Message | null) => void;
@@ -285,6 +286,13 @@ export const useStore = create<State>((set, get) => ({
         return { messagesByChannel: next, hasMoreByChannel: more, loadingChannel: false };
       });
 
+      // Ricostruisce lo stato delle esecuzioni: `runs` vive solo in memoria e
+      // dopo un refresh è vuota. Senza questo, ricaricando mentre un agente
+      // scrive si perde la sezione dei tool — e, peggio, gli eventi che
+      // arrivano dopo vengono scartati, perché `run.event` aggiorna solo le
+      // voci già presenti.
+      void get().hydrateRuns(channelId, messages);
+
       const last = messages[messages.length - 1];
       if (last) {
         void api.markRead(channelId, last.id).catch(() => {});
@@ -296,6 +304,65 @@ export const useStore = create<State>((set, get) => ({
       }
     } catch {
       set({ loadingChannel: false });
+    }
+  },
+
+  /**
+   * Rimette in piedi `runs` dopo un ricaricamento della pagina.
+   *
+   * Gli eventi completi li chiediamo solo per le esecuzioni ancora in corso —
+   * di solito zero o una — perché sono le uniche che stanno scrivendo adesso e
+   * le uniche per cui la sezione dei tool deve tornare viva. Per le altre basta
+   * la voce nella mappa: senza, i pacchetti `run.event` che arrivano dopo
+   * verrebbero buttati via.
+   */
+  async hydrateRuns(channelId, messages) {
+    const byMessage = new Set(messages.map((m) => m.id));
+    let runs: Awaited<ReturnType<typeof api.channelRuns>>['runs'];
+    try {
+      ({ runs } = await api.channelRuns(channelId));
+    } catch {
+      return;
+    }
+
+    const mine = runs.filter((r) => r.responseMessageId && byMessage.has(r.responseMessageId));
+    if (mine.length === 0) return;
+
+    set((s) => {
+      const next = new Map(s.runs);
+      for (const r of mine) {
+        // Non calpestiamo una voce già viva: i suoi eventi sono più freschi.
+        if (next.has(r.responseMessageId!)) continue;
+        next.set(r.responseMessageId!, {
+          runId: r.id,
+          agentId: r.agentId,
+          status: r.status,
+          events: [],
+          streaming: r.status === 'running',
+          error: r.error,
+        });
+      }
+      return { runs: next };
+    });
+
+    const active = mine.filter((r) => r.status === 'running' || r.status === 'queued');
+    for (const r of active) {
+      try {
+        const { events } = await api.runEvents(r.id);
+        set((s) => {
+          const next = new Map(s.runs);
+          const cur = next.get(r.responseMessageId!);
+          // Gli eventi arrivati dal vivo nel frattempo vincono: rimetterci
+          // sotto lo storico li duplicherebbe.
+          if (cur && cur.events.length === 0) {
+            next.set(r.responseMessageId!, { ...cur, events: events.map((e) => e.payload) });
+          }
+          return { runs: next };
+        });
+      } catch {
+        // Un run di cui non riusciamo a leggere la traccia non è un problema:
+        // resta la bolla col testo, che è la cosa che conta.
+      }
     }
   },
 
@@ -440,6 +507,10 @@ export const useStore = create<State>((set, get) => ({
                 ...message,
                 replyTo: message.replyTo ?? prev.replyTo,
                 reactions: message.reactions.length ? message.reactions : prev.reactions,
+                // Idem per gli allegati: la ripubblicazione di fine run li
+                // manda vuoti, e senza questo sparivano dalla bolla appena
+                // l'agente finiva di scrivere.
+                attachments: message.attachments.length ? message.attachments : prev.attachments,
               };
             }
           }

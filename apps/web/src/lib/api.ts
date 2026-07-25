@@ -15,7 +15,9 @@ import type {
   Invite,
   Message,
   PublicUser,
+  RunEvent,
   RunnerToken,
+  RunStatus,
   UpdateArtifactInput,
   Workspace,
   WorkspaceRole,
@@ -367,6 +369,18 @@ export const api = {
     post<{ approval: Approval }>(`/api/approvals/${approvalId}/decide`, { allowed, reason }),
 
   cancelRun: (runId: string) => post<{ ok: true }>(`/api/runs/${runId}/cancel`),
+
+  /** Esecuzioni recenti del canale: servono a ricostruire lo stato dopo un refresh. */
+  channelRuns: (channelId: string) =>
+    get<{ runs: Array<{ id: string; agentId: string; responseMessageId: string | null; status: RunStatus; error: string | null }> }>(
+      `/api/channels/${channelId}/runs`,
+    ),
+
+  /** Traccia di un run: tool usati, ragionamento, errori. */
+  runEvents: (runId: string) =>
+    get<{ events: Array<{ seq: number; type: string; payload: RunEvent }> }>(
+      `/api/runs/${runId}/events`,
+    ),
 
   /* --- inviti --- */
   createInvite: (workspaceId: string, input: { role?: string; email?: string | null }) =>
