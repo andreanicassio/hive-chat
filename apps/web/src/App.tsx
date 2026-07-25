@@ -9,6 +9,8 @@ import { Chat, AgentStatusBar } from './components/Chat.js';
 import { AgentPanel, AgentList } from './components/AgentPanel.js';
 import { Settings } from './components/Settings.js';
 import { api } from './lib/api.js';
+import { useIsMobile } from './lib/breakpoint.js';
+import { MobileShell } from './mobile/Shell.js';
 
 /* ==========================================================================
    Rete di sicurezza: un errore in un componente non deve produrre una
@@ -115,6 +117,7 @@ function WorkspaceShell() {
   const openChannel = useStore((s) => s.openChannel);
   const capabilities = useStore((s) => s.capabilities);
 
+  const isMobile = useIsMobile();
   const [bootError, setBootError] = useState<string | null>(null);
   const [showAgents, setShowAgents] = useState(false);
   const [showNewAgent, setShowNewAgent] = useState(false);
@@ -156,6 +159,28 @@ function WorkspaceShell() {
   if (!workspace) return <Booting />;
 
   const noModels = !capabilities.anthropicConfigured && !capabilities.openrouterConfigured;
+
+  if (isMobile) {
+    return (
+      <>
+        <MobileShell
+          onOpenAgents={() => setShowAgents(true)}
+          onOpenSettings={() => setShowSettings(true)}
+        />
+        {showAgents && (
+          <AgentList
+            onClose={() => setShowAgents(false)}
+            onNew={() => {
+              setShowAgents(false);
+              setShowNewAgent(true);
+            }}
+          />
+        )}
+        {showNewAgent && <AgentPanel onClose={() => setShowNewAgent(false)} />}
+        {showSettings && <Settings onClose={() => setShowSettings(false)} />}
+      </>
+    );
+  }
 
   return (
     // `overflow-hidden`: dentro c'è una conversazione che scorre per conto suo,

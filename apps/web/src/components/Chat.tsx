@@ -306,7 +306,7 @@ function transformChildren(children: React.ReactNode, ctx: WordCtx): React.React
  * Un passaggio del lavoro dell'agente: o un pezzo di ragionamento, o
  * un'operazione con uno strumento.
  */
-type WorkStep =
+export type WorkStep =
   | { kind: 'text'; key: string; text: string }
   | {
       kind: 'tool';
@@ -331,20 +331,20 @@ export function useTicker(active: boolean): number {
 }
 
 /** "0,31 s" per le operazioni: sotto il minuto il decimo conta. */
-function shortDuration(ms: number): string {
+export function shortDuration(ms: number): string {
   if (ms < 60_000) return `${(ms / 1000).toFixed(2).replace('.', ',')} s`;
   const m = Math.floor(ms / 60_000);
   return `${m}m ${Math.round((ms % 60_000) / 1000)}s`;
 }
 
 /** "2m 14s" per il totale del turno: qui i decimi non servono. */
-function totalDuration(ms: number): string {
+export function totalDuration(ms: number): string {
   const s = Math.round(ms / 1000);
   if (s < 60) return `${s}s`;
   return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
 }
 
-function buildSteps(run: RunState): WorkStep[] {
+export function buildSteps(run: RunState): WorkStep[] {
   const steps: WorkStep[] = [];
   const byToolUse = new Map<string, Extract<WorkStep, { kind: 'tool' }>>();
   for (const [i, timed] of run.events.entries()) {
@@ -532,6 +532,57 @@ export function WorkTab({ run, messageId }: { run: RunState; messageId: string }
 }
 
 /**
+ * La stessa tab, ridotta a una riga che naviga.
+ *
+ * È la versione da telefono: espandere otto passaggi dentro lo scroll del
+ * canale lo renderebbe illeggibile, quindi il lavoro diventa una schermata a
+ * parte e qui resta solo la porta — alta 44px, che è la misura minima sotto
+ * la quale un dito sbaglia bersaglio.
+ */
+export function WorkRow({ run, onOpen }: { run: RunState; onOpen: () => void }) {
+  const live = run.status === 'running' || run.status === 'queued';
+  const now = useTicker(live);
+  const steps = useMemo(() => buildSteps(run), [run.events]);
+  const tools = steps.filter((s): s is Extract<WorkStep, { kind: 'tool' }> => s.kind === 'tool');
+  const stepCount = Math.max(run.numTurns, tools.length);
+  if (stepCount < 2 && tools.length === 0 && steps.length === 0) return null;
+
+  const elapsed = run.startedAt ? (run.endedAt ?? now) - run.startedAt : null;
+  const running = tools.find((t) => !t.done);
+
+  return (
+    <button
+      onClick={onOpen}
+      className={clsx(
+        'mt-2 flex min-h-[44px] w-full items-center gap-2.5 rounded-[10px] border px-3 text-left',
+        live
+          ? 'sweep-slow border-[var(--color-line-strong)] bg-[var(--color-panel-alt)]'
+          : 'border-[var(--color-line)] bg-[var(--color-panel-alt)]',
+      )}
+    >
+      {live ? (
+        <span className="h-[7px] w-[7px] shrink-0 animate-pulse rounded-full bg-[var(--color-online)]" />
+      ) : (
+        <PanelRight size={15} strokeWidth={2.2} className="shrink-0 text-[var(--color-ink-faint)]" />
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13.5px] font-semibold text-[var(--color-ink-soft)]">
+          {live ? 'Sta lavorando' : 'Lavoro svolto'}
+        </span>
+        <span className="block truncate text-[12px] text-[var(--color-ink-faint)]">
+          {live
+            ? (running?.label ?? 'sta ragionando…')
+            : `${stepCount} ${stepCount === 1 ? 'passaggio' : 'passaggi'}${
+                elapsed !== null ? ` · ${totalDuration(elapsed)}` : ''
+              }`}
+        </span>
+      </span>
+      <ChevronRight size={17} strokeWidth={2} className="shrink-0 text-[var(--color-line-strong)]" />
+    </button>
+  );
+}
+
+/**
  * Ragionamento e operazioni in ordine.
  *
  * La tipografia qui è più piccola del messaggio finale (13,5px contro 15px):
@@ -658,13 +709,13 @@ function LiveHint({ run }: { run: RunState }) {
 /*  Barra "N risposte": nel canale, un thread è solo questo                    */
 /* ========================================================================== */
 
-function ThreadBar({ message }: { message: Message }) {
+function ThreadBar({ message, onOpen }: { message: Message; onOpen?: () => void }) {
   const openThread = useStore((s) => s.openThread);
   const last = message.threadLastReplyAt ? new Date(message.threadLastReplyAt) : null;
 
   return (
     <button
-      onClick={() => openThread(message.id)}
+      onClick={() => (onOpen ? onOpen() : openThread(message.id))}
       className="-ml-[5px] mt-[9px] inline-flex items-center gap-2 rounded-lg border border-transparent py-1 pr-[9px] pl-[5px] transition-colors hover:border-[var(--color-line)] hover:bg-[var(--color-panel-alt)]"
     >
       {message.threadParticipants.length > 0 && (
@@ -823,16 +874,26 @@ function QuotedReply({ reply }: { reply: ReplyPreview }) {
 /*  Singolo messaggio                                                          */
 /* ========================================================================== */
 
-function MessageRow({
+export function MessageRow({
   message,
   previous,
   run,
   approvals,
+  onOpenWork,
+  onOpenThread,
 }: {
   message: Message;
   previous: Message | null;
   run: RunState | undefined;
   approvals: Approval[];
+  /**
+   * Su telefono il lavoro dell'agente non si espande in linea: espandere otto
+   * passaggi dentro lo scroll del canale lo rende inservibile. Se questo
+   * gestore c'è, la tab diventa una riga che NAVIGA a una schermata sua.
+   */
+  onOpenWork?: (messageId: string) => void;
+  /** Idem per il thread: su telefono è una schermata, non un pannello. */
+  onOpenThread?: (messageId: string) => void;
 }) {
   const onlineUserIds = useStore((s) => s.onlineUserIds);
   const setReplyingTo = useStore((s) => s.setReplyingTo);
@@ -948,7 +1009,13 @@ function MessageRow({
 
           {/* Il lavoro sta sopra la risposta e dentro la sua tab: quello che
               resta qui fuori è ciò che l'agente ha da dire. */}
-          {run && !queued && <WorkTab run={run} messageId={message.id} />}
+          {run &&
+            !queued &&
+            (onOpenWork ? (
+              <WorkRow run={run} onOpen={() => onOpenWork(message.id)} />
+            ) : (
+              <WorkTab run={run} messageId={message.id} />
+            ))}
 
           {queued ? (
             <div className="flex items-center gap-2 py-1 text-[13.5px] text-[var(--color-ink-faint)]">
@@ -973,7 +1040,12 @@ function MessageRow({
 
           <Attachments items={message.attachments} />
 
-          {message.replyCount > 0 && <ThreadBar message={message} />}
+          {message.replyCount > 0 && (
+            <ThreadBar
+              message={message}
+              onOpen={onOpenThread ? () => onOpenThread(message.id) : undefined}
+            />
+          )}
 
           {waiting &&
             approvals
@@ -1012,7 +1084,7 @@ function MessageRow({
 /*  Separatore di data                                                         */
 /* ========================================================================== */
 
-function DayDivider({ date }: { date: Date }) {
+export function DayDivider({ date }: { date: Date }) {
   const label = isToday(date)
     ? 'Oggi'
     : isYesterday(date)
