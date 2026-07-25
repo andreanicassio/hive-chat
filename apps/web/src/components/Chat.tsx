@@ -851,12 +851,24 @@ function DeleteMessageDialog({ message, onClose }: { message: Message; onClose: 
   const [failed, setFailed] = useState(false);
   const agents = useStore((s) => s.agents);
   // I turni che questo messaggio ha innescato e che non sono ancora finiti.
-  const affected = useStore((s) =>
-    [...s.runs.values()].filter(
-      (r) =>
-        r.triggerMessageId === message.id &&
-        (r.status === 'queued' || r.status === 'running' || r.status === 'awaiting_approval'),
-    ),
+  /*
+   * Il selettore prende la mappa, il filtro sta fuori.
+   *
+   * Filtrare DENTRO il selettore restituiva un array nuovo a ogni chiamata, e
+   * React interroga lo store più volte per render: vedendo sempre un valore
+   * diverso concludeva che stesse cambiando di continuo e ri-renderizzava
+   * all'infinito. È il «Maximum update depth exceeded» che si vedeva aprendo
+   * questa conferma.
+   */
+  const runs = useStore((s) => s.runs);
+  const affected = useMemo(
+    () =>
+      [...runs.values()].filter(
+        (r) =>
+          r.triggerMessageId === message.id &&
+          (r.status === 'queued' || r.status === 'running' || r.status === 'awaiting_approval'),
+      ),
+    [runs, message.id],
   );
 
   async function remove() {
