@@ -109,6 +109,22 @@ Redis porta le code dei run, la presenza dei runner e il fanout realtime fra i n
 - The interface speaks plainly, in the second person, and avoids jargon where it can.
 - Ogni pop-up passa dal componente `Modal` (`apps/web/src/components/Modal.tsx`): dà Esc, click fuori, blocco dello scroll e impilamento coerenti.
 
+## Collaudare l'interfaccia davvero
+
+`puppeteer-core` è in `package.json`, ma **di proposito non scarica nessun
+browser**: `npm install` non basta, e la cache resta con le cartelle vuote —
+il che sembra un browser installato e non lo è.
+
+```bash
+npm run browser:install   # una volta per macchina, ~150 MB in ~/.cache/puppeteer
+```
+
+Serve per rispondere con i fatti invece che col ragionamento: un bug
+dell'interfaccia si riproduce in una pagina finta di venti righe, si guarda
+cosa fa il DOM, e si verifica la correzione **prima** di pubblicarla. Le
+volte in cui ho saltato questo passaggio in questo progetto sono le stesse in
+cui ho fatto perdere un pomeriggio a qualcuno.
+
 ## Trappole già scoperte
 
 - **Agenti sviluppatore = Docker.** Girano dentro `hive/dev-sandbox:latest` con montato solo il progetto (`AGENT_ISOLATION=docker`). Bubblewrap non è utilizzabile: Ubuntu blocca gli user namespace non privilegiati.
