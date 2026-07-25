@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-ui",
+  "description": "L'interfaccia di Hive non e' contenuto locale: la finestra naviga su hive.dvnx.net. I permessi, di default, valgono SOLO per le pagine del bundle, quindi senza questa capability ogni chiamata al guscio dalla chat veniva rifiutata in partenza. Qui c'e' lo stretto indispensabile per spostare la finestra: niente shell, niente filesystem.",
+  "windows": [
+    "main"
+  ],
+  "remote": {
+    "urls": [
+      "https://hive.dvnx.net",
+      "https://hive.dvnx.net/*"
+    ]
+  },
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-toggle-maximize"
+  ]
+}
