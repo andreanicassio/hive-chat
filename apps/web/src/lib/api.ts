@@ -23,6 +23,17 @@ import type {
   WorkspaceRole,
 } from '@hive/shared';
 
+/** Cosa si vuole essere avvisati di ricevere. */
+export interface PushPrefs {
+  mentions: boolean;
+  approvals: boolean;
+  runFinished: boolean;
+  runnerOffline: boolean;
+  /** Fascia di silenzio, ora locale 0-23. `null` = nessun silenzio. */
+  quietFrom: number | null;
+  quietTo: number | null;
+}
+
 /**
  * Client HTTP.
  *
@@ -144,6 +155,10 @@ export const api = {
       visibility?: 'public' | 'private';
     },
   ) => post<{ channel: Channel }>(`/api/workspaces/${workspaceId}/channels`, input),
+
+  /** Nuovo ordine dei canali di un gruppo: l'elenco arriva completo. */
+  reorderChannels: (groupId: string | null, channelIds: string[]) =>
+    post<{ ok: true }>('/api/channels/reorder', { groupId, channelIds }),
 
   updateChannel: (
     channelId: string,
@@ -394,6 +409,20 @@ export const api = {
       // realtime non lo portano, quindi le durate reali si ricavano solo da qui.
       events: Array<{ seq: number; type: string; payload: RunEvent; createdAt: string }>;
     }>(`/api/runs/${runId}/events`),
+
+  /* --- notifiche push --- */
+  /** La chiave pubblica VAPID. `null` se il server non è configurato. */
+  pushKey: () => get<{ publicKey: string | null }>('/api/push/key'),
+
+  pushSubscribe: (input: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
+    post<{ ok: true }>('/api/push/subscribe', input),
+
+  pushUnsubscribe: (endpoint: string) =>
+    request<{ ok: true }>('/api/push/subscribe', { method: 'DELETE', json: { endpoint } }),
+
+  pushPrefs: () => get<{ prefs: PushPrefs }>('/api/push/prefs'),
+  updatePushPrefs: (input: Partial<PushPrefs>) =>
+    patch<{ prefs: PushPrefs }>('/api/push/prefs', input),
 
   /* --- inviti --- */
   createInvite: (workspaceId: string, input: { role?: string; email?: string | null }) =>

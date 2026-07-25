@@ -8,7 +8,18 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // `prompt`, non `autoUpdate`: l'aggiornamento lo accetta chi usa l'app,
+      // con l'avviso in basso. Vedi `lib/update.ts`.
+      registerType: 'prompt',
+      // `injectManifest` e non `generateSW`: il service worker ce lo scriviamo
+      // noi (src/sw.ts) perché deve gestire l'evento `push`, che è l'unico
+      // modo di svegliare l'app quando è chiusa.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
+      },
       includeAssets: ['favicon.svg'],
       manifest: {
         name: 'Hive',
@@ -33,17 +44,6 @@ export default defineConfig({
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable',
-          },
-        ],
-      },
-      workbox: {
-        // La chat è realtime: non ha senso servire messaggi dalla cache.
-        // Mettiamo in cache solo il guscio dell'app.
-        navigateFallbackDenylist: [/^\/api/, /^\/ws/],
-        runtimeCaching: [
-          {
-            urlPattern: /^https?:\/\/[^/]+\/api\//,
-            handler: 'NetworkOnly',
           },
         ],
       },

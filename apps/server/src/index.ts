@@ -31,6 +31,7 @@ import { fileRoutes } from './routes/files.js';
 import { desktopRoutes } from './routes/desktop.js';
 import { runnerTokenRoutes } from './routes/runner.js';
 import { runnerApiRoutes } from './routes/runner-api.js';
+import { pushRoutes } from './routes/push.js';
 import { websocketRoutes } from './realtime/ws.js';
 
 const app = Fastify({
@@ -130,6 +131,7 @@ await app.register(fileRoutes);
 await app.register(desktopRoutes);
 await app.register(runnerTokenRoutes);
 await app.register(runnerApiRoutes);
+await app.register(pushRoutes);
 await app.register(websocketRoutes);
 
 /* In produzione il server serve anche i file statici della PWA. */

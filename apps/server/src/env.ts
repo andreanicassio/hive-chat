@@ -100,6 +100,16 @@ const schema = z.object({
    */
   DESKTOP_UPLOAD_TOKEN: z.string().default(''),
 
+  /**
+   * Chiavi VAPID per le notifiche push (`npx web-push generate-vapid-keys`).
+   * Sono facoltative di proposito: senza, le notifiche si spengono da sole e
+   * tutto il resto funziona esattamente come prima.
+   */
+  VAPID_PUBLIC_KEY: z.string().default(''),
+  VAPID_PRIVATE_KEY: z.string().default(''),
+  /** Contatto a cui il servizio push si rivolge se qualcosa va storto. */
+  VAPID_SUBJECT: z.string().default('mailto:andrea@studey.com'),
+
   /** Se false, ci si registra solo con un codice d'invito valido. */
   ALLOW_OPEN_SIGNUP: z
     .enum(['true', 'false'])

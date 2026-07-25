@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { and, asc, desc, eq, isNull, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lt } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, schema } from '../db/index.js';
 import { requireChannelAccess, requireMembership } from '../lib/auth.js';
-import { conflict, notFound } from '../lib/errors.js';
+import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { hub } from '../realtime/hub.js';
 import { bumpReplyCount, cancelRunsTriggeredBy, postMessage } from '../services/messages.js';
 import { serializeChannel, serializeMessages } from '../services/serialize.js';
@@ -159,6 +159,61 @@ export async function channelRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /* -------------------------------------------------------- entra/esci */
+  /**
+   * Nuovo ordine dei canali di un gruppo.
+   *
+   * Arriva l'elenco completo e ordinato, non uno scambio fra due: chi trascina
+   * sa dove vuole che finiscano tutti, e mandare l'elenco intero evita di
+   * dover ricostruire lo stato da una sequenza di spostamenti. Le posizioni
+   * si riscrivono da zero, così non restano buchi né doppioni.
+   */
+  app.post('/api/channels/reorder', async (request) => {
+    const input = z
+      .object({
+        groupId: z.uuid().nullable(),
+        channelIds: z.array(z.uuid()).min(1).max(200),
+      })
+      .parse(request.body);
+
+    // Il primo canale dice di quale progetto stiamo parlando; poi verifichiamo
+    // che siano TUTTI di quel progetto, altrimenti si potrebbe riordinare roba
+    // altrui passando un id a caso.
+    const { workspaceId } = await requireChannelAccess(request, input.channelIds[0]!, 'member');
+    const rows = await db
+      .select({ id: schema.channels.id })
+      .from(schema.channels)
+      .where(
+        and(
+          eq(schema.channels.workspaceId, workspaceId),
+          inArray(schema.channels.id, input.channelIds),
+        ),
+      );
+    if (rows.length !== input.channelIds.length) {
+      throw badRequest('cross_workspace', 'Alcuni canali non appartengono a questo progetto.');
+    }
+
+    await db.transaction(async (tx) => {
+      for (const [index, id] of input.channelIds.entries()) {
+        await tx
+          .update(schema.channels)
+          .set({ position: index, groupId: input.groupId })
+          .where(eq(schema.channels.id, id));
+      }
+    });
+
+    const updated = await db
+      .select()
+      .from(schema.channels)
+      .where(inArray(schema.channels.id, input.channelIds));
+    for (const row of updated) {
+      await hub.publish(workspaceId, {
+        packet: { t: 'channel.updated', channel: serializeChannel(row) },
+        ...(row.visibility === 'private' ? { userIds: await channelUserIds(row.id) } : {}),
+      });
+    }
+    return { ok: true };
+  });
+
   app.post('/api/channels/:channelId/join', async (request) => {
     const { channelId } = z.object({ channelId: z.uuid() }).parse(request.params);
     const { user } = await requireChannelAccess(request, channelId);

@@ -17,6 +17,8 @@ export class RealtimeClient {
   private listeners = new Set<Listener>();
   private workspaceId: string | null = null;
   private subscribed = new Set<string>();
+  /** L'ultimo `focus` mandato: serve a non ripeterlo e a rimandarlo al riavvio. */
+  private focused: string | null = null;
   private attempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -48,6 +50,9 @@ export class RealtimeClient {
       if (this.subscribed.size > 0) {
         this.send({ t: 'subscribe', channelIds: [...this.subscribed] });
       }
+      // E anche il canale a fuoco: il server ha appena perso quello stato, e
+      // senza rimandarlo arriverebbero notifiche di ciò che stai leggendo.
+      if (this.focused !== null) this.send({ t: 'focus', channelId: this.focused });
       this.heartbeat = setInterval(() => this.send({ t: 'ping' }), 25_000);
     };
 
@@ -108,6 +113,23 @@ export class RealtimeClient {
   unsubscribe(channelIds: string[]): void {
     for (const id of channelIds) this.subscribed.delete(id);
     this.send({ t: 'unsubscribe', channelIds });
+  }
+
+  /**
+   * Il canale che questa scheda ha davvero davanti agli occhi.
+   *
+   * Non coincide con le sottoscrizioni: il client si iscrive a tutti i canali
+   * della barra laterale per tenere aggiornati i contatori dei non letti. Se
+   * il server usasse quelle per decidere se sei presente, risulteresti a
+   * guardare ovunque e le notifiche non partirebbero mai.
+   *
+   * `null` quando la finestra è nascosta: se il telefono è in tasca, non stai
+   * guardando niente.
+   */
+  focus(channelId: string | null): void {
+    if (this.focused === channelId) return;
+    this.focused = channelId;
+    this.send({ t: 'focus', channelId });
   }
 
   on(listener: Listener): () => void {

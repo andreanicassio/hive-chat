@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { db, schema } from '../db/index.js';
 import { redisPub } from '../lib/redis.js';
 import { hub } from '../realtime/hub.js';
+import { channelMemberIds, notifyApproval } from '../services/notify.js';
 import { unauthorized, forbidden, notFound } from '../lib/errors.js';
 import { hashToken } from './runner.js';
 import { applyRunnerOps, type RunnerOp, type RunSinkContext } from '../services/runner-sink.js';
@@ -324,6 +325,29 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
       .update(schema.agentRuns)
       .set({ status: 'awaiting_approval' })
       .where(eq(schema.agentRuns.id, run.id));
+
+    // Un agente in attesa resta fermo finché qualcuno non decide: è il caso
+    // in cui una notifica serve davvero, e va anche a chi sta guardando il
+    // canale — la card si perde facilmente nello scorrimento.
+    void (async () => {
+      const [agentRow] = await db
+        .select({ name: schema.agents.name })
+        .from(schema.agents)
+        .where(eq(schema.agents.id, run.agentId))
+        .limit(1);
+      const [channelRow] = await db
+        .select({ name: schema.channels.name })
+        .from(schema.channels)
+        .where(eq(schema.channels.id, run.channelId))
+        .limit(1);
+      await notifyApproval({
+        userIds: await channelMemberIds(run.channelId),
+        agentName: agentRow?.name ?? 'Un agente',
+        channelId: run.channelId,
+        channelName: channelRow?.name ?? 'canale',
+        title: row.title,
+      });
+    })().catch((err: unknown) => console.error('[push] permesso:', err));
 
     return { approvalId: id };
   });

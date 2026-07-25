@@ -4,6 +4,8 @@ import { BrowserRouter } from 'react-router-dom';
 import { App } from './App.js';
 import './index.css';
 import { watchSystemTheme } from './lib/theme.js';
+import { realtime } from './lib/ws.js';
+import { useStore } from './store.js';
 
 /**
  * La finestra ci lascia disegnare fin sotto la sua barra?
@@ -26,22 +28,25 @@ markTitlebar();
 // ascolto, perché il sistema può passare a scuro mentre l'app è aperta.
 watchSystemTheme();
 
-/**
- * Dopo un aggiornamento, ricarica una volta sola.
+/*
+ * Finestra nascosta = non stai guardando niente.
  *
- * Il service worker nuovo prende il controllo subito, ma la pagina già aperta
- * continua a usare i file di prima: servivano due ricaricamenti, e al primo
- * sembrava che non fosse cambiato niente. Solo se un controller c'era già —
- * alla prima installazione non c'è niente da ricaricare.
+ * Serve alle notifiche: il canale aperto resta aperto anche col telefono in
+ * tasca, e senza questo il server continuerebbe a crederti presente e non ti
+ * avviserebbe mai. Al ritorno si rimanda il canale attivo.
  */
-if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-  let reloading = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (reloading) return;
-    reloading = true;
-    location.reload();
-  });
-}
+document.addEventListener('visibilitychange', () => {
+  const { activeChannelId } = useStore.getState();
+  realtime.focus(document.hidden ? null : activeChannelId);
+});
+
+/*
+ * L'aggiornamento non ricarica più da solo.
+ *
+ * Prima lo faceva, e strappava la pagina a chi stava scrivendo. Ora il
+ * service worker nuovo resta in attesa e compare l'avviso in basso
+ * (`UpdateToast`): il momento lo sceglie chi usa l'app. Vedi `lib/update.ts`.
+ */
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

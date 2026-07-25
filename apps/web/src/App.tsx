@@ -11,6 +11,7 @@ import { Settings } from './components/Settings.js';
 import { api } from './lib/api.js';
 import { useIsMobile } from './lib/breakpoint.js';
 import { MobileShell } from './mobile/Shell.js';
+import { UpdateToast } from './components/UpdateToast.js';
 
 /* ==========================================================================
    Rete di sicurezza: un errore in un componente non deve produrre una
@@ -247,6 +248,9 @@ export function App() {
 
   return (
     <ErrorBoundary>
+      {/* Fuori dalle rotte: l'avviso di aggiornamento vale ovunque, anche
+          sulla pagina d'accesso. */}
+      <UpdateToast />
       <Routes>
         <Route path="/accedi" element={user ? <Navigate to="/" replace /> : <AuthPage />} />
         <Route path="/invito/:code" element={<InviteLanding />} />

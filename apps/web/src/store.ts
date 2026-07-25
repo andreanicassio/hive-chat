@@ -150,6 +150,8 @@ interface State {
   loadThread: (channelId: string, rootId: string) => Promise<void>;
   setAsideOpen: (open: boolean) => void;
   setAsideTab: (tab: AsideTab) => void;
+  /** Riscrive l'ordine dei canali di un gruppo, subito e solo qui. */
+  reorderLocally: (groupId: string | null, channelIds: string[]) => void;
   loadArtifacts: (channelId: string) => Promise<void>;
   createArtifact: (channelId: string, input: CreateArtifactInput) => Promise<Artifact | null>;
   updateArtifactRemote: (artifactId: string, patch: UpdateArtifactInput) => Promise<void>;
@@ -420,6 +422,9 @@ export const useStore = create<State>((set, get) => ({
       asideTab: s.asideTab === 'thread' ? 'activity' : s.asideTab,
     }));
     realtime.subscribe([channelId]);
+    // Questo canale è quello che si sta guardando: niente notifiche per ciò
+    // che è già sotto gli occhi.
+    realtime.focus(channelId);
     // Gli artifact del canale li carichiamo dietro le quinte.
     void get().loadArtifacts(channelId);
 
@@ -579,6 +584,18 @@ export const useStore = create<State>((set, get) => ({
 
   setAsideTab(tab) {
     set({ asideTab: tab });
+  },
+
+  reorderLocally(groupId, channelIds) {
+    // Ottimistico: il server risponde con un `channel.updated` per ciascuno e
+    // conferma. Senza, il canale trascinato tornerebbe al suo posto per il
+    // tempo di un giro di rete, che si vede.
+    const rank = new Map(channelIds.map((id, i) => [id, i] as const));
+    set((s) => ({
+      channels: s.channels.map((c) =>
+        rank.has(c.id) ? { ...c, groupId, position: rank.get(c.id)! } : c,
+      ),
+    }));
   },
 
   async loadOlder(channelId) {

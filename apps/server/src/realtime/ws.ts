@@ -157,6 +157,24 @@ export async function websocketRoutes(app: FastifyInstance): Promise<void> {
             return;
           }
 
+          case 'focus': {
+            if (!conn) return;
+            // Solo canali che questa persona può leggere: dichiarare di
+            // "guardare" un canale altrui non deve dare nessun vantaggio.
+            if (packet.channelId === null) {
+              hub.setFocus(conn, null);
+              return;
+            }
+            const [allowed] = await readableChannels(
+              [packet.channelId],
+              conn.workspaceId,
+              me.id,
+              role,
+            );
+            hub.setFocus(conn, allowed ?? null);
+            return;
+          }
+
           case 'typing': {
             if (!conn) return;
             // Senza throttle un utente che digita veloce inonderebbe il canale.

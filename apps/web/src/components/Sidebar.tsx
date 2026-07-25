@@ -21,6 +21,11 @@ import type { Channel } from '@hive/shared';
    solo quello che il design chiede e che il foglio condiviso non fissa. */
 const RAIL = 'rail-item h-[31px] tracking-[-0.005em]';
 
+/** A parità di posizione decide il nome: così l'ordine non balla mai. */
+function byPosition(list: Channel[]): Channel[] {
+  return list.slice().sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+}
+
 /* La pillola del canale attivo vive in index.css, su
    `.rail-item[data-active='true']`: è uno stato della voce, non una variante
    locale, e lì non serve scavalcare niente con `!important`. */
@@ -47,6 +52,7 @@ export function Sidebar({
   const workspaces = useStore((s) => s.workspaces);
   const groups = useStore((s) => s.groups);
   const channels = useStore((s) => s.channels);
+  const reorderLocally = useStore((s) => s.reorderLocally);
   const agents = useStore((s) => s.agents);
   const user = useStore((s) => s.user);
   const activeChannelId = useStore((s) => s.activeChannelId);
@@ -60,6 +66,39 @@ export function Sidebar({
   /* Rinomina in linea e menu contestuale dei canali. */
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+
+  /* Trascinamento: cosa si sta spostando, e dove finirebbe. */
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<{ id: string; below: boolean } | null>(null);
+
+  /**
+   * Sposta un canale prima o dopo un altro, dentro il suo gruppo.
+   *
+   * Al server va l'elenco completo e ordinato del gruppo, non lo spostamento:
+   * è lui a riscrivere le posizioni da zero, così non restano buchi. Intanto
+   * l'ordine si aggiorna qui, altrimenti il canale tornerebbe al suo posto per
+   * il tempo di un giro di rete.
+   */
+  async function moveChannel(sourceId: string, targetId: string, below: boolean) {
+    const source = channels.find((c) => c.id === sourceId);
+    const target = channels.find((c) => c.id === targetId);
+    if (!source || !target || sourceId === targetId) return;
+
+    const groupId = target.groupId ?? null;
+    const siblings = byPosition(channels.filter((c) => c.kind !== 'dm' && (c.groupId ?? null) === groupId));
+    const without = siblings.filter((c) => c.id !== sourceId);
+    const at = without.findIndex((c) => c.id === targetId);
+    if (at === -1) return;
+    const ids = without.map((c) => c.id);
+    ids.splice(below ? at + 1 : at, 0, sourceId);
+
+    reorderLocally(groupId, ids);
+    try {
+      await api.reorderChannels(groupId, ids);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : 'Non sono riuscito a spostare il canale.');
+    }
+  }
   const [menuFor, setMenuFor] = useState<
     { id: string; name: string; x: number; y: number } | null
   >(null);
@@ -102,11 +141,19 @@ export function Sidebar({
     const ordered = groups
       .slice()
       .sort((a, b) => a.position - b.position)
-      .map((g) => ({ id: g.id, name: g.name, emoji: g.emoji, channels: byGroup.get(g.id) ?? [] }))
+      .map((g) => ({
+        id: g.id,
+        name: g.name,
+        emoji: g.emoji,
+        // Dentro un gruppo comanda `position`: è quella che il trascinamento
+        // riscrive, e senza questo ordinamento spostare un canale non si
+        // vedrebbe finché non si ricarica.
+        channels: byPosition(byGroup.get(g.id) ?? []),
+      }))
       .filter((s) => s.channels.length > 0);
 
     if (loose.length > 0) {
-      ordered.push({ id: '__loose', name: 'Canali', emoji: null, channels: loose });
+      ordered.push({ id: '__loose', name: 'Canali', emoji: null, channels: byPosition(loose) });
     }
     return ordered;
   }, [channels, groups]);
@@ -207,12 +254,57 @@ export function Sidebar({
                       </div>
                     );
                   }
+                  const marker =
+                    dropAt?.id === channel.id && dragId && dragId !== channel.id
+                      ? dropAt.below
+                        ? 'after'
+                        : 'before'
+                      : null;
                   return (
                     <button
                       key={channel.id}
-                      className={clsx(RAIL, 'group')}
+                      className={clsx(
+                        RAIL,
+                        'group relative',
+                        dragId === channel.id && 'opacity-40',
+                        // La riga di rilascio è un bordo, non un elemento in
+                        // più: così non sposta niente mentre la si guarda.
+                        marker === 'before' && 'before:absolute before:inset-x-1 before:top-0 before:h-[2px] before:rounded-full before:bg-[var(--color-honey)]',
+                        marker === 'after' && 'after:absolute after:inset-x-1 after:bottom-0 after:h-[2px] after:rounded-full after:bg-[var(--color-honey)]',
+                      )}
                       data-active={active}
                       data-unread={unread && !active}
+                      draggable
+                      onDragStart={(e) => {
+                        setDragId(channel.id);
+                        e.dataTransfer.effectAllowed = 'move';
+                        // Firefox non avvia il trascinamento senza dati.
+                        e.dataTransfer.setData('text/plain', channel.id);
+                      }}
+                      onDragEnd={() => {
+                        setDragId(null);
+                        setDropAt(null);
+                      }}
+                      onDragOver={(e) => {
+                        if (!dragId || dragId === channel.id) return;
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        // Sopra o sotto, deciso dalla metà della riga: è come
+                        // ci si aspetta che funzioni, e non serve mirare.
+                        const box = e.currentTarget.getBoundingClientRect();
+                        setDropAt({ id: channel.id, below: e.clientY > box.top + box.height / 2 });
+                      }}
+                      onDragLeave={() => {
+                        setDropAt((cur) => (cur?.id === channel.id ? null : cur));
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const source = dragId;
+                        const below = dropAt?.below ?? false;
+                        setDragId(null);
+                        setDropAt(null);
+                        if (source) void moveChannel(source, channel.id, below);
+                      }}
                       onClick={() => void openChannel(channel.id)}
                       onDoubleClick={(e) => {
                         e.preventDefault();
@@ -223,7 +315,7 @@ export function Sidebar({
                         e.preventDefault();
                         setMenuFor({ id: channel.id, name: channel.name, x: e.clientX, y: e.clientY });
                       }}
-                      title="Doppio clic per rinominare · tasto destro per altre azioni"
+                      title="Doppio clic per rinominare · trascina per spostare · tasto destro per altre azioni"
                     >
                       {channel.visibility === 'private' ? (
                         <Lock size={13.5} strokeWidth={2.2} className="opacity-65" />

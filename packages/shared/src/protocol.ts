@@ -30,6 +30,16 @@ export const clientPacketSchema = z.discriminatedUnion('t', [
   /** Segue gli eventi di questi canali (quello aperto + quelli in sidebar). */
   z.object({ t: z.literal('subscribe'), channelIds: z.array(z.uuid()).max(200) }),
   z.object({ t: z.literal('unsubscribe'), channelIds: z.array(z.uuid()).max(200) }),
+  /**
+   * Il canale che questa scheda ha davvero davanti agli occhi, `null` quando
+   * la finestra è nascosta o non c'è nessun canale aperto.
+   *
+   * Non basta `subscribe` per saperlo: il client si iscrive a TUTTI i canali
+   * della sidebar per tenere aggiornati i contatori. Serve un segnale
+   * distinto, altrimenti risulterebbe che stai guardando ovunque — e le
+   * notifiche push non partirebbero mai.
+   */
+  z.object({ t: z.literal('focus'), channelId: z.uuid().nullable() }),
   /** Sta scrivendo. Il server fa da rate-limit e rimbalza agli altri. */
   z.object({ t: z.literal('typing'), channelId: z.uuid() }),
   /** Segna il canale come letto fino a questo messaggio. */
@@ -206,7 +216,38 @@ export const redisChannels = {
   runCancelled: (runId: string) => `hive:runs:cancelled:${runId}`,
   /** Risposta a una richiesta di approvazione, attesa dal worker. */
   approvalReply: (approvalId: string) => `hive:approval:${approvalId}`,
+  /**
+   * Richieste di notifica push che nascono FUORI dal processo API (il worker
+   * degli agenti). Solo l'API ha le socket dei client, quindi solo lì si sa
+   * chi sta già guardando e non va disturbato: il worker si limita a dire
+   * «è successo questo», il resto lo decide chi ascolta.
+   */
+  notify: 'hive:notify',
+  /**
+   * Guardia con TTL: una richiesta di notifica la serve un nodo API solo,
+   * anche se sono tutti iscritti a `notify`.
+   */
+  notifyOnce: (key: string) => `hive:notify:once:${key}`,
+  /**
+   * Contatore per raggruppare le notifiche push: più eventi con lo stesso tag
+   * entro pochi secondi diventano una notifica sola («3 nuovi messaggi in …»).
+   */
+  pushGroup: (userId: string, tag: string) => `hive:push:g:${userId}:${tag}`,
 } as const;
+
+/** Richiesta di notifica push da un processo che non è l'API. */
+export const notifyRequestSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('approval'), approvalId: z.uuid() }),
+  z.object({ kind: z.literal('run-finished'), runId: z.uuid() }),
+]);
+export type NotifyRequest = z.infer<typeof notifyRequestSchema>;
+
+/**
+ * Finestra di raggruppamento delle notifiche push, in secondi.
+ * Abbastanza larga da fondere una raffica di messaggi, abbastanza stretta da
+ * non nascondere una notizia arrivata dopo.
+ */
+export const PUSH_GROUP_WINDOW_SEC = 30;
 
 /** Secondi di validità della presenza del runner (rinnovata più spesso). */
 export const RUNNER_PRESENCE_TTL_SEC = 30;

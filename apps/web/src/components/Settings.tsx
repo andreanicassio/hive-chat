@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import {
   BadgeCheck,
+  Bell,
   Palette,
   Brain,
   Check,
@@ -20,6 +21,8 @@ import { useStore } from '../store.js';
 import { Usage } from './Usage.js';
 import { Modal } from './Modal.js';
 import { applyTheme, setThemePref, storedPref, type ThemePref } from '../lib/theme.js';
+import { disablePush, enablePush, pushState, type PushState } from '../lib/push.js';
+import type { PushPrefs } from '../lib/api.js';
 import { RunnerTab } from './RunnerTab.js';
 import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
@@ -33,7 +36,7 @@ import { Avatar } from './Avatar.js';
  * server — si vede solo un troncone per riconoscerlo.
  */
 
-type Tab = 'credenziali' | 'contesto' | 'runner' | 'persone' | 'utilizzo' | 'aspetto';
+type Tab = 'credenziali' | 'contesto' | 'runner' | 'persone' | 'utilizzo' | 'aspetto' | 'notifiche';
 
 interface SecretRow {
   key: string;
@@ -241,6 +244,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               ['persone', 'Persone', UserPlus],
               ['utilizzo', 'Utilizzo', BarChart3],
               ['aspetto', 'Aspetto', Palette],
+              ['notifiche', 'Notifiche', Bell],
             ] as const
           ).map(([id, label, Icon]) => (
             <button
@@ -383,6 +387,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 )}
               </div>
             </div>
+          ) : tab === 'notifiche' ? (
+            <NotificationsTab />
           ) : tab === 'aspetto' ? (
             <AppearanceTab />
           ) : tab === 'utilizzo' ? (
@@ -499,6 +505,130 @@ function AppearanceTab() {
             </span>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/* ========================================================================== */
+/*  Notifiche                                                                  */
+/* ========================================================================== */
+
+const PUSH_MESSAGE: Record<PushState, { text: string; tone: 'ok' | 'info' | 'warn' }> = {
+  on: { text: 'Le notifiche sono attive su questo dispositivo.', tone: 'ok' },
+  off: { text: 'Non ancora attive su questo dispositivo.', tone: 'info' },
+  denied: {
+    text: 'Le hai negate a questo sito. Si riattivano dalle impostazioni del browser, non da qui.',
+    tone: 'warn',
+  },
+  'needs-install': {
+    text: 'Su iPhone servono con l’app aggiunta alla schermata Home: apri il menu Condividi e scegli «Aggiungi a Home».',
+    tone: 'info',
+  },
+  unsupported: { text: 'Questo browser non supporta le notifiche push.', tone: 'warn' },
+  unconfigured: {
+    text: 'Il server non ha ancora le chiavi per inviarle.',
+    tone: 'warn',
+  },
+};
+
+/** Le voci, con l'etichetta che dice cosa arriva davvero. */
+const PUSH_KINDS: Array<{ id: keyof PushPrefs; label: string; hint: string }> = [
+  { id: 'mentions', label: 'Quando mi taggano', hint: 'Un messaggio che ti nomina, in qualsiasi canale' },
+  { id: 'approvals', label: 'Quando un agente chiede un permesso', hint: 'È fermo finché non decidi' },
+  {
+    id: 'runnerOffline',
+    label: 'Quando la mia macchina è spenta',
+    hint: 'L’agente locale non può partire, e senza avviso te ne accorgi tardi',
+  },
+  { id: 'runFinished', label: 'Quando un agente finisce', hint: 'Anche se non ti ha nominato' },
+];
+
+function NotificationsTab() {
+  const [state, setState] = useState<PushState | null>(null);
+  const [prefs, setPrefs] = useState<PushPrefs | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void pushState().then(setState);
+    void api
+      .pushPrefs()
+      .then(({ prefs }) => setPrefs(prefs))
+      .catch(() => setPrefs(null));
+  }, []);
+
+  async function toggleDevice() {
+    setBusy(true);
+    try {
+      setState(state === 'on' ? await disablePush() : await enablePush());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleKind(id: keyof PushPrefs) {
+    if (!prefs) return;
+    const next = { ...prefs, [id]: !prefs[id] };
+    setPrefs(next);
+    await api.updatePushPrefs({ [id]: next[id] } as Partial<PushPrefs>).catch(() => setPrefs(prefs));
+  }
+
+  const info = state ? PUSH_MESSAGE[state] : null;
+
+  return (
+    <div className="max-w-[480px]">
+      <h3 className="text-[14px] font-semibold">Questo dispositivo</h3>
+      {info && (
+        <p
+          className={clsx(
+            'mt-1 text-[13.5px]',
+            info.tone === 'warn' ? 'text-[var(--color-error)]' : 'text-[var(--color-ink-soft)]',
+          )}
+        >
+          {info.text}
+        </p>
+      )}
+      {(state === 'on' || state === 'off') && (
+        <button className="btn btn-primary mt-3" onClick={() => void toggleDevice()} disabled={busy}>
+          {state === 'on' ? 'Disattiva qui' : 'Attiva le notifiche'}
+        </button>
+      )}
+
+      <h3 className="mt-6 text-[14px] font-semibold">Di cosa avvisarti</h3>
+      <p className="mt-1 text-[13.5px] text-[var(--color-ink-soft)]">
+        Vale su tutti i tuoi dispositivi. Non ti avvisiamo mai del canale che stai già guardando.
+      </p>
+
+      <div className="mt-3 flex flex-col gap-1.5">
+        {PUSH_KINDS.map((k) => {
+          const on = prefs ? Boolean(prefs[k.id]) : false;
+          return (
+            <button
+              key={k.id}
+              onClick={() => void toggleKind(k.id)}
+              disabled={!prefs}
+              className="flex items-start gap-3 rounded-[11px] border border-[var(--color-line)] px-3.5 py-3 text-left transition-colors hover:border-[var(--color-line-strong)] disabled:opacity-50"
+            >
+              <span
+                className={clsx(
+                  'mt-0.5 flex h-[18px] w-[30px] shrink-0 items-center rounded-full px-[2px] transition-colors',
+                  on ? 'bg-[var(--color-honey)]' : 'bg-[var(--color-line-strong)]',
+                )}
+              >
+                <span
+                  className={clsx(
+                    'h-[14px] w-[14px] rounded-full bg-[var(--color-panel)] transition-transform',
+                    on && 'translate-x-[12px]',
+                  )}
+                />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[14px] font-medium">{k.label}</span>
+                <span className="block text-[12.5px] text-[var(--color-ink-faint)]">{k.hint}</span>
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

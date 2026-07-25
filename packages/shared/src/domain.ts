@@ -747,6 +747,80 @@ export const decideApprovalSchema = z.object({
 });
 
 /* ---------------------------------------------------------------------------
+ * Notifiche push
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Cosa vuole ricevere una persona quando non ha Hive davanti, e quando invece
+ * si deve stare zitti.
+ */
+export interface PushPrefs {
+  /** Qualcuno mi ha taggato. */
+  mentions: boolean;
+  /** Un agente chiede il permesso di fare qualcosa. */
+  approvals: boolean;
+  /** Un turno che avevo lanciato è finito. */
+  runFinished: boolean;
+  /** La mia macchina è spenta e un agente non può partire. */
+  runnerOffline: boolean;
+  /** Ora (0-23) da cui comincia il silenzio. Null = nessun silenzio. */
+  quietFrom: number | null;
+  /** Ora (0-23) in cui il silenzio finisce. La fascia può scavalcare la mezzanotte. */
+  quietTo: number | null;
+}
+
+/** Valori di partenza: `runFinished` spento, un turno che finisce non è urgente. */
+export const defaultPushPrefs: PushPrefs = {
+  mentions: true,
+  approvals: true,
+  runFinished: false,
+  runnerOffline: true,
+  quietFrom: null,
+  quietTo: null,
+};
+
+/** L'iscrizione così come la produce `PushManager.subscribe()` nel browser. */
+export const pushSubscribeSchema = z.object({
+  endpoint: z.url().max(2000),
+  keys: z.object({
+    p256dh: z.string().min(1).max(300),
+    auth: z.string().min(1).max(200),
+  }),
+});
+export type PushSubscribeInput = z.infer<typeof pushSubscribeSchema>;
+
+export const pushUnsubscribeSchema = z.object({
+  endpoint: z.string().min(1).max(2000),
+});
+
+/**
+ * Scritto a mano invece che con `.partial()`: i `.default()` scatterebbero
+ * comunque e una modifica parziale spegnerebbe tutto ciò che non hai mandato.
+ */
+export const updatePushPrefsSchema = z.object({
+  mentions: z.boolean().optional(),
+  approvals: z.boolean().optional(),
+  runFinished: z.boolean().optional(),
+  runnerOffline: z.boolean().optional(),
+  quietFrom: z.number().int().min(0).max(23).nullable().optional(),
+  quietTo: z.number().int().min(0).max(23).nullable().optional(),
+});
+export type UpdatePushPrefsInput = z.infer<typeof updatePushPrefsSchema>;
+
+/** Il JSON che arriva al service worker, già pronto da mostrare. */
+export interface PushPayload {
+  title: string;
+  body: string;
+  /** Rotta dell'app da aprire al clic, es. `/c/<channelId>`. */
+  url: string;
+  /**
+   * Chiave di raggruppamento: il browser sostituisce la notifica precedente
+   * con lo stesso tag invece di impilarne una seconda.
+   */
+  tag: string;
+}
+
+/* ---------------------------------------------------------------------------
  * Contesto condiviso del workspace
  * ------------------------------------------------------------------------ */
 

@@ -7,6 +7,7 @@ import {
   numeric,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -609,3 +610,48 @@ export const runnerTokens = pgTable(
     index('runner_tokens_user_idx').on(t.userId),
   ],
 );
+
+/* ---------------------------------------------------------------------------
+ * Notifiche push: un'iscrizione per browser/dispositivo. La stessa persona ne
+ * ha tante quante sono le installazioni da cui ha dato il permesso.
+ * ------------------------------------------------------------------------ */
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /**
+     * URL del servizio push del browser: è l'identità del dispositivo.
+     * Unico perché la stessa installazione, riscrivendosi, deve aggiornare la
+     * riga che c'è già invece di lasciarne in giro una copia morta.
+     */
+    endpoint: text('endpoint').notNull(),
+    /** Chiave pubblica del client e segreto di autenticazione, per cifrare il payload. */
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    userAgent: text('user_agent'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('push_subscriptions_endpoint_idx').on(t.endpoint),
+    index('push_subscriptions_user_idx').on(t.userId),
+  ],
+);
+
+/** Preferenze di notifica: una riga per persona, creata alla prima lettura. */
+export const pushPrefs = pgTable('push_prefs', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  mentions: boolean('mentions').notNull().default(true),
+  approvals: boolean('approvals').notNull().default(true),
+  /** Spento di default: un turno che finisce non è una cosa urgente. */
+  runFinished: boolean('run_finished').notNull().default(false),
+  runnerOffline: boolean('runner_offline').notNull().default(true),
+  /** Fascia di silenzio in ore locali (0-23). Può scavalcare la mezzanotte. */
+  quietFrom: smallint('quiet_from'),
+  quietTo: smallint('quiet_to'),
+});

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { db, schema } from '../db/index.js';
 import { badRequest } from '../lib/errors.js';
 import { hub } from '../realtime/hub.js';
+import { notifyMentionForMessage, notifyRunnerOffline } from './notify.js';
 import { redisPub } from '../lib/redis.js';
 import { serializeMessage } from './serialize.js';
 import { budgetState } from './budget.js';
@@ -224,6 +225,22 @@ export async function postMessage(args: PostMessageArgs) {
     packet: { t: 'message.new', message },
     channelId: args.channelId,
   });
+
+  // Notifica a chi è stato taggato. Fuori dal percorso della risposta HTTP:
+  // se il servizio push è lento o rotto, l'invio del messaggio non deve
+  // rallentare né fallire per questo.
+  const mentionedUserIds = refs
+    .filter((r) => r.type === 'user' && r.id)
+    .map((r) => r.id as string);
+  if (mentionedUserIds.length > 0 && args.author.type === 'user') {
+    void notifyMentionForMessage({
+      channelId: args.channelId,
+      authorName: message.author.name,
+      authorUserId: args.author.id,
+      body: args.body,
+      userIds: mentionedUserIds,
+    }).catch((err: unknown) => console.error('[push] menzione:', err));
+  }
 
   // Chi non sta guardando il canale deve comunque vedere il badge aggiornarsi.
   const triggeredRuns: string[] = [];
@@ -781,4 +798,21 @@ async function failRunnerOffline(
     },
     channelId,
   });
+
+  // Avvisa il proprietario dell'agente: è la notifica più utile di tutte,
+  // perché altrimenti lo scopri solo aprendo la chat e vedendo il silenzio.
+  const owner = await db
+    .select({ userId: schema.agents.createdBy, name: schema.agents.name })
+    .from(schema.agentRuns)
+    .innerJoin(schema.agents, eq(schema.agents.id, schema.agentRuns.agentId))
+    .where(eq(schema.agentRuns.id, runId))
+    .limit(1);
+  const row = owner[0];
+  if (row?.userId) {
+    void notifyRunnerOffline({
+      userId: row.userId,
+      agentName: row.name,
+      channelId,
+    }).catch((err: unknown) => console.error('[push] runner offline:', err));
+  }
 }

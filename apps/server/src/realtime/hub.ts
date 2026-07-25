@@ -31,6 +31,11 @@ interface Connection {
   workspaceId: string;
   /** Canali di cui il client vuole gli eventi. */
   channels: Set<string>;
+  /**
+   * Canale che questa scheda ha davvero davanti, se il client lo dichiara.
+   * `undefined` = client che non manda `focus` (vedi `isWatching`).
+   */
+  activeChannelId?: string | null;
   alive: boolean;
 }
 
@@ -114,6 +119,37 @@ class Hub {
     const set = this.byWorkspace.get(workspaceId);
     if (!set) return false;
     for (const c of set) if (c.userId === userId) return true;
+    return false;
+  }
+
+  /** Il canale che una scheda ha davanti. `null` quando la finestra è nascosta. */
+  setFocus(conn: Connection, channelId: string | null): void {
+    conn.activeChannelId = channelId;
+  }
+
+  /**
+   * Questa persona sta guardando quel canale proprio adesso?
+   *
+   * Serve alle notifiche push: chi ha già la conversazione sotto gli occhi non
+   * va avvisato una seconda volta sul telefono.
+   *
+   * Il segnale buono è `focus`, che dice il canale davvero aperto. I client
+   * che non lo mandano ancora ricadono sull'iscrizione: è più grossolana —
+   * il client si iscrive a tutta la sidebar — ma sbaglia in difesa, tacendo
+   * invece di disturbare.
+   */
+  isWatching(userId: string, channelId: string): boolean {
+    for (const set of this.byWorkspace.values()) {
+      for (const conn of set) {
+        if (conn.userId !== userId) continue;
+        if (conn.socket.readyState !== OPEN) continue;
+        if (conn.activeChannelId !== undefined) {
+          if (conn.activeChannelId === channelId) return true;
+        } else if (conn.channels.has(channelId)) {
+          return true;
+        }
+      }
+    }
     return false;
   }
 
