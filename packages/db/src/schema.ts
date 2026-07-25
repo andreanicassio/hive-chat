@@ -670,6 +670,45 @@ export const pushSubscriptions = pgTable(
 );
 
 /** Preferenze di notifica: una riga per persona, creata alla prima lettura. */
+/**
+ * Turni che un agente si è prenotato per il futuro.
+ *
+ * È il rimedio a un limite strutturale: un turno finisce e con lui muore
+ * tutto quello che aveva avviato, quindi «ti faccio sapere quando è pronto»
+ * non era mai vero — nessuno restava vivo per dirlo. Qui la promessa smette
+ * di stare in un processo e diventa una riga: sopravvive a riavvii, deploy e
+ * alla fine del turno che l'ha scritta.
+ *
+ * `depth` conta i risvegli consecutivi senza che nessuno abbia scritto in
+ * mezzo. Serve a fermare un agente che si riprenota all'infinito da solo:
+ * senza, basta un errore di giudizio per avere un ciclo che non finisce e
+ * che nessuno ha chiesto.
+ */
+export const scheduledTurns = pgTable(
+  'scheduled_turns',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    runAt: timestamp('run_at', { withTimezone: true }).notNull(),
+    /** Cosa l'agente voleva ricordarsi: diventa il prompt del risveglio. */
+    note: text('note').notNull(),
+    depth: integer('depth').notNull().default(0),
+    createdByRunId: uuid('created_by_run_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    firedAt: timestamp('fired_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  },
+  (t) => [index('scheduled_turns_due_idx').on(t.runAt)],
+);
+
 export const pushPrefs = pgTable('push_prefs', {
   userId: uuid('user_id')
     .primaryKey()

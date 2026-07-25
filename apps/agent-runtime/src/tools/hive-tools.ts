@@ -2,12 +2,13 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { and, desc, eq, ilike, isNull, or } from 'drizzle-orm';
-import { schema, documentTreeText, readDocByPath, writeDocByPath } from '@hive/db';
+import { schema, documentTreeText, readDocByPath, writeDocByPath, scheduleTurn } from '@hive/db';
 import { db } from '../db.js';
 import { decryptSecret } from '../crypto.js';
 import type { EmitterLike } from '../emitter.js';
 import { grantedHiveToolNames, toolById, type AgentToolGrant, type RepoConfig } from '@hive/shared';
 import { pushBranch } from '../repo.js';
+
 import { normalizeContent, publishArtifact } from './artifact-store.js';
 
 /**
@@ -640,6 +641,47 @@ export function buildHiveTools(ctx: HiveToolContext) {
       },
     ),
   );
+
+  if (granted.has('schedule_followup')) {
+    tools.push(
+      tool(
+        'schedule_followup',
+        'Prenota un tuo turno futuro in questo canale. Usalo quando qualcosa che hai avviato ' +
+          'finirà dopo di te — una build, un deploy, un controllo da rifare — invece di ' +
+          'promettere che avviserai: quando questo turno finisce non resta nessuno a farlo. ' +
+          'Al risveglio riceverai solo la nota che scrivi qui, quindi scrivila per te stesso ' +
+          'fra dieci minuti, che non ricorderà niente.',
+        {
+          in_minutes: z
+            .number()
+            .int()
+            .min(1)
+            .max(10080)
+            .describe('Fra quanti minuti (1 = un minuto, 10080 = una settimana)'),
+          note: z
+            .string()
+            .min(1)
+            .max(4000)
+            .describe('Cosa controllare al risveglio, e come capire se è andata bene'),
+        },
+        async ({ in_minutes, note }) => {
+          try {
+            const { runAt } = await scheduleTurn(db, {
+              workspaceId: ctx.workspaceId,
+              channelId: ctx.channelId,
+              agentId: ctx.agentId,
+              inMinutes: in_minutes,
+              note,
+              fromRunId: ctx.runId,
+            });
+            return ok(`Ci risentiamo alle ${runAt.toISOString().slice(11, 16)} UTC.`);
+          } catch (err) {
+            return fail(err instanceof Error ? err.message : 'Prenotazione non riuscita.');
+          }
+        },
+      ),
+    );
+  }
 
   // Teniamo solo i tool che l'agente ha davvero ricevuto: così il modello
   // non vede (e non prova) quelli che gli sono negati.

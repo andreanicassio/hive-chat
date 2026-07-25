@@ -136,6 +136,21 @@ export const toolCatalog: ToolDef[] = [
     icon: 'list-checks',
   },
   {
+    id: 'hive.followup',
+    label: 'Tornare da solo',
+    description:
+      'Permette all\'agente di prenotarsi un turno futuro: «risvegliami fra dieci minuti e ' +
+      'controlla la build». Senza, un agente parla solo se interpellato — quando il suo turno ' +
+      'finisce muore anche tutto ciò che aveva avviato, e «ti faccio sapere» resta una frase ' +
+      'senza nessuno dietro.',
+    kind: 'hive',
+    sdkTools: ['mcp__hive__schedule_followup'],
+    availableFor: ['assistant', 'developer'],
+    dangerous: false,
+    group: 'workspace',
+    icon: 'alarm-clock',
+  },
+  {
     id: 'hive.documents',
     label: 'Documenti del progetto',
     description:

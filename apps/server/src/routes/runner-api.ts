@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { db, schema } from '../db/index.js';
 import { redisPub } from '../lib/redis.js';
 import { hub } from '../realtime/hub.js';
+import { scheduleTurn } from '../services/scheduled-turns.js';
 import { channelMemberIds, notifyApproval } from '../services/notify.js';
 import { unauthorized, forbidden, notFound } from '../lib/errors.js';
 import { hashToken } from './runner.js';
@@ -317,6 +318,50 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
       ...(cancelled ? { cancel: true } : {}),
       ...(steer ? { steer } : {}),
     };
+  });
+
+  /* ------------------------------------- prenotare un turno futuro (runner) */
+  //
+  // Il runner gira su un'altra macchina e il database non lo vede: passa da
+  // qui. Le regole (quanto in là, quanti pendenti, quanti risvegli di fila)
+  // stanno in `@hive/db`, quindi sono le stesse dei turni sul server.
+  app.post('/api/runner/schedule', async (request) => {
+    const { userId } = await requireRunner(request);
+    const { runId, inMinutes, note } = z
+      .object({
+        runId: z.uuid(),
+        inMinutes: z.number().int().min(1).max(10080),
+        note: z.string().min(1).max(4000),
+      })
+      .parse(request.body);
+
+    const runRows = await db
+      .select()
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, runId))
+      .limit(1);
+    const run = runRows[0];
+    if (!run) throw notFound('Run non trovato');
+
+    const agentRows = await db
+      .select({ createdBy: schema.agents.createdBy, execution: schema.agents.execution })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, run.agentId))
+      .limit(1);
+    const agent = agentRows[0];
+    if (!agent || agent.createdBy !== userId || agent.execution !== 'local') {
+      throw forbidden('Questo run non appartiene al tuo runner.');
+    }
+
+    const { runAt } = await scheduleTurn({
+      workspaceId: run.workspaceId,
+      channelId: run.channelId,
+      agentId: run.agentId,
+      inMinutes,
+      note,
+      fromRunId: run.id,
+    });
+    return { ok: true, runAt: runAt.toISOString() };
   });
 
   /* --------------------------- approvazione inline in chat (dal runner) */

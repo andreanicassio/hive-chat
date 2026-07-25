@@ -4,6 +4,7 @@ import { hub } from '../realtime/hub.js';
 import { serializeMessage } from './serialize.js';
 import { redisPub } from '../lib/redis.js';
 import { flushPendingPrompts } from './messages.js';
+import { fireDueTurns } from './scheduled-turns.js';
 
 /**
  * Raccoglitore dei turni rimasti appesi.
@@ -157,6 +158,13 @@ export function startRunReaper(): void {
       // Rete di sicurezza: se un segnale di fine si è perso, i messaggi in
       // coda ripartono comunque entro un minuto invece di restare fermi.
       await sweepPendingQueues();
+
+      // I risvegli che un agente si era prenotato. Stanno qui e non in un
+      // processo loro perché un processo in più è un processo che può morire
+      // in silenzio — ed è esattamente il guasto che i risvegli esistono per
+      // evitare.
+      const woken = await fireDueTurns();
+      if (woken > 0) console.log(`[risvegli] fatti partire ${woken} turni prenotati`);
     } catch (err) {
       console.error('[reaper] giro fallito:', (err as Error).message);
     }

@@ -219,6 +219,49 @@ function buildHiveProxyServer(cfg: Config, runId: string, grants: AgentToolGrant
       ),
     );
   }
+  if (granted.has('schedule_followup')) {
+    tools.push(
+      tool(
+        'schedule_followup',
+        'Prenota un tuo turno futuro in questo canale. Usalo quando qualcosa che hai avviato ' +
+          'finirà dopo di te — una build, un deploy, un controllo da rifare — invece di ' +
+          'promettere che avviserai: quando questo turno finisce non resta nessuno a farlo. ' +
+          'Al risveglio riceverai solo la nota che scrivi qui, quindi scrivila per te stesso ' +
+          'fra dieci minuti, che non ricorderà niente.',
+        {
+          in_minutes: z
+            .number()
+            .int()
+            .min(1)
+            .max(10080)
+            .describe('Fra quanti minuti (1 = un minuto, 10080 = una settimana)'),
+          note: z
+            .string()
+            .min(1)
+            .max(4000)
+            .describe('Cosa controllare al risveglio, e come capire se è andata bene'),
+        },
+        async ({ in_minutes, note }) => {
+          try {
+            const res = await fetch(`${cfg.serverUrl}/api/runner/schedule`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ runId, inMinutes: in_minutes, note }),
+            });
+            if (!res.ok) {
+              const body = (await res.json().catch(() => ({}))) as { message?: string };
+              return ok(body.message ?? `Prenotazione rifiutata (HTTP ${res.status}).`);
+            }
+            const body = (await res.json()) as { runAt?: string };
+            return ok(`Ci risentiamo alle ${(body.runAt ?? '').slice(11, 16)} UTC.`);
+          } catch {
+            return ok('Errore di rete verso il server: prenotazione non riuscita.');
+          }
+        },
+      ),
+    );
+  }
+
   if (tools.length === 0) return null;
   return createSdkMcpServer({ name: 'hive', version: '0.1.0', tools });
 }
