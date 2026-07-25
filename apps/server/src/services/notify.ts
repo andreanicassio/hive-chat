@@ -273,3 +273,46 @@ export async function notifyMentionForMessage(args: {
     userIds: args.userIds,
   });
 }
+
+/**
+ * Avvisa chi aveva lanciato un turno che è finito.
+ *
+ * Si parte dal run e si risale al messaggio d'innesco: chi ha scritto quello
+ * è la persona che aspetta la risposta. Se l'innesco è di un agente (una
+ * catena di handoff) non si avvisa nessuno — non c'è una persona in attesa.
+ */
+export async function notifyRunFinishedById(runId: string): Promise<void> {
+  if (!configured) return;
+  const rows = await db
+    .select({
+      status: schema.agentRuns.status,
+      channelId: schema.agentRuns.channelId,
+      responseMessageId: schema.agentRuns.responseMessageId,
+      agentName: schema.agents.name,
+      authorType: schema.messages.authorType,
+      authorId: schema.messages.authorId,
+    })
+    .from(schema.agentRuns)
+    .innerJoin(schema.agents, eq(schema.agents.id, schema.agentRuns.agentId))
+    .innerJoin(schema.messages, eq(schema.messages.id, schema.agentRuns.triggerMessageId))
+    .where(eq(schema.agentRuns.id, runId))
+    .limit(1);
+
+  const run = rows[0];
+  if (!run || run.authorType !== 'user' || !run.authorId || !run.responseMessageId) return;
+
+  const channelRows = await db
+    .select({ name: schema.channels.name })
+    .from(schema.channels)
+    .where(eq(schema.channels.id, run.channelId))
+    .limit(1);
+
+  await notifyRunFinished({
+    userId: run.authorId,
+    agentName: run.agentName,
+    channelId: run.channelId,
+    channelName: channelRows[0]?.name ?? 'canale',
+    messageId: run.responseMessageId,
+    cancelled: run.status === 'cancelled',
+  });
+}

@@ -290,7 +290,13 @@ export class RunEmitter {
     await redis
       .publish(
         redisChannels.runFinished,
-        JSON.stringify({ agentId: this.ctx.agentId, channelId: this.ctx.channelId }),
+        // `runId` serve a chi manda le notifiche: senza, non si può risalire a
+        // chi aveva lanciato il turno.
+        JSON.stringify({
+          runId: this.ctx.runId,
+          agentId: this.ctx.agentId,
+          channelId: this.ctx.channelId,
+        }),
       )
       .catch(() => {});
   }
