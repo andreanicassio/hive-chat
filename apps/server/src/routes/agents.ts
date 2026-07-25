@@ -5,7 +5,7 @@ import { db, schema } from '../db/index.js';
 import { requireMembership } from '../lib/auth.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { hub } from '../realtime/hub.js';
-import { agentChannelMap, serializeAgent } from '../services/serialize.js';
+import { agentChannels, serializeAgent } from '../services/serialize.js';
 import { listModels, modelExists } from '../services/models.js';
 import { generateSkills, NoModelKeyError } from '../services/generate.js';
 import { readClaudeMd, writeClaudeMd } from '../services/agent-files.js';
@@ -207,7 +207,17 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
               autoRespond: input.autoRespond,
             })),
           )
-          .onConflictDoNothing();
+          // Non `doNothing`: se il legame col canale esisteva già, l'impostazione
+          // di auto-risposta verrebbe buttata via in silenzio — ed è proprio la
+          // cosa che l'utente ha appena scelto.
+          .onConflictDoUpdate({
+            target: [
+              schema.channelMembers.channelId,
+              schema.channelMembers.memberType,
+              schema.channelMembers.memberId,
+            ],
+            set: { autoRespond: input.autoRespond },
+          });
       }
     }
 
@@ -227,9 +237,14 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       .where(and(eq(schema.agents.workspaceId, workspaceId), isNull(schema.agents.archivedAt)))
       .orderBy(asc(schema.agents.name));
 
-    const channels = await agentChannelMap(rows.map((r) => r.id));
+    const channels = await agentChannels(rows.map((r) => r.id));
     return {
-      agents: rows.map((r) => serializeAgent(r, { channelIds: channels.get(r.id) ?? [] })),
+      agents: rows.map((r) =>
+        serializeAgent(r, {
+          channelIds: channels.all.get(r.id) ?? [],
+          autoRespondChannelIds: channels.auto.get(r.id) ?? [],
+        }),
+      ),
     };
   });
 
@@ -288,6 +303,25 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
 
     const row = updated[0]!;
 
+    /*
+     * L'auto-risposta vive sul legame agente-canale, non sull'agente: è lì che
+     * il server la legge quando decide chi deve rispondere. Aggiornare solo la
+     * riga dell'agente non produceva NESSUN effetto — la spunta risultava
+     * accesa e l'agente restava muto. Quando cambia, si riallineano tutti i
+     * canali in cui l'agente sta; poi la si può cambiare canale per canale.
+     */
+    if (input.autoRespond !== undefined) {
+      await db
+        .update(schema.channelMembers)
+        .set({ autoRespond: input.autoRespond })
+        .where(
+          and(
+            eq(schema.channelMembers.memberType, 'agent'),
+            eq(schema.channelMembers.memberId, agentId),
+          ),
+        );
+    }
+
     // Se cambiano tool, tipo o modello, la sessione SDK ripresa avrebbe un
     // contesto ormai sbagliato (es. "questo tool non ce l'ho"): la
     // invalidiamo, così il prossimo turno riparte pulito con la nuova config.
@@ -298,8 +332,11 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         .where(eq(schema.agentRuns.agentId, agentId));
     }
 
-    const channels = await agentChannelMap([agentId]);
-    const agent = serializeAgent(row, { channelIds: channels.get(agentId) ?? [] });
+    const channels = await agentChannels([agentId]);
+    const agent = serializeAgent(row, {
+      channelIds: channels.all.get(agentId) ?? [],
+      autoRespondChannelIds: channels.auto.get(agentId) ?? [],
+    });
     await hub.publish(existing.workspaceId, { packet: { t: 'agent.upserted', agent } });
     return { agent };
   });
@@ -385,8 +422,11 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         set: { autoRespond },
       });
 
-    const channels = await agentChannelMap([agentId]);
-    const serialized = serializeAgent(agent, { channelIds: channels.get(agentId) ?? [] });
+    const channels = await agentChannels([agentId]);
+    const serialized = serializeAgent(agent, {
+      channelIds: channels.all.get(agentId) ?? [],
+      autoRespondChannelIds: channels.auto.get(agentId) ?? [],
+    });
     await hub.publish(agent.workspaceId, { packet: { t: 'agent.upserted', agent: serialized } });
     return { ok: true };
   });
@@ -410,8 +450,11 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
         ),
       );
 
-    const channels = await agentChannelMap([agentId]);
-    const serialized = serializeAgent(agent, { channelIds: channels.get(agentId) ?? [] });
+    const channels = await agentChannels([agentId]);
+    const serialized = serializeAgent(agent, {
+      channelIds: channels.all.get(agentId) ?? [],
+      autoRespondChannelIds: channels.auto.get(agentId) ?? [],
+    });
     await hub.publish(agent.workspaceId, { packet: { t: 'agent.upserted', agent: serialized } });
     return { ok: true };
   });

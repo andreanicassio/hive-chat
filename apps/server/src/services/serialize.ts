@@ -416,12 +416,27 @@ export function serializeAgent(row: AgentRow, extra?: Partial<Agent>): Agent {
 export async function agentChannelMap(
   agentIds: string[],
 ): Promise<Map<string, string[]>> {
-  const map = new Map<string, string[]>();
-  if (agentIds.length === 0) return map;
+  return (await agentChannels(agentIds)).all;
+}
+
+/**
+ * Canali di ogni agente, e in quali risponde da solo.
+ *
+ * Le due cose vengono dalla stessa riga (`channel_members`), quindi tanto vale
+ * leggerle insieme: l'auto-risposta è una proprietà del legame agente-canale,
+ * non dell'agente.
+ */
+export async function agentChannels(
+  agentIds: string[],
+): Promise<{ all: Map<string, string[]>; auto: Map<string, string[]> }> {
+  const all = new Map<string, string[]>();
+  const auto = new Map<string, string[]>();
+  if (agentIds.length === 0) return { all, auto };
   const rows = await db
     .select({
       agentId: schema.channelMembers.memberId,
       channelId: schema.channelMembers.channelId,
+      autoRespond: schema.channelMembers.autoRespond,
     })
     .from(schema.channelMembers)
     .where(
@@ -431,11 +446,16 @@ export async function agentChannelMap(
       ),
     );
   for (const r of rows) {
-    const list = map.get(r.agentId) ?? [];
+    const list = all.get(r.agentId) ?? [];
     list.push(r.channelId);
-    map.set(r.agentId, list);
+    all.set(r.agentId, list);
+    if (r.autoRespond) {
+      const on = auto.get(r.agentId) ?? [];
+      on.push(r.channelId);
+      auto.set(r.agentId, on);
+    }
   }
-  return map;
+  return { all, auto };
 }
 
 /* ---------------------------------------------------------------------------

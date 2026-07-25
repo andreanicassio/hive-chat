@@ -967,8 +967,9 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
               <span>
                 <span className="block text-[13.5px] font-medium">Risponde senza essere taggato</span>
                 <span className="block text-[12.5px] text-[var(--color-ink-soft)]">
-                  Interviene su ogni messaggio umano nei canali scelti. Lascialo spento se
-                  non vuoi che parli sempre.
+                  Interviene su ogni messaggio umano nei canali qui sopra. Da{' '}
+                  <strong className="font-medium">Membri del canale</strong> puoi poi decidere
+                  canale per canale: lo stesso agente può servire in uno e disturbare in un altro.
                 </span>
               </span>
             </label>

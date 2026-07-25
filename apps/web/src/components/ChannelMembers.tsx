@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import clsx from 'clsx';
 import { Users, Plus, X, Bot, Terminal, Zap } from 'lucide-react';
 import { useStore } from '../store.js';
 import { api } from '../lib/api.js';
@@ -46,6 +47,19 @@ export function ChannelMembers({
     setBusy(agentId);
     try {
       await api.attachAgent(agentId, channelId, false);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** Accende o spegne l'auto-risposta di questo agente IN QUESTO canale. */
+  async function toggleAuto(agentId: string, next: boolean) {
+    setBusy(agentId);
+    try {
+      // La stessa rotta che aggancia l'agente al canale: qui il legame c'è
+      // già, quindi aggiorna solo l'impostazione. Il server ripubblica
+      // l'agente, e l'elenco si aggiorna da sé.
+      await api.attachAgent(agentId, channelId, next);
     } finally {
       setBusy(null);
     }
@@ -129,38 +143,74 @@ export function ChannelMembers({
               negli altri canali.
             </p>
           ) : (
-            inChannel.map((a) => (
-              <ModalRow
-                key={a.id}
-                leading={
-                  <Avatar name={a.name} emoji={a.avatarEmoji} color={a.avatarColor} size={30} isAgent />
-                }
-                title={
-                  <span className="flex items-center gap-2">
-                    {a.name}
-                    <span className="text-[12.5px] font-normal text-[var(--color-ink-faint)]">
-                      @{a.handle}
-                    </span>
-                    {a.autoRespond && (
-                      <span className="flex items-center gap-0.5 rounded bg-[var(--color-honey-soft)] px-1.5 text-[10.5px] font-medium">
-                        <Zap size={9} /> risponde sempre
+            inChannel.map((a) => {
+              // L'auto-risposta è una proprietà del legame agente-canale: lo
+              // stesso agente può servire qui e disturbare altrove.
+              const auto = (a.autoRespondChannelIds ?? []).includes(channelId);
+              return (
+                <div
+                  key={a.id}
+                  className="group flex items-start gap-2.5 px-5 py-2.5 transition-colors hover:bg-[var(--color-sunken)]"
+                >
+                  <Avatar
+                    name={a.name}
+                    emoji={a.avatarEmoji}
+                    color={a.avatarColor}
+                    size={30}
+                    isAgent
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[14px] font-medium">{a.name}</span>
+                      <span className="text-[12.5px] text-[var(--color-ink-faint)]">
+                        @{a.handle}
                       </span>
-                    )}
-                  </span>
-                }
-                meta={`Taggalo con @${a.handle} per farlo intervenire`}
-                trailing={
+                    </div>
+
+                    <button
+                      onClick={() => void toggleAuto(a.id, !auto)}
+                      disabled={busy === a.id}
+                      className="mt-1.5 flex items-center gap-2 text-left"
+                    >
+                      <span
+                        className={clsx(
+                          'flex h-[18px] w-[30px] shrink-0 items-center rounded-full px-[2px] transition-colors',
+                          auto
+                            ? 'bg-[var(--color-honey)]'
+                            : 'bg-[var(--color-line-strong)]',
+                        )}
+                      >
+                        <span
+                          className={clsx(
+                            'h-[14px] w-[14px] rounded-full bg-[var(--color-panel)] transition-transform',
+                            auto && 'translate-x-[12px]',
+                          )}
+                        />
+                      </span>
+                      <span className="text-[12.5px] text-[var(--color-ink-soft)]">
+                        {auto ? (
+                          <>
+                            <Zap size={10} className="mr-0.5 inline" />
+                            Risponde a ogni messaggio, qui
+                          </>
+                        ) : (
+                          `Risponde solo se taggato con @${a.handle}`
+                        )}
+                      </span>
+                    </button>
+                  </div>
+
                   <button
                     onClick={() => void detach(a.id)}
                     disabled={busy === a.id}
                     title="Togli dal canale"
-                    className="rounded-md p-1 text-[var(--color-ink-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--color-sunken)] hover:text-[var(--color-error)]"
+                    className="mt-1 rounded-md p-1 text-[var(--color-ink-faint)] opacity-0 transition-all group-hover:opacity-100 hover:bg-[var(--color-sunken)] hover:text-[var(--color-error)]"
                   >
                     <X size={14} strokeWidth={2.2} />
                   </button>
-                }
-              />
-            ))
+                </div>
+              );
+            })
           )}
 
           <div className="mt-2 px-5 pt-3 pb-2 text-[11.5px] font-semibold tracking-wide text-[var(--color-ink-faint)] uppercase">

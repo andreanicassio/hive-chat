@@ -530,8 +530,16 @@ export interface Agent {
   runnerTokenId: string | null;
   /** Presente se l'agente gira in locale: il runner di questa persona è acceso? */
   runnerOnline?: boolean;
-  /** Risponde da solo quando qualcuno scrive nel canale senza taggarlo. */
+  /**
+   * Risponde da solo, senza essere taggato.
+   *
+   * Questo è il valore di **partenza**: quello che conta davvero è per canale,
+   * perché lo stesso agente può servire in un canale e disturbare in un altro.
+   * Cambiandolo qui si riallineano tutti i canali in cui l'agente sta.
+   */
   autoRespond: boolean;
+  /** I canali in cui risponde da solo. Sottoinsieme di `channelIds`. */
+  autoRespondChannelIds?: string[];
   status: AgentStatus;
   statusLabel: string | null;
   createdAt: string;
