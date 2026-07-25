@@ -182,7 +182,27 @@ function useWave(host: React.RefObject<HTMLDivElement | null>, active: boolean):
     if (!active) return;
     let cursor = 0;
     let timer: ReturnType<typeof setTimeout>;
+    let scheduledAt = performance.now();
+    let scheduledFor = 0;
+
+    /** Accende tutto fino alla fine, in ordine. Nessuno viene scavalcato. */
+    const catchUp = () => {
+      const nodes = host.current?.querySelectorAll<HTMLElement>('.word');
+      if (!nodes) return;
+      for (; cursor < nodes.length; cursor++) nodes[cursor]!.dataset.in = 'true';
+    };
+
     const tick = () => {
+      /*
+       * Quanto siamo stati fermi davvero.
+       *
+       * I timer di una scheda in secondo piano vengono strozzati dal browser,
+       * e su telefono succede appena metti via lo schermo. Al ritorno il
+       * fronte si ritrova centinaia di parole indietro: invece di riprendere
+       * il passo con calma — che vorrebbe dire testo che si accende a
+       * chiazze mentre lo stai leggendo — recupera tutto in un colpo.
+       */
+      const late = performance.now() - scheduledAt - scheduledFor;
       const nodes = host.current?.querySelectorAll<HTMLElement>('.word');
       const total = nodes?.length ?? 0;
       // Il testo è stato sostituito, non allungato: succede quando un turno di
@@ -190,16 +210,35 @@ function useWave(host: React.RefObject<HTMLDivElement | null>, active: boolean):
       if (cursor > total) cursor = 0;
       let delay = 40;
       if (nodes && cursor < total) {
-        const backlog = total - cursor;
-        const jump = backlog > 80 ? Math.ceil(backlog / 24) : 1;
-        const until = Math.min(total, cursor + jump);
-        for (; cursor < until; cursor++) nodes[cursor]!.dataset.in = 'true';
-        delay = waveDelay(nodes[cursor - 1]?.textContent ?? '', backlog);
+        if (late > 800) {
+          catchUp();
+        } else {
+          const backlog = total - cursor;
+          const jump = backlog > 80 ? Math.ceil(backlog / 24) : 1;
+          const until = Math.min(total, cursor + jump);
+          for (; cursor < until; cursor++) nodes[cursor]!.dataset.in = 'true';
+          delay = waveDelay(nodes[cursor - 1]?.textContent ?? '', backlog);
+        }
       }
+      scheduledAt = performance.now();
+      scheduledFor = delay;
       timer = setTimeout(tick, delay);
     };
+
+    // Tornando in primo piano si recupera subito, senza aspettare il tick:
+    // è il momento in cui uno guarda lo schermo.
+    const onVisible = () => {
+      if (!document.hidden) catchUp();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    scheduledAt = performance.now();
+    scheduledFor = WAVE_MIN;
     timer = setTimeout(tick, WAVE_MIN);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [active, host]);
 }
 
@@ -1023,18 +1062,25 @@ export function MessageRow({
    * `steeredIn`: se questa È la bolla dell'agente, quali messaggi gli sono
    * arrivati mentre lavorava.
    */
+  /*
+   * Entrambi i capi si cercano FRA I MESSAGGI, non nell'elenco dei turni.
+   *
+   * Prima la destinazione la chiedevo a quell'elenco, che dopo un
+   * ricaricamento contiene solo i turni ancora vivi: di uno finito non resta
+   * niente, quindi il marchio sopravviveva e il collegamento non si
+   * disegnava più. I messaggi invece ci sono sempre, e si portano già dietro
+   * tutto — la bolla dell'agente ha l'id del turno che l'ha prodotta, il tuo
+   * messaggio ha quello del turno in cui è entrato.
+   */
   const steerAnswerId = useMemo(() => {
-    if (!message.steeredIntoRunId) return null;
-    for (const [answerId, r] of allRuns) {
-      if (r.runId === message.steeredIntoRunId) return answerId;
-    }
-    return null;
-  }, [message.steeredIntoRunId, allRuns]);
+    if (!message.steeredIntoRunId || !allMessages) return null;
+    return allMessages.find((m) => m.runId === message.steeredIntoRunId)?.id ?? null;
+  }, [message.steeredIntoRunId, allMessages]);
 
   const steeredIn = useMemo(() => {
-    if (!run || !allMessages) return [];
-    return allMessages.filter((m) => m.steeredIntoRunId === run.runId && !m.deletedAt);
-  }, [run, allMessages]);
+    if (!message.runId || !allMessages) return [];
+    return allMessages.filter((m) => m.steeredIntoRunId === message.runId && !m.deletedAt);
+  }, [message.runId, allMessages]);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Chi è in coda per rispondere PROPRIO a questo messaggio. La mappa dei run
