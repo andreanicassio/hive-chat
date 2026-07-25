@@ -33,6 +33,7 @@ import {
   MessagesSquare,
   ListChecks,
   Trash2,
+  Square,
 } from 'lucide-react';
 import { useStore, type RunState } from '../store.js';
 import { ArtifactPanel, ArtifactPinnedStrip } from './ArtifactPanel.js';
@@ -70,15 +71,28 @@ function renderMentions(text: string, isAgentHandle: (h: string) => boolean) {
 function Attachments({ items }: { items: Message['attachments'] }) {
   if (items.length === 0) return null;
   return (
-    <div className="mt-1.5 flex flex-wrap gap-2">
+    // `min-w-0` sui figli: senza, un elemento flex non scende sotto la
+    // larghezza del suo contenuto, e un'immagine larga spingeva la pagina
+    // oltre il 100% facendo comparire uno scorrimento orizzontale su tutto.
+    <div className="mt-1.5 flex max-w-full flex-wrap gap-2">
       {items.map((a) =>
         a.mime.startsWith('image/') ? (
-          <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer" title={a.filename}>
+          <a
+            key={a.id}
+            href={a.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={a.filename}
+            className="min-w-0 max-w-full"
+          >
             <img
               src={a.url}
               alt={a.filename}
               loading="lazy"
-              className="max-h-[300px] max-w-[420px] rounded-[10px] border border-[var(--color-line)] object-contain"
+              // 420px è il tetto su schermo largo, non una misura fissa: sotto
+              // quella soglia comanda la larghezza disponibile.
+              className="max-h-[300px] w-auto max-w-full rounded-[10px] border border-[var(--color-line)] object-contain"
+              style={{ maxWidth: 'min(420px, 100%)' }}
             />
           </a>
         ) : (
@@ -86,9 +100,10 @@ function Attachments({ items }: { items: Message['attachments'] }) {
             key={a.id}
             href={a.url}
             download={a.filename}
-            className="flex items-center gap-1.5 rounded-lg border border-[var(--color-line)] px-2.5 py-1.5 text-[13px] transition-colors hover:bg-[var(--color-sunken)]"
+            className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-[var(--color-line)] px-2.5 py-1.5 text-[13px] transition-colors hover:bg-[var(--color-sunken)]"
           >
-            <Paperclip size={13} /> {a.filename}
+            <Paperclip size={13} className="shrink-0" />
+            <span className="truncate">{a.filename}</span>
           </a>
         ),
       )}
@@ -549,36 +564,66 @@ export function WorkRow({ run, onOpen }: { run: RunState; onOpen: () => void }) 
 
   const elapsed = run.startedAt ? (run.endedAt ?? now) - run.startedAt : null;
   const running = tools.find((t) => !t.done);
+  const seconds = elapsed !== null ? Math.floor(elapsed / 1000) : null;
 
   return (
-    <button
-      onClick={onOpen}
-      className={clsx(
-        'mt-2 flex min-h-[44px] w-full items-center gap-2.5 rounded-[10px] border px-3 text-left',
-        live
-          ? 'sweep-slow border-[var(--color-line-strong)] bg-[var(--color-panel-alt)]'
-          : 'border-[var(--color-line)] bg-[var(--color-panel-alt)]',
-      )}
-    >
-      {live ? (
-        <span className="h-[7px] w-[7px] shrink-0 animate-pulse rounded-full bg-[var(--color-online)]" />
-      ) : (
-        <PanelRight size={15} strokeWidth={2.2} className="shrink-0 text-[var(--color-ink-faint)]" />
-      )}
-      <span className="min-w-0 flex-1">
-        <span className="block text-[13.5px] font-semibold text-[var(--color-ink-soft)]">
-          {live ? 'Sta lavorando' : 'Lavoro svolto'}
+    // Due bottoni affiancati, non annidati: quello grande naviga, quello
+    // piccolo ferma il turno. In un solo `button` non ci potrebbero stare.
+    <div className="mt-2 flex items-stretch gap-1.5">
+      <button
+        onClick={onOpen}
+        className={clsx(
+          'flex min-h-[44px] min-w-0 flex-1 items-center gap-2.5 rounded-[10px] border px-3 text-left',
+          live
+            ? 'sweep-slow border-[var(--color-line-strong)] bg-[var(--color-panel-alt)]'
+            : 'border-[var(--color-line)] bg-[var(--color-panel-alt)]',
+        )}
+      >
+        {live ? (
+          <span className="h-[7px] w-[7px] shrink-0 animate-pulse rounded-full bg-[var(--color-online)]" />
+        ) : (
+          <PanelRight
+            size={15}
+            strokeWidth={2.2}
+            className="shrink-0 text-[var(--color-ink-faint)]"
+          />
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-1.5">
+            <span className="text-[13.5px] font-semibold text-[var(--color-ink-soft)]">
+              {live ? 'Sta lavorando' : 'Lavoro svolto'}
+            </span>
+            {live && seconds !== null && (
+              <span className="text-[12px] text-[var(--color-ink-faint)] tabular-nums">
+                {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
+              </span>
+            )}
+          </span>
+          <span className="block truncate text-[12px] text-[var(--color-ink-faint)]">
+            {live
+              ? (running?.label ?? 'sta ragionando…')
+              : `${stepCount} ${stepCount === 1 ? 'passaggio' : 'passaggi'}${
+                  elapsed !== null ? ` · ${totalDuration(elapsed)}` : ''
+                }`}
+          </span>
         </span>
-        <span className="block truncate text-[12px] text-[var(--color-ink-faint)]">
-          {live
-            ? (running?.label ?? 'sta ragionando…')
-            : `${stepCount} ${stepCount === 1 ? 'passaggio' : 'passaggi'}${
-                elapsed !== null ? ` · ${totalDuration(elapsed)}` : ''
-              }`}
-        </span>
-      </span>
-      <ChevronRight size={17} strokeWidth={2} className="shrink-0 text-[var(--color-line-strong)]" />
-    </button>
+        <ChevronRight
+          size={17}
+          strokeWidth={2}
+          className="shrink-0 text-[var(--color-line-strong)]"
+        />
+      </button>
+
+      {live && (
+        <button
+          onClick={() => void api.cancelRun(run.runId).catch(() => {})}
+          aria-label="Ferma questo turno"
+          className="flex w-11 shrink-0 items-center justify-center rounded-[10px] border border-[var(--color-line)] bg-[var(--color-panel-alt)] text-[var(--color-ink-faint)] transition-colors active:text-[var(--color-error)]"
+        >
+          <Square size={13} strokeWidth={3} />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -676,9 +721,27 @@ function ApprovalCard({ approval }: { approval: Approval }) {
 /*  Intestazione di un turno in corso: puntini, cronometro, stop               */
 /* ========================================================================== */
 
-function LiveHint({ run }: { run: RunState }) {
+function LiveHint({ run, compact }: { run: RunState; compact?: boolean }) {
   const now = useTicker(true);
   const seconds = run.startedAt ? Math.floor((now - run.startedAt) / 1000) : 0;
+
+  // Su schermo stretto nell'intestazione restano solo i puntini. Il resto —
+  // cronometro e «Ferma» — non sparisce: scende nella riga del lavoro, che sta
+  // subito sotto. Sei elementi su una riga da 390px si accavallano, e il
+  // documento dice che lo stato «sta scrivendo» lo dicono i puntini.
+  if (compact) {
+    return (
+      <span className="flex items-center gap-[3px]">
+        {[0, 0.18, 0.36].map((delay) => (
+          <span
+            key={delay}
+            className="typing-dot h-1 w-1 rounded-full bg-[var(--color-ink-faint)]"
+            style={{ animationDelay: `${delay}s` }}
+          />
+        ))}
+      </span>
+    );
+  }
 
   return (
     <span className="flex items-center gap-2 text-[11.5px] text-[var(--color-ink-faint)]">
@@ -1003,7 +1066,7 @@ export function MessageRow({
               <span className="text-[11.5px] text-[var(--color-ink-faint)] tabular-nums">
                 {time}
               </span>
-              {streaming && run && <LiveHint run={run} />}
+              {streaming && run && <LiveHint run={run} compact={Boolean(onOpenWork)} />}
             </div>
           )}
 
