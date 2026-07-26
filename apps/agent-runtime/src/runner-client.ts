@@ -468,7 +468,18 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
     // CLAUDE.md, skill, server MCP e impostazioni dell'utente e del progetto.
     settingSources: ['user', 'project', 'local'],
     includePartialMessages: true,
-    maxTurns: kind === 'developer' ? 60 : 20,
+    /*
+     * Nessun tetto al numero di giri.
+     *
+     * Ce n'era uno (60 per gli sviluppatori, 20 per gli altri) e ha fatto
+     * esattamente il danno che i tetti fanno: un lavoro lungo ma sano moriva a
+     * metà con «Reached maximum number of turns», buttando via tutto quello
+     * che aveva già fatto. Claude Code da terminale non ha questo limite, e
+     * infatti lì non succede mai.
+     *
+     * Il rischio vero — un ciclo che non finisce — cresce col TEMPO, non col
+     * numero di giri, e quello lo ferma già l'orologio qui sotto.
+     */
     abortController: controller,
     env: authProcessEnv(authEnv),
     ...(resumeSessionId ? { resume: resumeSessionId } : {}),
@@ -609,11 +620,25 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
     // in chat, è quello che è stato chiesto.
     await steering.stop();
     if (controller.signal.aborted) await emitter.finish({ status: 'cancelled' });
-    else
+    else {
+      const message = err instanceof Error ? err.message : String(err);
+      /*
+       * Quello che è già stato scritto NON si butta.
+       *
+       * Finora un errore a fine corsa cancellava una risposta intera e in chat
+       * restava solo la riga rossa: il lavoro c'era, era stato pagato, e
+       * spariva. Se c'è del testo lo consegniamo, con in coda la ragione per
+       * cui si è fermato — che è un'informazione, non un fallimento da
+       * nascondere.
+       */
       await emitter.finish({
         status: 'error',
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
+        finalText: emitter.text
+          ? `${emitter.text}\n\n_Il turno si è fermato qui: ${message}_`
+          : undefined,
       });
+    }
   } finally {
     clearTimeout(timeout);
   }

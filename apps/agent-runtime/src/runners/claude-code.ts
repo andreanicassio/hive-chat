@@ -252,7 +252,9 @@ export class ClaudeCodeRunner implements Runner {
       // non la configurazione personale dell'utente che ospita il server.
       settingSources: skillCount > 0 ? ['project'] : [],
       includePartialMessages: true,
-      maxTurns: kind === 'developer' ? 60 : 20,
+      // Nessun tetto ai giri: vedi il runner locale. Un lavoro lungo ma sano
+      // non deve morire a metà, e a contenere un ciclo infinito serve
+      // l'orologio, non un contatore.
       abortController: toController(input.signal),
       env: { ...process.env, ...auth.envVars } as Record<string, string>,
       ...(input.resumeSessionId ? { resume: input.resumeSessionId } : {}),
