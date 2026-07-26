@@ -53,6 +53,8 @@ export class RunEmitter {
   private persisted = '';
   private flushTimer: NodeJS.Timeout | null = null;
   private closed = false;
+  /** Ha usato almeno uno strumento: allora un turno c'è stato, e si vede. */
+  private didWork = false;
 
   constructor(
     private readonly ctx: {
@@ -94,6 +96,9 @@ export class RunEmitter {
   /** Evento strutturato: uso di un tool, ragionamento, handoff, errore. */
   async event(event: RunEvent): Promise<void> {
     if (this.closed) return;
+    // «Non ha detto niente» e «non ha fatto niente» sono due cose diverse, e
+    // solo la seconda autorizza a cancellare la bolla: vedi `finish`.
+    if (event.type === 'tool.start') this.didWork = true;
     this.seq++;
     const at = Date.now();
     await db
@@ -191,13 +196,18 @@ export class RunEmitter {
     }
 
     /*
-     * Fermato prima che dicesse una parola: la bolla sparisce.
+     * Fermato prima di fare QUALSIASI cosa: la bolla sparisce.
      *
      * Il cartello «esecuzione annullata» al suo posto occupava una riga della
-     * conversazione per dire che non era successo niente. Se invece aveva già
-     * cominciato a rispondere, quel testo resta: è lavoro vero.
+     * conversazione per dire che non era successo niente. Ma «non ha detto una
+     * parola» non vuol dire «non ha fatto niente»: un agente sviluppatore
+     * lavora per minuti con gli strumenti prima di scrivere la prima riga di
+     * risposta, e cancellare quella bolla cancellava con sé la tab del lavoro
+     * svolto, il costo e ogni traccia che il turno fosse esistito. Succedeva
+     * ogni volta che un turno lungo veniva interrotto — cioè proprio quando
+     * c'era più da vedere.
      */
-    const purge = !this.buffer.trim() && result.status === 'cancelled';
+    const purge = !this.buffer.trim() && !this.didWork && result.status === 'cancelled';
 
     if (!purge) {
       // Un run finito senza output lascerebbe una bolla vuota in chat.
@@ -205,7 +215,9 @@ export class RunEmitter {
         this.buffer =
           result.status === 'error'
             ? `_L'esecuzione si è interrotta: ${result.error ?? 'errore sconosciuto'}_`
-            : '_Nessuna risposta prodotta._';
+            : result.status === 'cancelled'
+              ? '_Interrotto. Quello che aveva già fatto è nella tab del lavoro svolto._'
+              : '_Nessuna risposta prodotta._';
       }
       await db
         .update(schema.messages)
