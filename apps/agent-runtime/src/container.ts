@@ -84,7 +84,7 @@ export async function runInContainer(job: RunJob): Promise<void> {
 
   let authEnv: Record<string, string>;
   try {
-    const auth = await resolveClaudeAuth(job.workspaceId);
+    const auth = await resolveClaudeAuth(job.workspaceId, job.triggeredByUserId);
     authEnv = auth.envVars;
   } catch (err) {
     await failRun(

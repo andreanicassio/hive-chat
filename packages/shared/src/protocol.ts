@@ -326,6 +326,12 @@ export const runJobSchema = z.object({
   fromAgentHandle: z.string().nullable().default(null),
   /** Profondità della catena di handoff, per fermare i loop tra agenti. */
   hop: z.number().int().min(0).max(8).default(0),
+  /**
+   * Chi ha chiesto questo turno: decide con quali credenziali gira, cioè chi
+   * lo paga. Con un default, perché i job già in coda non ce l'hanno e non
+   * devono far fallire il parse.
+   */
+  triggeredByUserId: z.uuid().nullable().default(null),
 });
 export type RunJob = z.infer<typeof runJobSchema>;
 

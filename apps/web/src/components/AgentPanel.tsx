@@ -249,6 +249,7 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
   );
   const [channelIds, setChannelIds] = useState<Set<string>>(new Set(agent?.channelIds ?? []));
   const [autoRespond, setAutoRespond] = useState(agent?.autoRespond ?? false);
+  const [allowOthers, setAllowOthers] = useState(agent?.allowOthers ?? false);
   const [replyStyle, setReplyStyle] = useState<ReplyStyle>(agent?.replyStyle ?? 'normale');
   const [replyStyleCustom, setReplyStyleCustom] = useState(agent?.replyStyleCustom ?? '');
   const [repoUrl, setRepoUrl] = useState(agent?.repo?.gitUrl ?? '');
@@ -383,6 +384,7 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
         avatarEmoji: emoji,
         purpose: purpose.trim() || null,
         replyStyle,
+        allowOthers,
         replyStyleCustom: replyStyle === 'custom' ? replyStyleCustom.trim() || null : null,
         autoRespond,
         execution,
@@ -443,6 +445,7 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
         purpose: purpose.trim() || null,
         description: purpose.trim().slice(0, 200) || null,
         replyStyle,
+        allowOthers,
         replyStyleCustom: replyStyle === 'custom' ? replyStyleCustom.trim() || null : null,
         autoRespond,
         execution,
@@ -772,6 +775,27 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
                     </p>
                   )}
                 </div>
+              )}
+              {execution === 'local' && (
+                <label className="mt-2.5 flex cursor-pointer items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={allowOthers}
+                    onChange={(e) => setAllowOthers(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 accent-[var(--color-honey)]"
+                  />
+                  <span>
+                    <span className="block text-[13.5px] font-medium">
+                      Altri possono farlo partire
+                    </span>
+                    <span className="block text-[12.5px] text-[var(--color-ink-soft)]">
+                      Questo agente gira sul <strong className="font-medium">tuo</strong> computer,
+                      nella tua cartella, sui tuoi file. Lasciandola spenta risponde solo a te:
+                      l'accesso alla tua macchina resta una cosa che dichiari, non un effetto
+                      collaterale di un invito.
+                    </span>
+                  </span>
+                </label>
               )}
               {execution === 'local' && (
                 <p className="mt-1.5 text-[12.5px] text-[var(--color-ink-faint)]">

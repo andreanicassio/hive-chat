@@ -18,6 +18,8 @@ export interface RunnerInput {
   emitter: EmitterLike;
   runId: string;
   workspaceId: string;
+  /** Chi ha chiesto il turno: decide con quali credenziali gira. */
+  triggeredByUserId?: string | null;
   channelId: string;
   /** Directory di lavoro: repo del progetto per gli sviluppatori, scratch per gli altri. */
   workDir: string;

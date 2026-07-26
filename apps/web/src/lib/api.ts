@@ -440,6 +440,18 @@ export const api = {
   acceptInvite: (code: string) => post<{ workspaceId: string }>(`/api/invites/${code}/accept`),
 
   /* --- segreti --- */
+  /** Le chiavi della persona: valgono in tutti i progetti, e le vede solo lei. */
+  mySecrets: () =>
+    get<{ secrets: Array<{ key: string; updatedAt: string }> }>('/api/me/secrets'),
+  setMySecret: (key: string, value: string) =>
+    put<{ ok: true; key: string }>(`/api/me/secrets/${key}`, { value }),
+  deleteMySecret: (key: string) => del<{ ok: true }>(`/api/me/secrets/${key}`),
+  setSecretFallback: (workspaceId: string, enabled: boolean) =>
+    put<{ ok: true; secretFallback: boolean }>(
+      `/api/workspaces/${workspaceId}/secret-fallback`,
+      { enabled },
+    ),
+
   secrets: (workspaceId: string) =>
     get<{ secrets: Array<{ key: string; hint: string | null; updatedAt: string }> }>(
       `/api/workspaces/${workspaceId}/secrets`,

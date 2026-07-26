@@ -371,21 +371,29 @@ async function triggerAgents(args: TriggerArgs): Promise<string[]> {
 
   const runIds: string[] = [];
   for (const agent of toRun) {
-    const runId = await enqueueRun({
-      workspaceId: args.workspaceId,
-      agentId: agent.id,
-      channelId: args.channelId,
-      triggerMessageId: args.message.id,
-      // Si risponde dove ci si è parlati: se l'innesco sta dentro un thread,
-      // l'agente risponde lì. Se l'innesco è la RADICE di un thread
-      // (`threadRootId` nullo) resta una conversazione di canale.
-      threadRootId: args.message.threadRootId,
-      prompt: args.message.body,
-      hop: args.hop,
-      fromAgentHandle:
-        args.message.authorType === 'agent' ? (args.message.authorId ?? null) : null,
-    });
-    runIds.push(runId);
+    // Un agente che rifiuta di partire non deve far fallire l'invio del
+    // messaggio: il messaggio è di chi scrive, il rifiuto è dell'agente.
+    try {
+      const runId = await enqueueRun({
+        workspaceId: args.workspaceId,
+        agentId: agent.id,
+        channelId: args.channelId,
+        triggerMessageId: args.message.id,
+        // Si risponde dove ci si è parlati: se l'innesco sta dentro un thread,
+        // l'agente risponde lì. Se l'innesco è la RADICE di un thread
+        // (`threadRootId` nullo) resta una conversazione di canale.
+        threadRootId: args.message.threadRootId,
+        prompt: args.message.body,
+        hop: args.hop,
+        fromAgentHandle:
+          args.message.authorType === 'agent' ? (args.message.authorId ?? null) : null,
+        // Solo se dietro c'è una persona: fra agenti nessuno paga.
+        triggeredByUserId: isHuman ? args.message.authorId : null,
+      });
+      runIds.push(runId);
+    } catch (err) {
+      console.warn(`[trigger] ${agent.handle} non è partito:`, (err as Error).message);
+    }
   }
   return runIds;
 }
@@ -400,6 +408,8 @@ export interface EnqueueRunArgs {
   prompt: string;
   hop: number;
   fromAgentHandle: string | null;
+  /** La persona che ha chiesto questo turno: paga lei, e si vede. */
+  triggeredByUserId?: string | null;
 }
 
 /**
@@ -734,6 +744,39 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
     await redisPub.rpop(key).catch(() => null);
   }
 
+  /*
+   * Un agente locale gira sul computer di chi l'ha creato: nella sua
+   * cartella, sui suoi file, col suo abbonamento. Che lo possa avviare
+   * chiunque sia stato invitato non è una comodità, è un accesso alla
+   * macchina di qualcun altro concesso per distrazione.
+   */
+  const owner = (
+    await db
+      .select({
+        createdBy: schema.agents.createdBy,
+        execution: schema.agents.execution,
+        allowOthers: schema.agents.allowOthers,
+        name: schema.agents.name,
+      })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, args.agentId))
+      .limit(1)
+  )[0];
+
+  if (
+    owner?.execution === 'local' &&
+    !owner.allowOthers &&
+    args.triggeredByUserId &&
+    owner.createdBy &&
+    args.triggeredByUserId !== owner.createdBy
+  ) {
+    throw badRequest(
+      'agent_not_shared',
+      `${owner.name} gira sul computer di chi l'ha creato, e non è condiviso. ` +
+        `Chiedi al proprietario di attivare «altri possono farlo partire».`,
+    );
+  }
+
   const runId = randomUUID();
 
   // Con cosa parte questo turno. Si registra sul run perché la configurazione
@@ -780,6 +823,7 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
     triggerMessageId: args.triggerMessageId,
     responseMessageId: responseMessage.id,
     status: 'queued',
+    triggeredByUserId: args.triggeredByUserId ?? null,
     model: agentConfig?.model ?? null,
     effort: agentConfig?.effort ?? null,
     hop: args.hop + 1,
@@ -815,6 +859,7 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
     prompt: args.prompt,
     fromAgentHandle: args.fromAgentHandle,
     hop: args.hop + 1,
+    triggeredByUserId: args.triggeredByUserId ?? null,
   };
 
   if (budget.exceeded) {

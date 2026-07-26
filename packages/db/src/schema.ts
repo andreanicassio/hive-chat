@@ -67,6 +67,13 @@ export const authSessions = pgTable(
 export const workspaces = pgTable(
   'workspaces',
   {
+    /**
+     * Se manca la chiave della persona, si usa quella del progetto?
+     *
+     * Spento di default: se la spesa deve essere di ciascuno, il default deve
+     * dirlo. Acceso è comodo e riporta al problema di prima.
+     */
+    secretFallback: boolean('secret_fallback').notNull().default(false),
     id: uuid('id').primaryKey().defaultRandom(),
     slug: varchar('slug', { length: 48 }).notNull(),
     name: varchar('name', { length: 64 }).notNull(),
@@ -319,6 +326,15 @@ export const agents = pgTable(
      */
     runnerTokenId: uuid('runner_token_id'),
     autoRespond: boolean('auto_respond').notNull().default(false),
+    /**
+     * Altri membri possono far partire questo agente?
+     *
+     * Conta per gli agenti locali: girano sul computer di chi li ha creati,
+     * nella sua cartella, sui suoi file. Spento di default — l'accesso alla
+     * propria macchina è una decisione da dichiarare, non un effetto
+     * collaterale di un invito.
+     */
+    allowOthers: boolean('allow_others').notNull().default(false),
     /** Stato volatile mostrato nella barra in basso. */
     status: varchar('status', { length: 16 }).notNull().default('idle'),
     statusLabel: varchar('status_label', { length: 140 }),
@@ -357,6 +373,13 @@ export const agentSkills = pgTable(
 export const agentRuns = pgTable(
   'agent_runs',
   {
+    /**
+     * Chi ha innescato questo turno: serve a scegliere la chiave della
+     * persona giusta e a dire dopo chi ha speso cosa. `null` quando dietro
+     * non c'è nessuno — un risveglio programmato, un agente che ne chiama
+     * un altro.
+     */
+    triggeredByUserId: uuid('triggered_by_user_id'),
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
       .notNull()
@@ -507,6 +530,28 @@ export const modelCatalog = pgTable(
 /* ---------------------------------------------------------------------------
  * Contesto condiviso del progetto
  * ------------------------------------------------------------------------ */
+
+/**
+ * Chiavi della PERSONA, non del progetto.
+ *
+ * Un turno lo paga chi lo chiede: se il token dell'abbonamento sta sul
+ * progetto, chiunque venga invitato spende quello di chi l'ha configurato, e
+ * il proprietario non ha nemmeno modo di accorgersene. Qui la chiave segue
+ * l'utente in tutti i progetti in cui sta.
+ */
+export const userSecrets = pgTable(
+  'user_secrets',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    key: varchar('key', { length: 64 }).notNull(),
+    valueEncrypted: text('value_encrypted').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.key] })],
+);
 
 export const workspaceContext = pgTable('workspace_context', {
   workspaceId: uuid('workspace_id')

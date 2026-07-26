@@ -396,6 +396,7 @@ export function serializeAgent(row: AgentRow, extra?: Partial<Agent>): Agent {
     runtime: row.runtime as Agent['runtime'],
     effort: row.effort as Agent['effort'],
     replyStyle: row.replyStyle as Agent['replyStyle'],
+    allowOthers: row.allowOthers,
     replyStyleCustom: row.replyStyleCustom,
     avatarEmoji: row.avatarEmoji,
     avatarColor: row.avatarColor,

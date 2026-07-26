@@ -10,6 +10,7 @@ import {
   KeyRound,
   Loader2,
   Plus,
+  ChevronDown,
   Trash2,
   TriangleAlert,
   UserPlus,
@@ -317,6 +318,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
 
+              <MySecrets />
+
+              <SecretFallbackToggle />
+
               <p className="text-[12.5px] text-[var(--color-ink-soft)]">
                 Le chiavi impostate qui valgono solo per questo progetto e hanno la
                 precedenza su quelle del server. Sono cifrate sul database e non tornano
@@ -612,6 +617,157 @@ function DeviceSectionDesktop() {
         </button>
       )}
     </>
+  );
+}
+
+/**
+ * Le chiavi della PERSONA.
+ *
+ * Un turno lo paga chi lo chiede: se il token sta solo sul progetto, chi
+ * viene invitato spende l'abbonamento di chi l'ha configurato — e il
+ * proprietario non se ne accorge nemmeno. Queste seguono te in tutti i
+ * progetti, e non le vede nessun altro.
+ */
+/**
+ * La ricaduta sulle chiavi del progetto.
+ *
+ * Spenta, chi non ha messo la sua chiave semplicemente non fa partire agenti
+ * Claude — ruvido ma onesto. Accesa, il progetto paga per tutti, che è comodo
+ * e riporta al problema di prima. La decide chi possiede il progetto.
+ */
+function SecretFallbackToggle() {
+  const workspace = useStore((s) => s.workspace);
+  const [on, setOn] = useState(workspace?.secretFallback ?? false);
+  const [busy, setBusy] = useState(false);
+  if (!workspace || workspace.role !== 'owner') return null;
+
+  return (
+    <label className="flex cursor-pointer items-start gap-2.5 rounded-[11px] border border-[var(--color-line)] p-3.5">
+      <input
+        type="checkbox"
+        checked={on}
+        disabled={busy}
+        onChange={(e) => {
+          const next = e.target.checked;
+          setOn(next);
+          setBusy(true);
+          void api
+            .setSecretFallback(workspace.id, next)
+            .catch(() => setOn(!next))
+            .finally(() => setBusy(false));
+        }}
+        className="mt-0.5 h-4 w-4 accent-[var(--color-honey)]"
+      />
+      <span>
+        <span className="block text-[13.5px] font-medium">
+          Chi non ha una chiave sua usa quella del progetto
+        </span>
+        <span className="block text-[12.5px] text-[var(--color-ink-soft)]">
+          Spenta, ognuno paga i propri turni e chi non ha messo la sua chiave non fa partire
+          agenti. Accesa è più comoda, ma il progetto — cioè tu — paga per tutti.
+        </span>
+      </span>
+    </label>
+  );
+}
+
+function MySecrets() {
+  const [rows, setRows] = useState<Array<{ key: string; updatedAt: string }>>([]);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = () => {
+    void api
+      .mySecrets()
+      .then(({ secrets }) => setRows(secrets))
+      .catch(() => setRows([]));
+  };
+  useEffect(load, []);
+
+  const mine = new Set(rows.map((r) => r.key));
+
+  return (
+    <div className="rounded-[11px] border border-[var(--color-line)] p-3.5">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between text-left"
+      >
+        <span>
+          <span className="block text-[13.5px] font-medium">Le mie chiavi</span>
+          <span className="block text-[12.5px] text-[var(--color-ink-soft)]">
+            {mine.size > 0
+              ? `${mine.size} impostata${mine.size === 1 ? '' : 'e'} — i tuoi turni le usano prima di quelle del progetto`
+              : 'Nessuna: i tuoi turni useranno le chiavi del progetto, se il proprietario lo permette'}
+          </span>
+        </span>
+        <ChevronDown
+          size={15}
+          className={clsx('shrink-0 transition-transform', open && 'rotate-180')}
+        />
+      </button>
+
+      {open && (
+        <div className="mt-3 flex flex-col gap-2.5">
+          {KNOWN_KEYS.filter((k) => k.key !== 'GITHUB_TOKEN').map((spec) => (
+            <div key={spec.key}>
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] font-medium">{spec.label}</span>
+                {mine.has(spec.key) && (
+                  <span className="rounded-full bg-[color-mix(in_oklab,var(--color-online)_14%,transparent)] px-2 py-[1px] text-[11px] text-[var(--color-online)]">
+                    tua
+                  </span>
+                )}
+              </div>
+              <div className="mt-1 flex gap-2">
+                <input
+                  className="field flex-1"
+                  type="password"
+                  placeholder={mine.has(spec.key) ? 'incolla per sostituire' : spec.placeholder}
+                  value={draft[spec.key] ?? ''}
+                  onChange={(e) => setDraft((d) => ({ ...d, [spec.key]: e.target.value }))}
+                />
+                <button
+                  className="btn btn-primary shrink-0"
+                  disabled={busy === spec.key || !(draft[spec.key] ?? '').trim()}
+                  onClick={() => {
+                    setBusy(spec.key);
+                    void api
+                      .setMySecret(spec.key, (draft[spec.key] ?? '').trim())
+                      .then(() => {
+                        setDraft((d) => ({ ...d, [spec.key]: '' }));
+                        load();
+                      })
+                      .finally(() => setBusy(null));
+                  }}
+                >
+                  Salva
+                </button>
+                {mine.has(spec.key) && (
+                  <button
+                    className="shrink-0 px-2 text-[var(--color-ink-faint)] transition-colors hover:text-[var(--color-error)]"
+                    title="Rimuovi"
+                    onClick={() => {
+                      setBusy(spec.key);
+                      void api
+                        .deleteMySecret(spec.key)
+                        .then(load)
+                        .finally(() => setBusy(null));
+                    }}
+                  >
+                    <Trash2 size={14} strokeWidth={2.1} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+          <p className="text-[12px] text-[var(--color-ink-faint)]">
+            Cifrate sul server e mai restituite: puoi sostituirle, non rileggerle. Valgono in
+            tutti i progetti in cui sei, e nessun altro le vede.
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 

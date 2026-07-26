@@ -86,6 +86,8 @@ export interface Workspace {
   createdAt: string;
   /** Ruolo dell'utente corrente in questo workspace. */
   role?: WorkspaceRole;
+  /** Se manca la chiave della persona, si ricade su quella del progetto. */
+  secretFallback?: boolean;
 }
 
 export const createWorkspaceSchema = z.object({
@@ -591,6 +593,8 @@ export interface Agent {
   runtime: AgentRuntime;
   /** Solo per i modelli Claude: gli altri lo ignorano. */
   effort: EffortLevel;
+  /** Altri membri possono far partire questo agente (conta se è locale). */
+  allowOthers: boolean;
   /** Quanto deve essere lunga la risposta che finisce in chat. */
   replyStyle: ReplyStyle;
   /** La regola scritta a mano, quando `replyStyle` è `custom`. */
@@ -636,6 +640,7 @@ export const createAgentSchema = z.object({
   model: z.string().max(128).optional(),
   effort: z.enum(effortLevels).default('high'),
   replyStyle: z.enum(replyStyles).default('normale'),
+  allowOthers: z.boolean().default(false),
   replyStyleCustom: z.string().max(600).nullable().optional(),
   avatarEmoji: z.string().min(1).max(8).default('🤖'),
   avatarColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
@@ -669,6 +674,7 @@ export const updateAgentSchema = z.object({
   model: z.string().max(128).optional(),
   effort: z.enum(effortLevels).optional(),
   replyStyle: z.enum(replyStyles).optional(),
+  allowOthers: z.boolean().optional(),
   replyStyleCustom: z.string().max(600).nullable().optional(),
   avatarEmoji: z.string().min(1).max(8).optional(),
   avatarColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),

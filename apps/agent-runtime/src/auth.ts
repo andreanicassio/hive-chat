@@ -27,6 +27,8 @@ export interface ClaudeAuth {
   envVars: Record<string, string>;
   /** Come è stato autenticato, per la diagnostica e per la UI. */
   source:
+    | 'user-oauth'
+    | 'user-api-key'
     | 'workspace-oauth'
     | 'workspace-api-key'
     | 'server-oauth'
@@ -66,6 +68,40 @@ async function workspaceSecret(workspaceId: string, key: string): Promise<string
 }
 
 /**
+ * Le chiavi della PERSONA che ha innescato il turno.
+ *
+ * Vengono prima di tutto: un turno lo paga chi lo chiede. Prima stavano solo
+ * sul progetto, quindi chiunque fosse invitato spendeva l'abbonamento di chi
+ * l'aveva configurato — e il proprietario non aveva modo di accorgersene,
+ * perché nemmeno registravamo chi avesse innescato cosa.
+ */
+async function userSecret(userId: string, key: string): Promise<string | null> {
+  const rows = await db
+    .select({ value: schema.userSecrets.valueEncrypted })
+    .from(schema.userSecrets)
+    .where(and(eq(schema.userSecrets.userId, userId), eq(schema.userSecrets.key, key)))
+    .limit(1);
+  const enc = rows[0]?.value;
+  if (!enc) return null;
+  try {
+    return decryptSecret(enc);
+  } catch {
+    console.warn(`[auth] segreto ${key} dell'utente ${userId} non decifrabile`);
+    return null;
+  }
+}
+
+/** Il progetto permette di ricadere sulle proprie chiavi? */
+async function fallbackAllowed(workspaceId: string): Promise<boolean> {
+  const rows = await db
+    .select({ on: schema.workspaces.secretFallback })
+    .from(schema.workspaces)
+    .where(eq(schema.workspaces.id, workspaceId))
+    .limit(1);
+  return rows[0]?.on ?? false;
+}
+
+/**
  * Legge il token dell'abbonamento dal file di Claude Code.
  * Restituisce null se assente o già scaduto: in quel caso è meglio passare
  * alla API key che far partire un run destinato a fallire.
@@ -92,14 +128,40 @@ function tokenFromCredentialsFile(): string | null {
   }
 }
 
-export async function resolveClaudeAuth(workspaceId: string): Promise<ClaudeAuth> {
+/**
+ * Con quali credenziali gira questo turno.
+ *
+ * Tre livelli, dal più specifico: la persona che l'ha chiesto, il progetto,
+ * il server. Le chiavi del progetto entrano in gioco solo se il proprietario
+ * ha acceso la ricaduta — spenta di default, perché se la spesa deve essere
+ * di ciascuno il default deve dirlo.
+ */
+export async function resolveClaudeAuth(
+  workspaceId: string,
+  triggeredByUserId?: string | null,
+): Promise<ClaudeAuth> {
   const mode = env.HIVE_CLAUDE_AUTH;
   const preferSubscription = mode === 'auto' || mode === 'subscription';
 
-  const [wsToken, wsKey] = await Promise.all([
-    workspaceSecret(workspaceId, 'CLAUDE_CODE_OAUTH_TOKEN'),
-    workspaceSecret(workspaceId, 'ANTHROPIC_API_KEY'),
-  ]);
+  const [userToken, userKey] = triggeredByUserId
+    ? await Promise.all([
+        userSecret(triggeredByUserId, 'CLAUDE_CODE_OAUTH_TOKEN'),
+        userSecret(triggeredByUserId, 'ANTHROPIC_API_KEY'),
+      ])
+    : [null, null];
+
+  // Chi ha la sua chiave non ha bisogno di nient'altro. Chi non ce l'ha
+  // ricade sul progetto solo se il progetto lo consente; altrimenti resta
+  // senza, e glielo diciamo in chiaro invece di far pagare qualcun altro.
+  const hasOwn = Boolean(userToken || userKey);
+  const canFallBack = hasOwn || !triggeredByUserId || (await fallbackAllowed(workspaceId));
+
+  const [wsToken, wsKey] = canFallBack
+    ? await Promise.all([
+        workspaceSecret(workspaceId, 'CLAUDE_CODE_OAUTH_TOKEN'),
+        workspaceSecret(workspaceId, 'ANTHROPIC_API_KEY'),
+      ])
+    : [null, null];
 
   const candidates: Array<{
     token: string | null;
@@ -107,15 +169,19 @@ export async function resolveClaudeAuth(workspaceId: string): Promise<ClaudeAuth
     kind: 'oauth' | 'api-key';
   }> = preferSubscription
     ? [
+        { token: userToken, source: 'user-oauth', kind: 'oauth' },
         { token: wsToken, source: 'workspace-oauth', kind: 'oauth' },
         { token: env.CLAUDE_CODE_OAUTH_TOKEN || null, source: 'server-oauth', kind: 'oauth' },
         { token: tokenFromCredentialsFile(), source: 'credentials-file', kind: 'oauth' },
+        { token: userKey, source: 'user-api-key', kind: 'api-key' },
         { token: wsKey, source: 'workspace-api-key', kind: 'api-key' },
         { token: env.ANTHROPIC_API_KEY || null, source: 'server-api-key', kind: 'api-key' },
       ]
     : [
+        { token: userKey, source: 'user-api-key', kind: 'api-key' },
         { token: wsKey, source: 'workspace-api-key', kind: 'api-key' },
         { token: env.ANTHROPIC_API_KEY || null, source: 'server-api-key', kind: 'api-key' },
+        { token: userToken, source: 'user-oauth', kind: 'oauth' },
         { token: wsToken, source: 'workspace-oauth', kind: 'oauth' },
         { token: env.CLAUDE_CODE_OAUTH_TOKEN || null, source: 'server-oauth', kind: 'oauth' },
         { token: tokenFromCredentialsFile(), source: 'credentials-file', kind: 'oauth' },

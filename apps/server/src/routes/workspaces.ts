@@ -184,6 +184,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
         name: workspace.name,
         iconEmoji: workspace.iconEmoji,
         createdAt: workspace.createdAt.toISOString(),
+        secretFallback: workspace.secretFallback,
         role,
       },
       groups: groupRows.map((g) => ({
@@ -446,6 +447,47 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     .max(64)
     .regex(/^[A-Z][A-Z0-9_]*$/, 'usa MAIUSCOLE_CON_UNDERSCORE');
 
+  /* ------------------------------------------------ chiavi della PERSONA */
+  //
+  // Non stanno sul progetto: un turno lo paga chi lo chiede. Valgono in
+  // tutti i progetti in cui l'utente sta, e non le vede nessun altro —
+  // nemmeno il proprietario del progetto.
+  app.get('/api/me/secrets', async (request) => {
+    const user = requireUser(request);
+    const rows = await db
+      .select({
+        key: schema.userSecrets.key,
+        updatedAt: schema.userSecrets.updatedAt,
+      })
+      .from(schema.userSecrets)
+      .where(eq(schema.userSecrets.userId, user.id));
+    // Il valore non esce mai: si può sostituire, non rileggere.
+    return { secrets: rows.map((r) => ({ ...r, updatedAt: r.updatedAt.toISOString() })) };
+  });
+
+  app.put('/api/me/secrets/:key', async (request) => {
+    const user = requireUser(request);
+    const { key } = z.object({ key: secretKeySchema }).parse(request.params);
+    const { value } = z.object({ value: z.string().min(1).max(8000) }).parse(request.body);
+    await db
+      .insert(schema.userSecrets)
+      .values({ userId: user.id, key, valueEncrypted: encryptSecret(value), updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [schema.userSecrets.userId, schema.userSecrets.key],
+        set: { valueEncrypted: encryptSecret(value), updatedAt: new Date() },
+      });
+    return { ok: true, key };
+  });
+
+  app.delete('/api/me/secrets/:key', async (request) => {
+    const user = requireUser(request);
+    const { key } = z.object({ key: secretKeySchema }).parse(request.params);
+    await db
+      .delete(schema.userSecrets)
+      .where(and(eq(schema.userSecrets.userId, user.id), eq(schema.userSecrets.key, key)));
+    return { ok: true };
+  });
+
   app.get('/api/workspaces/:workspaceId/secrets', async (request) => {
     const { workspaceId } = z.object({ workspaceId: z.uuid() }).parse(request.params);
     await requireMembership(request, workspaceId, 'admin');
@@ -541,6 +583,24 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
       .set({ monthlyBudgetUsd: monthlyBudgetUsd === null ? null : String(monthlyBudgetUsd) })
       .where(eq(schema.workspaces.id, workspaceId));
     return { budget: await budgetState(workspaceId) };
+  });
+
+  /**
+   * Se manca la chiave della persona, si usa quella del progetto?
+   *
+   * Lo decide chi possiede il progetto, ed è spento di default: se la spesa
+   * deve essere di ciascuno, il default deve dirlo. Acceso è comodo e
+   * riporta al problema che questa funzione esiste per risolvere.
+   */
+  app.put('/api/workspaces/:workspaceId/secret-fallback', async (request) => {
+    const { workspaceId } = z.object({ workspaceId: z.uuid() }).parse(request.params);
+    await requireMembership(request, workspaceId, 'owner');
+    const { enabled } = z.object({ enabled: z.boolean() }).parse(request.body);
+    await db
+      .update(schema.workspaces)
+      .set({ secretFallback: enabled })
+      .where(eq(schema.workspaces.id, workspaceId));
+    return { ok: true, secretFallback: enabled };
   });
 
   app.get('/api/workspaces/:workspaceId/usage', async (request) => {

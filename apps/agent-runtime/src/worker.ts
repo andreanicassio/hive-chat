@@ -245,7 +245,8 @@ export async function executeJob(job: RunJob): Promise<void> {
     const repo = (agent.repo as import('@hive/shared').RepoConfig | null) ?? null;
     if (kind === 'developer' && repo?.gitUrl && !env.HIVE_RUNNER_WORKDIR) {
       await emitter.status('working', 'Preparo il repository…');
-      const status = await prepareRepo({ workspaceId: job.workspaceId, workDir, repo });
+      const status = await prepareRepo({ workspaceId: job.workspaceId,
+ workDir, repo });
       if (!status.ready) {
         throw new Error(status.detail);
       }
@@ -271,6 +272,7 @@ export async function executeJob(job: RunJob): Promise<void> {
       emitter,
       runId: job.runId,
       workspaceId: job.workspaceId,
+      triggeredByUserId: job.triggeredByUserId,
       channelId: job.channelId,
       workDir,
       resumeSessionId,

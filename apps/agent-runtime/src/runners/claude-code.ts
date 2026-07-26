@@ -137,7 +137,7 @@ export class ClaudeCodeRunner implements Runner {
           // solo se la macchina ne ha una impostata di proposito.
           usesSubscription: !input.authEnvOverride.ANTHROPIC_API_KEY,
         }
-      : await resolveClaudeAuth(input.workspaceId);
+      : await resolveClaudeAuth(input.workspaceId, input.triggeredByUserId);
     const { model } = toAnthropicModelId(agent.model);
 
     // Le skill vivono nel DB: il runner locale non ce l'ha, quindi lì le
