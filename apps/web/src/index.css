@@ -512,6 +512,25 @@
     padding-bottom: calc(env(safe-area-inset-bottom) + 104px);
   }
 
+  /* La velatura sotto il divisore del giorno: sfuma invece di tagliare, così
+     il testo che ci scorre sotto non sparisce di colpo. */
+  .day-divider::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(
+      180deg,
+      var(--color-panel) 0%,
+      var(--color-panel) 62%,
+      transparent 100%
+    );
+  }
+  .day-divider {
+    position: sticky;
+    isolation: isolate;
+  }
+
   /* Su telefono un pop-up centrato è la cosa sbagliata: il pollice sta in
      basso, e un foglio ancorato al fondo si raggiunge senza cambiare presa.
      È tutto qui, in CSS: nessun componente da toccare, e ogni modale

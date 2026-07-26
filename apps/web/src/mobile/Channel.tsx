@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { PanelRight } from 'lucide-react';
+import { ArrowDown, PanelRight } from 'lucide-react';
 import { useStore } from '../store.js';
+import type { Message } from '@hive/shared';
 import { Composer, DayDivider, MessageRow } from '../components/Chat.js';
 import { MobileHeader } from './Shell.js';
 
@@ -11,6 +12,72 @@ import { MobileHeader } from './Shell.js';
    Nessuna tab bar qui: il pollice sta sul composer, e quaranta pixel in fondo
    sono più utili alla conversazione che a una barra di navigazione.
    ======================================================================== */
+
+/**
+ * «1 nuovo messaggio», sospesa sopra il composer.
+ *
+ * Compare solo quando sei risalito nella conversazione e ne arriva uno
+ * nuovo: se sei già in fondo non serve, e una pillola che c'è sempre diventa
+ * arredamento. Il margine negativo la fa galleggiare SOPRA il vassoio invece
+ * di occupare una riga sua.
+ *
+ * Lo scorrimento lo fa il contenitore, non `scrollIntoView`: quello sposta
+ * anche gli antenati e su iOS porta con sé mezza pagina.
+ */
+function NewMessagePill({
+  scroller,
+  messages,
+}: {
+  scroller: React.RefObject<HTMLDivElement | null>;
+  messages: Message[];
+}) {
+  const [pending, setPending] = useState(0);
+  const lastSeen = useRef(messages.length);
+  const away = useRef(false);
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const onScroll = () => {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      away.current = !atBottom;
+      if (atBottom) {
+        setPending(0);
+        lastSeen.current = messages.length;
+      }
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [scroller, messages.length]);
+
+  useEffect(() => {
+    if (!away.current) {
+      lastSeen.current = messages.length;
+      return;
+    }
+    const n = messages.length - lastSeen.current;
+    if (n > 0) setPending(n);
+  }, [messages.length]);
+
+  if (pending <= 0) return null;
+
+  return (
+    <div className="pointer-events-none -mt-[34px] flex justify-center">
+      <button
+        onClick={() => {
+          const el = scroller.current;
+          if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+          setPending(0);
+          lastSeen.current = messages.length;
+        }}
+        className="glass-inline pointer-events-auto flex h-8 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium text-[var(--color-honey)]"
+      >
+        <ArrowDown size={13} strokeWidth={2.6} />
+        {pending} {pending === 1 ? 'nuovo messaggio' : 'nuovi messaggi'}
+      </button>
+    </div>
+  );
+}
 
 export function MobileChannel() {
   const { channelId } = useParams<{ channelId: string }>();
@@ -121,7 +188,12 @@ export function MobileChannel() {
 
       {/* `pb-[env(safe-area-inset-bottom)]`: l'ultima riga non deve finire
           sotto la barra dell'home indicator. */}
-      <div className="shrink-0 pb-[env(safe-area-inset-bottom)]">
+      {/* Il vassoio del composer è vetro: la luce speculare e il capello
+          stanno in ALTO, perché è il bordo verso cui scorre il contenuto.
+          `pb-[env(safe-area-inset-bottom)]`: l'ultima riga non finisce sotto
+          l'indicatore di sistema. */}
+      <div className="glass-composer shrink-0 pb-[env(safe-area-inset-bottom)]">
+        <NewMessagePill scroller={scroller} messages={messages} />
         <Composer channelId={channel.id} channelName={channel.name} />
       </div>
     </div>

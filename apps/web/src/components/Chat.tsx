@@ -650,10 +650,8 @@ export function WorkRow({ run, onOpen }: { run: RunState; onOpen: () => void }) 
       <button
         onClick={onOpen}
         className={clsx(
-          'flex min-h-[44px] min-w-0 flex-1 items-center gap-2.5 rounded-[10px] border px-3 text-left',
-          live
-            ? 'sweep-slow border-[var(--color-line-strong)] bg-[var(--color-panel-alt)]'
-            : 'border-[var(--color-line)] bg-[var(--color-panel-alt)]',
+          'glass-inline flex min-h-[44px] min-w-0 flex-1 items-center gap-2.5 rounded-[10px] px-3 text-left',
+          live && 'sweep-slow',
         )}
       >
         {live ? (
@@ -1144,7 +1142,10 @@ export function MessageRow({
       id={`msg-${message.id}`}
       className={clsx(
         'group relative px-5 transition-colors hover:bg-[var(--color-panel-alt)]',
-        grouped ? 'py-0.5' : 'pt-2 pb-[9px]',
+        // Su telefono la conversazione è più fitta: 4px sopra e 9px sotto
+        // invece di 6 e 12, come chiede l'handoff. Su schermo grande resta
+        // l'aria di prima, che lì non costa niente.
+        grouped ? 'py-0.5' : 'pt-2 pb-[9px] max-md:px-4 max-md:pt-1 max-md:pb-[9px]',
       )}
     >
       {/* Azioni al passaggio del mouse: citare nel canale, o aprire un thread. */}
@@ -1367,8 +1368,15 @@ export function DayDivider({ date }: { date: Date }) {
     : isYesterday(date)
       ? 'Ieri'
       : format(date, "EEEE d MMMM", { locale: it });
+  /*
+   * Si appiccica appena sotto l'intestazione mentre scorri, con una velatura
+   * che sfuma verso il basso: così sai sempre di che giorno stai leggendo
+   * senza dover risalire, e il testo che ci passa sotto non lo attraversa.
+   * `top: -8px` è voluto — la riga si incastra sotto il bordo invece di
+   * galleggiare staccata.
+   */
   return (
-    <div className="flex items-center gap-3 px-5 py-3.5">
+    <div className="day-divider sticky top-[-8px] z-[4] flex items-center gap-3 px-5 py-3.5">
       <span className="h-px flex-1 bg-[var(--color-line)]" />
       <span className="text-[11.5px] font-semibold text-[var(--color-ink-faint)] lowercase">
         {label}
