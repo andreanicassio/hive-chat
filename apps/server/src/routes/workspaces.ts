@@ -236,7 +236,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
        * file credenziali, non solo le variabili d'ambiente: altrimenti la UI
        * direbbe "nessuna credenziale" mentre gli agenti stanno rispondendo.
        */
-      capabilities: await computeCapabilitiesFor(workspaceId),
+      capabilities: await computeCapabilitiesFor(workspaceId, user.id),
     };
   });
 

@@ -18,6 +18,7 @@ export type ClaudeAuthSource =
   | 'api-key'
   | 'oauth-env'
   | 'oauth-file'
+  | 'user'
   | 'workspace'
   | 'none';
 
@@ -78,16 +79,60 @@ async function workspaceKeys(workspaceId: string): Promise<Set<string>> {
   return out;
 }
 
+/** Le chiavi della PERSONA: stessa cautela, un segreto illeggibile non c'è. */
+async function userKeys(userId: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  try {
+    const rows = await db
+      .select({ key: schema.userSecrets.key, value: schema.userSecrets.valueEncrypted })
+      .from(schema.userSecrets)
+      .where(eq(schema.userSecrets.userId, userId));
+    for (const r of rows) {
+      try {
+        if (decryptSecret(r.value)) out.add(r.key);
+      } catch {
+        /* chiave illeggibile: la si ignora */
+      }
+    }
+  } catch {
+    /* database non raggiungibile */
+  }
+  return out;
+}
+
 /**
  * Cosa può far girare questo progetto.
  *
  * Senza `workspaceId` risponde solo per il server: è il comportamento di
  * prima, che resta valido dove il progetto non c'è.
  */
-export async function computeCapabilitiesFor(workspaceId?: string): Promise<Capabilities> {
+export async function computeCapabilitiesFor(
+  workspaceId?: string,
+  userId?: string,
+): Promise<Capabilities> {
   const keys = workspaceId ? await workspaceKeys(workspaceId) : new Set<string>();
   const base = computeCapabilities();
   const openrouter = base.openrouterConfigured || keys.has('OPENROUTER_API_KEY');
+
+  /*
+   * La chiave della persona viene prima di tutto, e va detta per prima.
+   *
+   * Da quando un turno lo paga chi lo chiede, questo pannello poteva
+   * annunciare «token del progetto» mentre a pagare era la chiave personale
+   * di chi stava guardando. Un'etichetta che nomina il conto sbagliato è
+   * peggio di nessuna etichetta: su quella si decide se far partire un
+   * lavoro grosso adesso o domani.
+   */
+  const mine = userId ? await userKeys(userId) : new Set<string>();
+  if (mine.has('CLAUDE_CODE_OAUTH_TOKEN') || mine.has('ANTHROPIC_API_KEY')) {
+    const oauth = mine.has('CLAUDE_CODE_OAUTH_TOKEN');
+    return {
+      anthropicConfigured: true,
+      openrouterConfigured: openrouter,
+      claudeAuthSource: 'user',
+      claudeAuthLabel: oauth ? 'il tuo abbonamento Claude' : 'la tua API key Anthropic',
+    };
+  }
 
   // Le chiavi del progetto vincono, come dice il pannello.
   if (!base.anthropicConfigured) {

@@ -16,6 +16,7 @@ import { useStore } from '../store.js';
 import { api, ApiError } from '../lib/api.js';
 import { Avatar } from './Avatar.js';
 import { BuildTag } from './BuildTag.js';
+import { ClaudeMeter } from './ClaudeMeter.js';
 import type { Channel } from '@hive/shared';
 
 /* Misure della voce di barra. `.rail-item` vive in index.css: qui si aggiunge
@@ -364,8 +365,10 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Quale versione sto eseguendo: sopra il profilo, sempre in vista. */}
+      {/* Quanto abbonamento resta e chi lo paga, poi quale versione sto
+          eseguendo: sopra il profilo, sempre in vista. */}
       <div className="shrink-0 px-2.5 pt-1">
+        <ClaudeMeter />
         <BuildTag />
       </div>
 
