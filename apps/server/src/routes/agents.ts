@@ -23,7 +23,7 @@ import {
   type AgentKind,
 } from '@hive/shared';
 import { env } from '../env.js';
-import { computeCapabilities } from '../services/capabilities.js';
+import { computeCapabilities, computeCapabilitiesFor } from '../services/capabilities.js';
 
 /** Handle libero nel workspace: non deve collidere né con agenti né con utenti. */
 async function uniqueAgentHandle(workspaceId: string, base: string): Promise<string> {
@@ -143,7 +143,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
 
     return {
       models,
-      capabilities: computeCapabilities(),
+      capabilities: await computeCapabilitiesFor(),
       defaultModel: env.HIVE_DEFAULT_MODEL,
     };
   });

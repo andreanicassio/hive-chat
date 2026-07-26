@@ -1,4 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { and, eq } from 'drizzle-orm';
+import { db, schema } from '../db/index.js';
+import { decryptSecret } from '../lib/crypto.js';
 import { env } from '../env.js';
 
 /**
@@ -11,7 +14,12 @@ import { env } from '../env.js';
  * mezz'ora a chi legge.
  */
 
-export type ClaudeAuthSource = 'api-key' | 'oauth-env' | 'oauth-file' | 'none';
+export type ClaudeAuthSource =
+  | 'api-key'
+  | 'oauth-env'
+  | 'oauth-file'
+  | 'workspace'
+  | 'none';
 
 export interface Capabilities {
   /** Vero se gli agenti su modelli Claude possono partire. */
@@ -37,6 +45,70 @@ function readSubscriptionToken(): { ok: boolean; expired: boolean; plan: string 
   } catch {
     return { ok: false, expired: false, plan: null };
   }
+}
+
+/**
+ * Le chiavi impostate sul PROGETTO.
+ *
+ * Il pannello delle credenziali promette che «hanno la precedenza su quelle
+ * del server», ed è vero — il runtime le guarda per prime. Questo controllo
+ * però non le guardava affatto: chi configurava il token qui vedeva
+ * «Agenti Claude: non configurati» sopra un campo marcato «impostata», e
+ * sotto la riga che gli garantiva che quella chiave contava di più.
+ */
+async function workspaceKeys(workspaceId: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  try {
+    const rows = await db
+      .select({ key: schema.workspaceSecrets.key, value: schema.workspaceSecrets.valueEncrypted })
+      .from(schema.workspaceSecrets)
+      .where(eq(schema.workspaceSecrets.workspaceId, workspaceId));
+    for (const r of rows) {
+      // Presente ma indecifrabile non è presente: meglio dirlo che far
+      // partire un agente che poi fallisce in chat.
+      try {
+        if (decryptSecret(r.value)) out.add(r.key);
+      } catch {
+        /* chiave illeggibile: la si ignora */
+      }
+    }
+  } catch {
+    /* database non raggiungibile: si ricade sulle credenziali del server */
+  }
+  return out;
+}
+
+/**
+ * Cosa può far girare questo progetto.
+ *
+ * Senza `workspaceId` risponde solo per il server: è il comportamento di
+ * prima, che resta valido dove il progetto non c'è.
+ */
+export async function computeCapabilitiesFor(workspaceId?: string): Promise<Capabilities> {
+  const keys = workspaceId ? await workspaceKeys(workspaceId) : new Set<string>();
+  const base = computeCapabilities();
+  const openrouter = base.openrouterConfigured || keys.has('OPENROUTER_API_KEY');
+
+  // Le chiavi del progetto vincono, come dice il pannello.
+  if (!base.anthropicConfigured) {
+    if (keys.has('CLAUDE_CODE_OAUTH_TOKEN')) {
+      return {
+        anthropicConfigured: true,
+        openrouterConfigured: openrouter,
+        claudeAuthSource: 'workspace',
+        claudeAuthLabel: 'abbonamento Claude (token del progetto)',
+      };
+    }
+    if (keys.has('ANTHROPIC_API_KEY')) {
+      return {
+        anthropicConfigured: true,
+        openrouterConfigured: openrouter,
+        claudeAuthSource: 'workspace',
+        claudeAuthLabel: 'API key Anthropic del progetto',
+      };
+    }
+  }
+  return { ...base, openrouterConfigured: openrouter };
 }
 
 export function computeCapabilities(): Capabilities {

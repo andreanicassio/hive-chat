@@ -16,7 +16,7 @@ import {
 } from '@hive/shared';
 import { redisPub } from '../lib/redis.js';
 import { env } from '../env.js';
-import { computeCapabilities } from '../services/capabilities.js';
+import { computeCapabilities, computeCapabilitiesFor } from '../services/capabilities.js';
 import { usageReport } from '../services/usage.js';
 import { budgetState } from '../services/budget.js';
 
@@ -229,7 +229,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
        * file credenziali, non solo le variabili d'ambiente: altrimenti la UI
        * direbbe "nessuna credenziale" mentre gli agenti stanno rispondendo.
        */
-      capabilities: computeCapabilities(),
+      capabilities: await computeCapabilitiesFor(workspaceId),
     };
   });
 
