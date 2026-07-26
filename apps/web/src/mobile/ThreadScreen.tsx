@@ -78,7 +78,7 @@ export function MobileThread() {
   const count = root?.replyCount ?? list.length;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[var(--color-panel)]">
+    <div className="relative flex h-full min-h-0 flex-col bg-[var(--color-panel)]">
       <MobileHeader
         title="Thread"
         subtitle={`${count} ${count === 1 ? 'risposta' : 'risposte'}${
@@ -87,7 +87,7 @@ export function MobileThread() {
         onBack={back}
       />
 
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 pb-10">
+      <div ref={scroller} className="screen-scroll min-h-0 flex-1 overflow-y-auto px-4 pb-10">
         {root && (
           <div className="mt-3 rounded-[12px] border border-[var(--color-line)] bg-[var(--color-panel-alt)] px-3 py-2.5">
             <div className="mb-1.5 flex items-center gap-1.5">

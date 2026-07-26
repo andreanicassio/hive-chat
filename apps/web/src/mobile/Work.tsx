@@ -54,7 +54,7 @@ export function MobileWork() {
   const endedAt = run.endedAt ?? Date.now();
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[var(--color-panel)]">
+    <div className="relative flex h-full min-h-0 flex-col bg-[var(--color-panel)]">
       <MobileHeader
         title="Lavoro svolto"
         subtitle={`${agent?.avatarEmoji ?? '🤖'} ${agent?.name ?? 'agente'} · ${stepCount} ${
@@ -63,7 +63,7 @@ export function MobileWork() {
         onBack={back}
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-10">
+      <div className="screen-scroll min-h-0 flex-1 overflow-y-auto px-3 pb-10">
         {/* In sintesi: se leggi una cosa sola, leggi questa. Sono parole sue,
             non un riassunto dedotto dai nomi dei comandi. */}
         {notes.length > 0 && (

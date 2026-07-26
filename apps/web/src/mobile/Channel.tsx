@@ -62,7 +62,7 @@ export function MobileChannel() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[var(--color-panel)]">
+    <div className="relative flex h-full min-h-0 flex-col bg-[var(--color-panel)]">
       <MobileHeader
         title={`# ${channel.name}`}
         subtitle={
@@ -89,7 +89,7 @@ export function MobileChannel() {
           atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
           if (el.scrollTop < 120 && channelId) void loadOlder(channelId);
         }}
-        className="min-h-0 flex-1 overflow-y-auto"
+        className="screen-scroll min-h-0 flex-1 overflow-y-auto"
       >
         <div className="pb-3">
           {messages.map((message, i) => {

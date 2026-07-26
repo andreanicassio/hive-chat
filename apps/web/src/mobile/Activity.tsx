@@ -157,7 +157,7 @@ export function MobileActivity() {
         large
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-10">
+      <div data-tabs className="screen-scroll h-full overflow-y-auto px-3">
         <div className="mt-3 flex flex-col gap-2.5">
           {active.map(({ messageId, run }) => (
             <ActiveCard key={run.runId} messageId={messageId} run={run} />

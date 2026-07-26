@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useEffect, useRef, type ReactNode } from 'react';
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { Activity, ChevronLeft, Hexagon, MessageSquare, User } from 'lucide-react';
@@ -8,7 +8,6 @@ import { MobileChannel } from './Channel.js';
 import { MobileWork } from './Work.js';
 import { MobileThread } from './ThreadScreen.js';
 import { MobileActivity } from './Activity.js';
-import type { ReactNode } from 'react';
 
 /* ==========================================================================
    Guscio mobile.
@@ -41,10 +40,32 @@ export function MobileHeader({
   right?: ReactNode;
   large?: boolean;
 }) {
+  /*
+   * L'intestazione è un OVERLAY, non un fratello nel flex.
+   *
+   * È la condizione perché il vetro sia vetro: se niente scorre dietro, un
+   * pannello sfocato non ha nulla da sfocare e legge come nebbia. Lo spazio
+   * lo recupera lo scroller col suo `padding-top`, che vale l'altezza vera
+   * di questa barra — misurata, non scritta a mano: cambia col titolo grande,
+   * col sottotitolo e con la tacca del telefono.
+   */
+  const ref = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const apply = () =>
+      document.documentElement.style.setProperty('--hdr-h', `${el.offsetHeight}px`);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [title, subtitle, large]);
+
   return (
     <header
+      ref={ref}
       className={clsx(
-        'shrink-0 bg-gradient-to-b from-[var(--color-shell-top)] to-[color-mix(in_oklab,var(--color-shell-top)_55%,var(--color-shell-bottom))] px-3 pb-2.5',
+        'glass-chrome absolute inset-x-0 top-0 z-[5] px-3 pb-2.5',
         STATUS_BAR,
       )}
     >
@@ -92,9 +113,15 @@ function TabBar() {
     { to: '/tu', icon: User, label: 'Tu', match: (p: string) => p === '/tu' },
   ];
 
+  /*
+   * Una capsula che galleggia, non una barra appoggiata: niente bordo
+   * superiore (galleggiare vuol dire non toccare niente) e sta sopra
+   * l'indicatore di sistema, non sopra il contenuto — a lasciargli spazio è
+   * il `padding-bottom` dello scroller.
+   */
   return (
-    <nav className="shrink-0 border-t border-[var(--color-line)] bg-[var(--color-panel)] pb-[env(safe-area-inset-bottom)]">
-      <div className="flex h-[49px]">
+    <nav className="glass-capsule absolute inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+8px)] z-[5] h-16 rounded-full">
+      <div className="flex h-full">
         {tabs.map((t) => {
           const active = t.match(path);
           return (
@@ -123,9 +150,11 @@ function TabBar() {
 
 /** Schermata con la tab bar sotto. */
 export function WithTabs({ children }: { children: ReactNode }) {
+  // Radice `relative`: è l'ancora di header e capsula, che ora ci stanno
+  // sopra invece che accanto.
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+    <div className="relative h-full min-h-0">
+      {children}
       <TabBar />
     </div>
   );

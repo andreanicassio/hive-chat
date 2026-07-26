@@ -113,7 +113,7 @@ export function MobileChannels() {
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-10">
+      <div data-tabs className="screen-scroll h-full overflow-y-auto">
         {working.length > 0 && (
           <>
             <SectionLabel
