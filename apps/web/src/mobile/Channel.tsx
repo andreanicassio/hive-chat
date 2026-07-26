@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import clsx from 'clsx';
 import { ArrowDown, PanelRight } from 'lucide-react';
 import { useStore } from '../store.js';
 import type { Message } from '@hive/shared';
@@ -131,12 +132,32 @@ export function MobileChannel() {
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-[var(--color-panel)]">
       <MobileHeader
-        title={`# ${channel.name}`}
+        title={channel.name}
+        /*
+         * Il sottotitolo dice lo stato, non l'anagrafica: in una chat quella
+         * riga serve a sapere se dall'altra parte c'è qualcuno che sta
+         * facendo qualcosa. Il tema del canale viene dopo, quando non c'è
+         * niente di più urgente da dire.
+         */
         subtitle={
           busy > 0
-            ? `${channelAgents.length} ${channelAgents.length === 1 ? 'agente' : 'agenti'} · ${busy} al lavoro`
-            : channel.topic || `${channelAgents.length} agenti`
+            ? `${busy} ${busy === 1 ? 'agente al lavoro' : 'agenti al lavoro'}`
+            : channel.topic ||
+              `${channelAgents.length} ${channelAgents.length === 1 ? 'agente' : 'agenti'}`
         }
+        leading={
+          <div
+            className={clsx(
+              'flex h-9 w-9 items-center justify-center rounded-full text-[15px] font-bold',
+              busy > 0
+                ? 'bg-[var(--color-honey-soft)] text-[var(--color-honey)]'
+                : 'bg-[var(--color-sunken)] text-[var(--color-ink-faint)]',
+            )}
+          >
+            #
+          </div>
+        }
+        onTitleTap={() => navigate('/attivita')}
         onBack={() => navigate('/')}
         right={
           <button

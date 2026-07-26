@@ -33,12 +33,18 @@ export function MobileHeader({
   onBack,
   right,
   large,
+  leading,
+  onTitleTap,
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
   onBack?: () => void;
   right?: ReactNode;
   large?: boolean;
+  /** Il tondo fra la freccia e il titolo: dice in un colpo d'occhio dove sei. */
+  leading?: ReactNode;
+  /** Titolo e sottotitolo sono un bersaglio solo, come in ogni chat. */
+  onTitleTap?: () => void;
 }) {
   /*
    * L'intestazione è un OVERLAY, non un fratello nel flex.
@@ -79,7 +85,17 @@ export function MobileHeader({
             <ChevronLeft size={24} strokeWidth={2.2} />
           </button>
         )}
-        <div className="min-w-0 flex-1">
+        {leading && <div className="mr-2 shrink-0">{leading}</div>}
+        {/*
+         * Titolo e sottotitolo sono un bersaglio unico e non un `<h1>` muto:
+         * in una chat si tocca il nome in cima per sapere chi c'è dentro, ed
+         * è il gesto che tutti provano per primo.
+         */}
+        <div
+          role={onTitleTap ? 'button' : undefined}
+          onClick={onTitleTap}
+          className={clsx('min-w-0 flex-1', onTitleTap && 'cursor-pointer')}
+        >
           <h1
             className={clsx(
               'truncate font-bold',
@@ -89,7 +105,9 @@ export function MobileHeader({
             {title}
           </h1>
           {subtitle && (
-            <p className="truncate text-[12px] text-[var(--color-ink-faint)]">{subtitle}</p>
+            <p className="truncate text-[12px] leading-[1.35] text-[var(--color-ink-faint)]">
+              {subtitle}
+            </p>
           )}
         </div>
         {right}

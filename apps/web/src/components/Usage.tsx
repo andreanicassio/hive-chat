@@ -264,11 +264,28 @@ export function Usage() {
   const maxSubAgent = Math.max(...subAgents.map((a) => a.inputTokens + a.outputTokens), 1);
   const maxChannel = Math.max(...paidChannels.map((c) => c.billedCostUsd), 0.0001);
 
-  // Se non c'è spesa reale nel periodo, un grafico di dollari sarebbe una
-  // fascia di zeri: in quel caso l'andamento mostra le esecuzioni.
-  const chartOnCost = total.billedCostUsd > 0;
-  const chartValue = (d: UsageReport['daily'][number]) => (chartOnCost ? d.billedCostUsd : d.runs);
-  const maxDay = Math.max(...dailySeries.map(chartValue), chartOnCost ? 0.0001 : 1);
+  /*
+   * Il grafico segue la serie che nel periodo pesa davvero.
+   *
+   * Prima bastava un centesimo di spesa reale per farci disegnare quella, e
+   * gli 800 dollari equivalenti dell'abbonamento sparivano: restavano due
+   * barre in fondo e sembrava che prima di ieri non fosse successo niente.
+   * Le due valute non si sommano — una la paghi, l'altra no — quindi si
+   * sceglie la maggiore e la si dichiara nel titolo.
+   */
+  const chartMode: 'billed' | 'subscription' | 'runs' =
+    total.billedCostUsd >= total.subscriptionEquivalentUsd && total.billedCostUsd > 0
+      ? 'billed'
+      : total.subscriptionEquivalentUsd > 0
+        ? 'subscription'
+        : 'runs';
+  const chartValue = (d: UsageReport['daily'][number]) =>
+    chartMode === 'billed'
+      ? d.billedCostUsd
+      : chartMode === 'subscription'
+        ? d.subscriptionEquivalentUsd
+        : d.runs;
+  const maxDay = Math.max(...dailySeries.map(chartValue), chartMode === 'runs' ? 1 : 0.0001);
 
   const AGENT_COLORS = ['#C8922F', '#C0663C', '#6B7F56', '#4E7C6B', '#7A5C8E', '#A65160'];
 
@@ -357,7 +374,11 @@ export function Usage() {
         <div>
           <div className="mb-1.5 flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-ink-soft)]">
             <TrendingUp size={14} strokeWidth={2.1} />{' '}
-            {chartOnCost ? 'Andamento della spesa' : 'Andamento delle esecuzioni'}
+            {chartMode === 'billed'
+              ? 'Trend of what you actually paid'
+              : chartMode === 'subscription'
+                ? 'Trend of subscription use, at list price'
+                : 'Trend of runs'}
           </div>
           <div className="flex h-24 items-end gap-[3px]">
             {dailySeries.map((d) => (
@@ -365,7 +386,11 @@ export function Usage() {
                 key={d.date}
                 className="group relative flex-1"
                 style={{ height: '100%' }}
-                title={`${d.date}: ${money(d.billedCostUsd)} di spesa reale · ${d.runs} run`}
+                // Nel suggerimento ci sono entrambe le valute: la barra ne
+                // mostra una sola, e senza l'altra il giorno sembra vuoto.
+                title={`${d.date}: ${money(d.billedCostUsd)} paid · ${money(
+                  d.subscriptionEquivalentUsd,
+                )} on subscription · ${d.runs} runs`}
               >
                 <div
                   className="absolute bottom-0 w-full rounded-t-[3px] bg-[var(--color-honey)] transition-all group-hover:bg-[var(--color-terracotta)]"
@@ -376,7 +401,7 @@ export function Usage() {
           </div>
           <div className="mt-1 flex justify-between text-[11px] text-[var(--color-ink-faint)]">
             <span>{dailySeries[0]?.date.slice(5)}</span>
-            <span>oggi</span>
+            <span>today</span>
           </div>
         </div>
       )}

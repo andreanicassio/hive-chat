@@ -1665,7 +1665,14 @@ export function Composer({
         </div>
       )}
 
-      <div className="composer">
+      {/*
+        Su telefono: pillola a sinistra, tasto d'invio tondo a destra, tutto su
+        una riga sola — la forma di Telegram. Su schermo grande resta il
+        composer con la sua barra di strumenti sotto, che lì non toglie niente
+        a nessuno.
+      */}
+      <div className="flex items-end gap-2 md:block">
+      <div className="composer min-w-0 flex-1">
         {/* La citazione appartiene al canale: nel thread il contesto è già il
             thread, e mostrarla lì direbbe una cosa che non succede. */}
         {replyingTo && !threadRootId && (
@@ -1689,6 +1696,16 @@ export function Composer({
             </button>
           </div>
         )}
+        {/* Su telefono le azioni stanno ai lati del testo, dentro la pillola:
+            è lì che le cerca il pollice, ed è una riga risparmiata. */}
+        <div className="flex items-end max-md:pr-1 max-md:pl-1">
+          <button
+            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--color-ink-faint)] max-md:flex"
+            aria-label="Allega un file"
+            onClick={() => filePicker.current?.click()}
+          >
+            <Paperclip size={19} strokeWidth={2} />
+          </button>
         <textarea
           ref={textarea}
           value={value}
@@ -1713,9 +1730,23 @@ export function Composer({
           className={clsx(
             'w-full resize-none bg-transparent leading-[1.55] tracking-[-0.005em] outline-none placeholder:text-[var(--color-ink-faint)]',
             compact ? 'px-3 pt-2.5 pb-0.5 text-[14px]' : 'px-3.5 pt-3 pb-1 text-[14.5px]',
+            // Su telefono il campo è centrato nella pillola: niente barra
+            // sotto, quindi niente spazio da lasciarle.
+            'max-md:px-1 max-md:pt-[9px] max-md:pb-[9px] max-md:text-[16px]',
           )}
         />
-        <div className="flex items-center gap-0.5 pt-1 pr-2 pb-2 pl-2.5">
+          <button
+            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--color-ink-faint)] max-md:flex"
+            aria-label="Menziona qualcuno"
+            onClick={() => {
+              setValue((v) => `${v}@`);
+              textarea.current?.focus();
+            }}
+          >
+            <AtSign size={19} strokeWidth={2} />
+          </button>
+        </div>
+        <div className="flex items-center gap-0.5 pt-1 pr-2 pb-2 pl-2.5 max-md:hidden">
           <button
             className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)] hover:text-[var(--color-ink)]"
             title="Menziona qualcuno"
@@ -1733,20 +1764,6 @@ export function Composer({
           >
             <Paperclip size={15} strokeWidth={2} />
           </button>
-          {/* Nessun `accept`: qualsiasi tipo di file è benvenuto. */}
-          <input
-            ref={filePicker}
-            type="file"
-            multiple
-            hidden
-            onChange={(e) => {
-              const chosen = Array.from(e.target.files ?? []);
-              // Azzeriamo il campo, altrimenti riscegliere lo stesso file non
-              // fa scattare un altro change e sembra che il bottone sia rotto.
-              e.target.value = '';
-              void addFiles(chosen);
-            }}
-          />
           <button
             className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-sunken)] hover:text-[var(--color-ink)]"
             title="Emoji"
@@ -1772,6 +1789,42 @@ export function Composer({
             <ArrowUp size={compact ? 14 : 16} strokeWidth={2.6} />
           </button>
         </div>
+
+        {/* Fuori dalla barra di strumenti: quella su telefono non esiste, e un
+            selettore di file dentro un contenitore nascosto è un bottone che
+            un giorno smette di funzionare senza dire perché. */}
+        {/* Nessun `accept`: qualsiasi tipo di file è benvenuto. */}
+        <input
+          ref={filePicker}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            const chosen = Array.from(e.target.files ?? []);
+            // Azzeriamo il campo, altrimenti riscegliere lo stesso file non
+            // fa scattare un altro change e sembra che il bottone sia rotto.
+            e.target.value = '';
+            void addFiles(chosen);
+          }}
+        />
+      </div>
+
+      {/* Il tasto d'invio su telefono sta FUORI dalla pillola, tondo e pieno:
+          è il bersaglio più grande della schermata e non deve dividere lo
+          spazio col testo. */}
+      <button
+        onClick={() => void send()}
+        disabled={(!value.trim() && pending.length === 0) || sending}
+        aria-label="Invia"
+        className={clsx(
+          'mb-[1px] hidden h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors max-md:flex',
+          value.trim() || pending.length > 0
+            ? 'bg-[var(--color-terracotta)] text-white'
+            : 'bg-[var(--color-sunken)] text-[var(--color-ink-faint)]',
+        )}
+      >
+        <ArrowUp size={19} strokeWidth={2.8} />
+      </button>
       </div>
     </div>
   );
