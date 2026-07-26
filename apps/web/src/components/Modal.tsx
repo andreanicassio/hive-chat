@@ -120,7 +120,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         tabIndex={-1}
-        className={`modal-panel ${SIZES[size]} ${tall ? 'h-[76vh]' : 'max-h-[88vh]'}`}
+        className={`modal-panel ${SIZES[size]} ${tall ? 'h-[76dvh]' : 'max-h-[88dvh]'}`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {(title || icon) && (

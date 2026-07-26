@@ -576,7 +576,11 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Es. Fizz"
                 maxLength={48}
-                autoFocus
+                // Niente autofocus dove c'è una tastiera a schermo: su
+                // telefono si apre da sola e copre metà pannello prima ancora
+                // che tu abbia visto cosa c'è dentro. Col mouse invece far
+                // partire il cursore nel primo campo è comodo.
+                autoFocus={typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches}
               />
               {name.trim() && (
                 <span className="mt-1 block text-[12px] text-[var(--color-ink-faint)]">

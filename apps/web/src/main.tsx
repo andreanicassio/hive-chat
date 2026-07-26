@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { App } from './App.js';
 import './index.css';
 import { watchSystemTheme } from './lib/theme.js';
+import { trackKeyboard } from './lib/keyboard.js';
 import { realtime } from './lib/ws.js';
 import { useStore } from './store.js';
 
@@ -77,6 +78,9 @@ markTitlebar();
 // Il tema l'ha già applicato lo script in index.html: qui restiamo solo in
 // ascolto, perché il sistema può passare a scuro mentre l'app è aperta.
 watchSystemTheme();
+
+// Quanto occupa la tastiera a schermo: i fogli si accorciano di conseguenza.
+trackKeyboard();
 
 /*
  * Finestra nascosta = non stai guardando niente.

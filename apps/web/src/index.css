@@ -437,12 +437,20 @@
     }
     .modal-panel {
       max-width: 100%;
-      max-height: 92dvh;
+      /* `--kb` è l'altezza della tastiera a schermo, misurata dal boot (vedi
+         `lib/keyboard.ts`). Senza, il foglio resta alto com'era e la tastiera
+         gli si siede sopra: si perdono i campi e soprattutto il bottone che
+         salva, che è l'unica cosa che serve davvero. */
+      max-height: calc(92dvh - var(--kb, 0px));
       border-radius: 22px 22px 0 0;
       padding-bottom: env(safe-area-inset-bottom);
       box-shadow: 0 -8px 40px rgb(16 20 24 / 0.28);
       animation: sheet-up 220ms cubic-bezier(0.16, 1, 0.3, 1);
+      /* Vale anche per i fogli ad altezza fissa: `h-[76dvh]` da solo
+         ignorerebbe la tastiera. */
+      height: auto;
     }
+
     /* La maniglia: dice «si trascina» senza scriverlo. */
     .modal-panel::before {
       content: '';
