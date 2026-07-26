@@ -1,12 +1,65 @@
 import { useEffect, useState } from 'react';
 import { Loader2, Plus, Copy, Check, Trash2, Cpu, TriangleAlert } from 'lucide-react';
-import type { RunnerToken } from '@hive/shared';
+import type { SubscriptionUsage, RunnerToken } from '@hive/shared';
 import { api } from '../lib/api.js';
 
 /**
  * Runner locale: qui l'utente genera il token e copia il comando di
  * installazione. Il token in chiaro si vede una volta sola.
  */
+/**
+ * Quanto abbonamento Claude Code è già stato consumato su questa macchina.
+ *
+ * Due finestre, come le conta Anthropic: cinque ore e sette giorni. Serve a
+ * rispondere alla domanda pratica — «faccio partire questo lavoro adesso o
+ * aspetto?» — che finora si poteva solo scoprire sbattendoci contro.
+ *
+ * La barra diventa terracotta oltre l'80%: sotto è un'informazione, sopra è
+ * una decisione.
+ */
+function UsageBars({ usage }: { usage: SubscriptionUsage }) {
+  const rows: Array<{ label: string; w: SubscriptionUsage['fiveHour'] }> = [
+    { label: '5h', w: usage.fiveHour },
+    { label: '7g', w: usage.sevenDay },
+  ];
+  const present = rows.filter((r) => r.w);
+  if (present.length === 0) return null;
+
+  return (
+    <div className="mt-1.5 flex flex-col gap-1">
+      {present.map(({ label, w }) => {
+        const pct = Math.max(0, Math.min(100, w!.utilization));
+        const hot = pct >= 80;
+        return (
+          <div key={label} className="flex items-center gap-2">
+            <span className="w-5 shrink-0 text-[10.5px] text-[var(--color-ink-faint)] tabular-nums">
+              {label}
+            </span>
+            <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--color-sunken)]">
+              <span
+                className="block h-full rounded-full transition-[width] duration-500"
+                style={{
+                  width: `${pct}%`,
+                  background: hot ? 'var(--color-honey)' : 'var(--color-ink-faint)',
+                }}
+              />
+            </span>
+            <span
+              className={
+                'w-9 shrink-0 text-right text-[10.5px] tabular-nums ' +
+                (hot ? 'font-semibold text-[var(--color-honey)]' : 'text-[var(--color-ink-faint)]')
+              }
+              title={w!.resetsAt ? `Riparte da zero: ${new Date(w!.resetsAt).toLocaleString()}` : ''}
+            >
+              {Math.round(pct)}%
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function RunnerTab({ workspaceId }: { workspaceId: string }) {
   const [tokens, setTokens] = useState<RunnerToken[] | null>(null);
   const [fresh, setFresh] = useState<string | null>(null);
@@ -132,6 +185,7 @@ export function RunnerTab({ workspaceId }: { workspaceId: string }) {
                       : 'never connected'}
                     {t.workdir ? ` · ${t.workdir}` : ''}
                   </div>
+                  {t.usage && <UsageBars usage={t.usage} />}
                 </div>
                 <button
                   onClick={() => void revoke(t.id)}

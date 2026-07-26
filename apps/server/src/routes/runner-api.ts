@@ -99,9 +99,35 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
         name: z.string().max(80).optional(),
         host: z.string().max(120).optional(),
         workdir: z.string().max(2000).optional(),
+        /** Quanto abbonamento Claude Code ha già consumato questa macchina. */
+        usage: z
+          .object({
+            fiveHour: z
+              .object({ utilization: z.number(), resetsAt: z.string().nullable() })
+              .nullable()
+              .optional(),
+            sevenDay: z
+              .object({ utilization: z.number(), resetsAt: z.string().nullable() })
+              .nullable()
+              .optional(),
+            at: z.string(),
+          })
+          .optional(),
       })
       .parse(request.body ?? {});
     await refreshPresence(userId, workspaceId, tokenId, body.name ?? 'runner');
+
+    // Sta in Redis con la stessa scadenza della presenza: un numero di una
+    // macchina spenta è un numero che invecchia in silenzio, e su questo si
+    // decide se far partire un lavoro adesso o aspettare.
+    if (body.usage) {
+      await redisPub.set(
+        redisChannels.runnerUsage(tokenId),
+        JSON.stringify(body.usage),
+        'EX',
+        RUNNER_PRESENCE_TTL_SEC * 3,
+      );
+    }
     // Così in Impostazioni si vede DOVE gira ogni runner.
     await db
       .update(schema.runnerTokens)

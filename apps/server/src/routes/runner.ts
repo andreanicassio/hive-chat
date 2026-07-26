@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { db, schema } from '../db/index.js';
 import { requireMembership, requireUser } from '../lib/auth.js';
 import { notFound } from '../lib/errors.js';
+import type { SubscriptionUsage } from '@hive/shared';
 import { createRunnerTokenSchema, redisChannels, type RunnerToken } from '@hive/shared';
 import { redisPub } from '../lib/redis.js';
 
@@ -16,6 +17,7 @@ export function hashToken(token: string): string {
 function serialize(
   row: typeof schema.runnerTokens.$inferSelect,
   online = false,
+  usage: SubscriptionUsage | null = null,
 ): RunnerToken {
   return {
     id: row.id,
@@ -26,7 +28,27 @@ function serialize(
     online,
     host: row.lastHost ?? null,
     workdir: row.lastWorkdir ?? null,
+    // Quanto abbonamento Claude Code ha consumato QUESTA macchina: il tetto è
+    // di chi esegue i turni, non del server.
+    usage,
   };
+}
+
+/** L'ultimo consumo riferito da ciascuna macchina, se ancora fresco. */
+async function usageById(ids: string[]): Promise<Map<string, SubscriptionUsage>> {
+  const out = new Map<string, SubscriptionUsage>();
+  await Promise.all(
+    ids.map(async (id) => {
+      const raw = await redisPub.get(redisChannels.runnerUsage(id));
+      if (!raw) return;
+      try {
+        out.set(id, JSON.parse(raw) as SubscriptionUsage);
+      } catch {
+        /* dato illeggibile: meglio non mostrarne nessuno che mostrarne uno finto */
+      }
+    }),
+  );
+  return out;
 }
 
 /** Quali di questi runner stanno rispondendo adesso. */
@@ -81,8 +103,11 @@ export async function runnerTokenRoutes(app: FastifyInstance): Promise<void> {
         ),
       )
       .orderBy(desc(schema.runnerTokens.createdAt));
-    const live = await onlineIds(rows.map((r) => r.id));
-    return { runnerTokens: rows.map((r) => serialize(r, live.has(r.id))) };
+    const ids = rows.map((r) => r.id);
+    const [live, usage] = await Promise.all([onlineIds(ids), usageById(ids)]);
+    return {
+      runnerTokens: rows.map((r) => serialize(r, live.has(r.id), usage.get(r.id) ?? null)),
+    };
   });
 
   /* ------------------------------------------------------------ revoca token */

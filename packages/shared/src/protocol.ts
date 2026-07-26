@@ -254,6 +254,8 @@ export const redisChannels = {
    * lo vede.
    */
   steerQueue: (runId: string) => `hive:steer:q:${runId}`,
+  /** Consumo dell'abbonamento Claude Code riferito da una macchina. */
+  runnerUsage: (tokenId: string) => `hive:runner:usage:${tokenId}`,
   /** Richieste di annullamento run. */
   runCancel: (runId: string) => `hive:runs:cancel:${runId}`,
   /**

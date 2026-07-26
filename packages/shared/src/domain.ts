@@ -303,6 +303,14 @@ export type UpdateDocumentInput = z.infer<typeof updateDocumentSchema>;
 /* ---------------------------------------------------------------------------
  * Token dei runner locali
  * ------------------------------------------------------------------------ */
+/** Quanto abbonamento Claude Code ha già consumato una macchina. */
+export interface SubscriptionUsage {
+  fiveHour: { utilization: number; resetsAt: string | null } | null;
+  sevenDay: { utilization: number; resetsAt: string | null } | null;
+  /** Quando è stato misurato: un numero vecchio non va spacciato per fresco. */
+  at: string;
+}
+
 export interface RunnerToken {
   id: string;
   label: string | null;
@@ -314,6 +322,7 @@ export interface RunnerToken {
   /** Come si è presentato l'ultima volta. */
   host: string | null;
   workdir: string | null;
+  usage?: SubscriptionUsage | null;
 }
 export const createRunnerTokenSchema = z.object({
   label: z.string().max(80).optional(),

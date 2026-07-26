@@ -14,6 +14,7 @@ import {
 import { toAnthropicModelId } from './models.js';
 import { RemoteEmitter } from './remote-emitter.js';
 import { createLocalSteering } from './steering-core.js';
+import { subscriptionUsage } from './subscription-usage.js';
 
 /**
  * Runner LOCALE a token.
@@ -674,11 +675,23 @@ export async function startRunnerClient(): Promise<void> {
   // lo dava per spento — i messaggi che arrivavano durante un lavoro lungo
   // fallivano con «runner offline» pur essendo la macchina accesa e attiva.
   const heartbeat = setInterval(() => {
-    void fetch(`${cfg.serverUrl}/api/runner/hello`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.token}` },
-      body: JSON.stringify({ name: cfg.name, host: hostname(), workdir: cfg.workdir }),
-    }).catch(() => {});
+    // Sullo stesso viaggio va anche quanto abbonamento è stato consumato: è
+    // un dato di QUESTA macchina — il tetto è di chi esegue i turni — e il
+    // battito è già la cosa che dice «sono viva».
+    void subscriptionUsage()
+      .catch(() => null)
+      .then((usage) =>
+        fetch(`${cfg.serverUrl}/api/runner/hello`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.token}` },
+          body: JSON.stringify({
+            name: cfg.name,
+            host: hostname(),
+            workdir: cfg.workdir,
+            ...(usage ? { usage } : {}),
+          }),
+        }).catch(() => {}),
+      );
   }, 10_000);
   heartbeat.unref();
 
