@@ -8,6 +8,8 @@ import { Sidebar } from './components/Sidebar.js';
 import { Chat, AgentStatusBar } from './components/Chat.js';
 import { AgentPanel, AgentList } from './components/AgentPanel.js';
 import { Settings } from './components/Settings.js';
+import { NewChannel } from './components/NewChannel.js';
+import { SearchPanel } from './components/Search.js';
 import { api } from './lib/api.js';
 import { useIsMobile } from './lib/breakpoint.js';
 import { MobileShell } from './mobile/Shell.js';
@@ -152,6 +154,8 @@ function WorkspaceShell() {
   const [showAgents, setShowAgents] = useState(false);
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showNewChannel, setShowNewChannel] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
 
   useEffect(() => {
     if (workspace || workspaces.length === 0) return;
@@ -240,8 +244,8 @@ function WorkspaceShell() {
       <div className="flex min-h-0 flex-1 gap-1 pt-2 pr-2.5 pb-1 pl-1">
         <Sidebar
           onOpenAgents={() => setShowAgents(true)}
-          onNewChannel={() => {}}
-          onSearch={() => {}}
+          onNewChannel={() => setShowNewChannel(true)}
+          onSearch={() => setShowSearch(true)}
           onOpenSettings={() => setShowSettings(true)}
         />
         {/* La barra di stato sta DENTRO la colonna della conversazione, non
@@ -266,6 +270,8 @@ function WorkspaceShell() {
       )}
       {showNewAgent && <AgentPanel onClose={() => setShowNewAgent(false)} />}
       {showSettings && <Settings onClose={() => setShowSettings(false)} />}
+      {showNewChannel && <NewChannel onClose={() => setShowNewChannel(false)} />}
+      {showSearch && <SearchPanel onClose={() => setShowSearch(false)} />}
     </div>
   );
 }

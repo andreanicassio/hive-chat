@@ -1,11 +1,17 @@
 import type { FastifyInstance } from 'fastify';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, schema } from '../db/index.js';
 import { requireMembership, requireUser } from '../lib/auth.js';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { encryptSecret, newInviteCode, secretHint } from '../lib/crypto.js';
-import { agentChannelMap, serializeAgent, serializeChannel, unreadCounts } from '../services/serialize.js';
+import {
+  agentChannelMap,
+  serializeAgent,
+  serializeChannel,
+  serializeMessages,
+  unreadCounts,
+} from '../services/serialize.js';
 import {
   createInviteSchema,
   createWorkspaceSchema,
@@ -260,6 +266,60 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /* ------------------------------------------------------------- membri */
+  /* ------------------------------------------------------------- ricerca */
+  /*
+   * Cerca fra i messaggi del progetto.
+   *
+   * Cerchiamo con ILIKE su un indice trigramma e non con la ricerca
+   * full-text: qui si scrive in italiano e in inglese nella stessa frase, e
+   * un dizionario che sa una lingua sola sbaglia lo stemming dell'altra. Il
+   * trigramma non sa niente di nessuna lingua, quindi non sbaglia — e trova
+   * anche i pezzi di parola, che è come si cerca davvero in una chat.
+   *
+   * Solo i canali di cui sei membro: la ricerca non è una porta di servizio
+   * per leggere i canali privati altrui.
+   */
+  app.get('/api/workspaces/:workspaceId/search', async (request) => {
+    const { workspaceId } = z.object({ workspaceId: z.uuid() }).parse(request.params);
+    const { user } = await requireMembership(request, workspaceId, 'member');
+    const { q, limit } = z
+      .object({
+        q: z.string().trim().min(2).max(200),
+        limit: z.coerce.number().int().min(1).max(50).default(30),
+      })
+      .parse(request.query);
+
+    const mine = await db
+      .select({ channelId: schema.channelMembers.channelId })
+      .from(schema.channelMembers)
+      .innerJoin(schema.channels, eq(schema.channels.id, schema.channelMembers.channelId))
+      .where(
+        and(
+          eq(schema.channels.workspaceId, workspaceId),
+          eq(schema.channelMembers.memberType, 'user'),
+          eq(schema.channelMembers.memberId, user.id),
+        ),
+      );
+    const channelIds = mine.map((r) => r.channelId);
+    if (channelIds.length === 0) return { results: [] };
+
+    const rows = await db
+      .select()
+      .from(schema.messages)
+      .where(
+        and(
+          inArray(schema.messages.channelId, channelIds),
+          isNull(schema.messages.deletedAt),
+          ilike(schema.messages.body, `%${q}%`),
+        ),
+      )
+      .orderBy(desc(schema.messages.createdAt))
+      .limit(limit);
+
+    const messages = await serializeMessages(rows, { type: 'user', id: user.id });
+    return { results: messages };
+  });
+
   app.get('/api/workspaces/:workspaceId/members', async (request) => {
     const { workspaceId } = z.object({ workspaceId: z.uuid() }).parse(request.params);
     await requireMembership(request, workspaceId);

@@ -481,6 +481,12 @@ export const api = {
   saveContext: (workspaceId: string, manualNotes: string | null) =>
     put<{ ok: true }>(`/api/workspaces/${workspaceId}/context`, { manualNotes }),
 
+  /* --- ricerca --- */
+  search: (workspaceId: string, q: string) =>
+    get<{ results: Message[] }>(
+      `/api/workspaces/${workspaceId}/search?q=${encodeURIComponent(q)}`,
+    ),
+
   /* --- utilizzo e costi --- */
   usage: (workspaceId: string, days: number) =>
     get<UsageReport>(`/api/workspaces/${workspaceId}/usage?days=${days}`),
