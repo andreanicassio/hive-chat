@@ -1582,7 +1582,13 @@ export function Composer({
 
   return (
     <div
-      className={compact ? 'relative px-3.5 pt-2 pb-3.5' : 'relative px-5 pt-1 pb-4'}
+      className={clsx(
+        compact ? 'relative px-3.5 pt-2 pb-3.5' : 'relative px-5 pt-1 pb-4',
+        // Su telefono la pillola porta già il suo respiro: il riquadro attorno
+        // ne aggiungeva altri sedici sotto, e sopra la tastiera diventavano
+        // una fascia vuota grande quanto un messaggio.
+        'max-md:px-3 max-md:pt-1.5 max-md:pb-1.5',
+      )}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes('Files')) {
           e.preventDefault();
@@ -1698,9 +1704,16 @@ export function Composer({
         )}
         {/* Su telefono le azioni stanno ai lati del testo, dentro la pillola:
             è lì che le cerca il pollice, ed è una riga risparmiata. */}
+        {/*
+          I due tasti sono alti quanto UNA riga di campo, non quanto un tondo
+          di 36px: essendo allineati in fondo come il testo, la stessa altezza
+          significa lo stesso centro, e l'icona finisce esattamente sulla riga
+          invece che qualche pixel sotto. Quando il messaggio va a capo
+          restano in fondo, sull'ultima riga, che è dove li si cerca.
+        */}
         <div className="flex items-end max-md:pr-1 max-md:pl-1">
           <button
-            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--color-ink-faint)] max-md:flex"
+            className="hidden h-[43px] w-9 shrink-0 items-center justify-center rounded-full text-[var(--color-ink-faint)] max-md:flex"
             aria-label="Allega un file"
             onClick={() => filePicker.current?.click()}
           >
@@ -1817,7 +1830,11 @@ export function Composer({
         disabled={(!value.trim() && pending.length === 0) || sending}
         aria-label="Invia"
         className={clsx(
-          'mb-[1px] hidden h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors max-md:flex',
+          // Esattamente l'altezza esterna della pillola, misurata: 43 di
+          // contenuto più i bordi. Allineati in fondo, stessa altezza vuol
+          // dire stesso centro. Prima era 36 con un pixel di margine, e stava
+          // tre pixel troppo in basso.
+          'hidden h-[45px] w-[45px] shrink-0 items-center justify-center rounded-full transition-colors max-md:flex',
           value.trim() || pending.length > 0
             ? 'bg-[var(--color-terracotta)] text-white'
             : 'bg-[var(--color-sunken)] text-[var(--color-ink-faint)]',

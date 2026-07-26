@@ -213,7 +213,20 @@ export function MobileChannel() {
           stanno in ALTO, perché è il bordo verso cui scorre il contenuto.
           `pb-[env(safe-area-inset-bottom)]`: l'ultima riga non finisce sotto
           l'indicatore di sistema. */}
-      <div className="glass-composer shrink-0 pb-[env(safe-area-inset-bottom)]">
+      {/*
+        Lo spazio dell'indicatore di sistema serve solo a tastiera CHIUSA.
+        Con la tastiera aperta quell'indicatore non c'è, ma `env()` continua a
+        dichiararlo: restavano trentaquattro pixel di vuoto fra il campo e i
+        tasti. `--kb` vale zero finché la tastiera è giù, quindi il massimo fra
+        i due non toglie niente quando non deve.
+      */}
+      <div
+        className="glass-composer shrink-0"
+        style={{
+          paddingBottom:
+            'max(calc(env(safe-area-inset-bottom) - var(--kb, 0px)), 0px)',
+        }}
+      >
         <NewMessagePill scroller={scroller} messages={messages} />
         <Composer channelId={channel.id} channelName={channel.name} />
       </div>
