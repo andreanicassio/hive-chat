@@ -51,18 +51,46 @@ function readWindow(raw: unknown): UsageWindow | null {
   };
 }
 
-async function fetchUsage(): Promise<SubscriptionUsage | null> {
-  let token: string;
+/**
+ * Lo stesso token con cui girano i turni, nello stesso ordine.
+ *
+ * Deve combaciare con `localAuthEnv()` del runner. Finché non combaciava, le
+ * percentuali raccontavano un account diverso da quello che paga: il file
+ * `~/.claude` e la variabile d'ambiente possono essere due abbonamenti
+ * distinti, e lo erano. Un contatore che misura il conto sbagliato è peggio
+ * di nessun contatore.
+ */
+let lastTurnToken: string | null | undefined;
+
+/**
+ * Con che cosa è girato l'ultimo turno.
+ *
+ * Sul runner la credenziale può arrivare col turno (è quella impostata in
+ * Hive), e allora è quella la quota da mostrare: l'ambiente del servizio
+ * racconterebbe un altro abbonamento. `null` significa «API key», cioè
+ * nessuna quota da misurare.
+ */
+export function noteTurnAuth(auth: Record<string, string>): void {
+  lastTurnToken = auth.ANTHROPIC_API_KEY ? null : (auth.CLAUDE_CODE_OAUTH_TOKEN ?? undefined);
+  cached = null; // il conto è di un altro: quello vecchio non vale più
+}
+
+async function currentToken(): Promise<string | null> {
+  if (lastTurnToken !== undefined) return lastTurnToken;
+  if (process.env.ANTHROPIC_API_KEY) return null; // API key: nessun abbonamento da misurare
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return process.env.CLAUDE_CODE_OAUTH_TOKEN;
   try {
     const raw = await readFile(join(homedir(), '.claude', '.credentials.json'), 'utf8');
     const creds = JSON.parse(raw) as { claudeAiOauth?: { accessToken?: string } };
-    if (!creds.claudeAiOauth?.accessToken) return null;
-    token = creds.claudeAiOauth.accessToken;
+    return creds.claudeAiOauth?.accessToken ?? null;
   } catch {
-    // Nessuna credenziale: questa macchina va ad API key, e allora non c'è
-    // nessun abbonamento da misurare.
     return null;
   }
+}
+
+async function fetchUsage(): Promise<SubscriptionUsage | null> {
+  const token = await currentToken();
+  if (!token) return null;
 
   try {
     const res = await fetch('https://api.anthropic.com/api/oauth/usage', {

@@ -14,7 +14,7 @@ import {
 import { toAnthropicModelId } from './models.js';
 import { RemoteEmitter } from './remote-emitter.js';
 import { createLocalSteering } from './steering-core.js';
-import { subscriptionUsage } from './subscription-usage.js';
+import { noteTurnAuth, subscriptionUsage } from './subscription-usage.js';
 
 /**
  * Runner LOCALE a token.
@@ -50,6 +50,23 @@ function localAuthEnv(): Record<string, string> {
   if (process.env.ANTHROPIC_API_KEY)
     return { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY };
   return {}; // la CLI legge ~/.claude/.credentials.json da sola
+}
+
+/**
+ * L'ambiente del processo Claude Code, con UNA sola credenziale dentro.
+ *
+ * Le due variabili non convivono: se restasse in giro un
+ * `CLAUDE_CODE_OAUTH_TOKEN` del servizio mentre passiamo una API key, la CLI
+ * userebbe l'abbonamento e la chiave scelta non servirebbe a niente — cioè
+ * di nuovo il difetto che stiamo togliendo, solo più difficile da vedere.
+ */
+function authProcessEnv(auth: Record<string, string>): Record<string, string> {
+  const env = { ...process.env } as Record<string, string>;
+  if (Object.keys(auth).length > 0) {
+    delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    delete env.ANTHROPIC_API_KEY;
+  }
+  return { ...env, ...auth };
 }
 
 /* --- traduzione eventi SDK → etichette leggibili (come nel runtime server) --- */
@@ -282,6 +299,12 @@ interface PollResult {
   context: { systemPrompt: string; prompt: string };
   attachments?: PollAttachment[];
   resumeSessionId: string | null;
+  /**
+   * Le credenziali Claude di chi ha chiesto il turno, quando è il proprietario
+   * di questa macchina. Il server le manda solo in quel caso; altrimenti è
+   * `null` e si va con quelle locali.
+   */
+  claudeAuth?: Record<string, string> | null;
 }
 
 /**
@@ -319,6 +342,29 @@ async function downloadAttachments(
 
 async function runOne(cfg: Config, data: PollResult): Promise<void> {
   const { job, agent, context, resumeSessionId } = data;
+  /*
+   * La chiave impostata in Hive vince su quella della macchina.
+   *
+   * È il contrario di prima, e prima era il difetto: chi cambiava la chiave
+   * dal menu vedeva i turni continuare a consumare l'abbonamento configurato
+   * nel servizio, senza nessun segnale. Se il server non ne manda nessuna
+   * (turno di un altro membro su un agente condiviso) si resta su quelle
+   * locali, che è l'unico caso in cui la macchina paga da sé.
+   */
+  const authEnv = data.claudeAuth ?? localAuthEnv();
+  // Le barre dell'uso devono misurare QUESTO conto, non quello del servizio.
+  noteTurnAuth(authEnv);
+  // Detto a voce: «con quale chiave è girato questo turno» non aveva risposta,
+  // ed è la domanda che si fa chi cambia la chiave e non vede cambiare niente.
+  console.log(
+    `[runner] credenziali: ${
+      data.claudeAuth
+        ? 'impostate in Hive'
+        : Object.keys(localAuthEnv()).length > 0
+          ? 'variabile d’ambiente di questa macchina'
+          : '~/.claude di questa macchina'
+    }`,
+  );
   // Il runner non vede Redis, quindi il segnale di stop non può arrivargli
   // come arriva al worker del server: glielo dice il server nella risposta
   // all'invio degli eventi, che è l'unica cosa che continua a passare mentre
@@ -424,7 +470,7 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
     includePartialMessages: true,
     maxTurns: kind === 'developer' ? 60 : 20,
     abortController: controller,
-    env: { ...process.env, ...localAuthEnv() } as Record<string, string>,
+    env: authProcessEnv(authEnv),
     ...(resumeSessionId ? { resume: resumeSessionId } : {}),
     stderr: (d: string) => {
       if (d.trim()) console.error('[claude-code]', d.trim().slice(0, 300));
@@ -555,7 +601,7 @@ async function runOne(cfg: Config, data: PollResult): Promise<void> {
       outputTokens,
       // Su questa macchina si va di abbonamento, a meno che non ci sia una
       // API key impostata apposta: solo allora i dollari sono spesa vera.
-      usesSubscription: !localAuthEnv().ANTHROPIC_API_KEY,
+      usesSubscription: !authEnv.ANTHROPIC_API_KEY,
       sdkSessionId: sessionId,
     });
   } catch (err) {

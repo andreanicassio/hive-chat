@@ -9,6 +9,7 @@ import { hub } from '../realtime/hub.js';
 import { scheduleTurn } from '../services/scheduled-turns.js';
 import { channelMemberIds, notifyApproval } from '../services/notify.js';
 import { unauthorized, forbidden, notFound } from '../lib/errors.js';
+import { decryptSecret } from '../lib/crypto.js';
 import { hashToken } from './runner.js';
 import { applyRunnerOps, type RunnerOp, type RunSinkContext } from '../services/runner-sink.js';
 import {
@@ -20,6 +21,72 @@ import {
 } from '@hive/db';
 import { toDocumentNode } from '../services/documents.js';
 import { redisChannels, runJobSchema, RUNNER_PRESENCE_TTL_SEC, type Approval } from '@hive/shared';
+
+/**
+ * Le credenziali Claude da consegnare al runner insieme al turno.
+ *
+ * Finché non esisteva, un agente `local` ignorava del tutto le chiavi
+ * impostate in Hive: usava quelle della macchina (variabile d'ambiente del
+ * servizio, o `~/.claude`). Cambiare la chiave dal menu non aveva nessun
+ * effetto, e non c'era modo di accorgersene guardando.
+ *
+ * Il token esce da qui SOLO verso il computer di chi ha innescato il turno.
+ * Se un altro membro fa girare un agente condiviso, la sua chiave non parte:
+ * quel turno lo paga la macchina, con le proprie credenziali. Mandare il
+ * token di una persona sul computer di un'altra sarebbe una fuga, e nessuna
+ * comodità la vale.
+ */
+async function claudeAuthForRunner(
+  workspaceId: string,
+  triggeredByUserId: string | null,
+  runnerUserId: string,
+): Promise<Record<string, string> | null> {
+  if (!triggeredByUserId || triggeredByUserId !== runnerUserId) return null;
+
+  const pick = async (
+    rows: Array<{ key: string; value: string }>,
+  ): Promise<Record<string, string> | null> => {
+    const read = (key: string) => {
+      const enc = rows.find((r) => r.key === key)?.value;
+      if (!enc) return null;
+      try {
+        return decryptSecret(enc);
+      } catch {
+        return null;
+      }
+    };
+    const oauth = read('CLAUDE_CODE_OAUTH_TOKEN');
+    if (oauth) return { CLAUDE_CODE_OAUTH_TOKEN: oauth };
+    const apiKey = read('ANTHROPIC_API_KEY');
+    if (apiKey) return { ANTHROPIC_API_KEY: apiKey };
+    return null;
+  };
+
+  const mine = await pick(
+    await db
+      .select({ key: schema.userSecrets.key, value: schema.userSecrets.valueEncrypted })
+      .from(schema.userSecrets)
+      .where(eq(schema.userSecrets.userId, triggeredByUserId)),
+  );
+  if (mine) return mine;
+
+  // Le chiavi del progetto solo se il proprietario ha acceso la ricaduta:
+  // stessa regola del runtime sul server, scritta due volte perché i due
+  // percorsi non condividono codice.
+  const ws = await db
+    .select({ fallback: schema.workspaces.secretFallback })
+    .from(schema.workspaces)
+    .where(eq(schema.workspaces.id, workspaceId))
+    .limit(1);
+  if (!ws[0]?.fallback) return null;
+
+  return pick(
+    await db
+      .select({ key: schema.workspaceSecrets.key, value: schema.workspaceSecrets.valueEncrypted })
+      .from(schema.workspaceSecrets)
+      .where(eq(schema.workspaceSecrets.workspaceId, workspaceId)),
+  );
+}
 
 /** Verifica che il run sia di un agente `local` di questo utente. */
 async function resolveRun(userId: string, runId: string) {
@@ -212,6 +279,7 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
           context: { systemPrompt: context.systemPrompt, prompt: context.prompt },
           attachments,
           resumeSessionId: await lastSessionId(job.agentId),
+          claudeAuth: await claudeAuthForRunner(job.workspaceId, job.triggeredByUserId, userId),
         };
       }
       await new Promise((r) => setTimeout(r, 1000));
