@@ -576,6 +576,11 @@ export function AgentPanel({ onClose, agent }: { onClose: () => void; agent?: Ag
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Es. Fizz"
                 maxLength={48}
+                // «Nome» + un campo di testo: per iOS è un contatto, e offre
+                // di riempirlo con la rubrica. Non lo è.
+                autoComplete="off"
+                autoCorrect="off"
+                data-1p-ignore
                 // Niente autofocus dove c'è una tastiera a schermo: su
                 // telefono si apre da sola e copre metà pannello prima ancora
                 // che tu abbia visto cosa c'è dentro. Col mouse invece far

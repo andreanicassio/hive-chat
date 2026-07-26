@@ -1695,6 +1695,20 @@ export function Composer({
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder={threadRootId ? 'Rispondi nel thread…' : `Scrivi in #${channelName}`}
+          /*
+           * Detto a iOS in modo esplicito, altrimenti tira a indovinare.
+           * Senza queste righe l'euristica di Apple decide che un campo di
+           * testo senza etichette possa essere un dato di rubrica, e sopra la
+           * tastiera compare «AutoFill Contact» — che qui non ha alcun senso
+           * e ruba una riga di schermo.
+           */
+          autoComplete="off"
+          autoCorrect="on"
+          autoCapitalize="sentences"
+          spellCheck
+          enterKeyHint="send"
+          data-1p-ignore
+          data-lpignore="true"
           rows={compact ? 2 : 1}
           className={clsx(
             'w-full resize-none bg-transparent leading-[1.55] tracking-[-0.005em] outline-none placeholder:text-[var(--color-ink-faint)]',
