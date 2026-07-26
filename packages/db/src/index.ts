@@ -14,6 +14,16 @@ export {
   type AgentAttachment,
 } from './attachments.js';
 export {
+  listArtifactsText,
+  createArtifact,
+  addChecklistItem,
+  checkChecklistItem,
+  updateArtifact,
+  normalizeArtifactContent,
+  type ArtifactResult,
+  type ArtifactRow,
+} from './artifacts-store.js';
+export {
   listDocNodes,
   documentTreeText,
   readDocByPath,

@@ -2,14 +2,26 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { and, desc, eq, ilike, isNull, or } from 'drizzle-orm';
-import { schema, documentTreeText, readDocByPath, writeDocByPath, scheduleTurn } from '@hive/db';
+import {
+  schema,
+  documentTreeText,
+  readDocByPath,
+  writeDocByPath,
+  scheduleTurn,
+  listArtifactsText,
+  createArtifact,
+  addChecklistItem,
+  checkChecklistItem,
+  updateArtifact,
+  type ArtifactResult,
+} from '@hive/db';
 import { db } from '../db.js';
 import { decryptSecret } from '../crypto.js';
 import type { EmitterLike } from '../emitter.js';
 import { grantedHiveToolNames, toolById, type AgentToolGrant, type RepoConfig } from '@hive/shared';
 import { pushBranch } from '../repo.js';
 
-import { normalizeContent, publishArtifact } from './artifact-store.js';
+import { publishArtifact } from './artifact-store.js';
 
 /**
  * Tool custom di Hive, esposti all'agente come server MCP in-process.
@@ -424,20 +436,15 @@ export function buildHiveTools(ctx: HiveToolContext) {
   }
 
   /* ------------------------------------------- artifacts: checklist e doc */
-  // Carica un artifact di QUESTO canale (non archiviato), per i tool sotto.
-  const loadArtifact = async (id: string) => {
-    const rows = await db
-      .select()
-      .from(schema.artifacts)
-      .where(
-        and(
-          eq(schema.artifacts.id, id),
-          eq(schema.artifacts.channelId, ctx.channelId),
-          isNull(schema.artifacts.archivedAt),
-        ),
-      )
-      .limit(1);
-    return rows[0] ?? null;
+  /*
+   * Il lavoro sul database sta in `@hive/db`, non qui: gli stessi cinque
+   * strumenti servono anche al runner sul computer di una persona, che il
+   * database non lo vede. Qui resta solo la descrizione per il modello e
+   * l'annuncio in tempo reale.
+   */
+  const announce = async (r: ArtifactResult) => {
+    if (r.row && r.kind) await publishArtifact(ctx.workspaceId, r.row, r.kind);
+    return r.ok ? ok(r.text) : fail(r.text);
   };
 
   tools.push(
@@ -446,31 +453,7 @@ export function buildHiveTools(ctx: HiveToolContext) {
       'Elenca le checklist e i documenti presenti in questo canale, con i loro id ' +
         '(e gli id delle voci delle checklist): usali per aggiornare quello giusto.',
       {},
-      async () => {
-        const rows = await db
-          .select()
-          .from(schema.artifacts)
-          .where(
-            and(
-              eq(schema.artifacts.channelId, ctx.channelId),
-              isNull(schema.artifacts.archivedAt),
-            ),
-          )
-          .orderBy(desc(schema.artifacts.updatedAt));
-        if (rows.length === 0) return ok('Nessun artifact in questo canale. Puoi crearne uno.');
-        const lines = rows.map((r) => {
-          const content = normalizeContent(r.type, r.content);
-          if (r.type === 'checklist' && 'items' in content) {
-            const items = content.items
-              .map((it) => `    - [${it.done ? 'x' : ' '}] (${it.id}) ${it.text}`)
-              .join('\n');
-            return `• checklist «${r.title || 'senza titolo'}» — id ${r.id}\n${items || '    (vuota)'}`;
-          }
-          const md = 'markdown' in content ? content.markdown : '';
-          return `• documento «${r.title || 'senza titolo'}» — id ${r.id} (${md.length} caratteri)`;
-        });
-        return ok(lines.join('\n'));
-      },
+      async () => ok(await listArtifactsText(db, ctx.channelId)),
     ),
     tool(
       'create_artifact',
@@ -485,29 +468,18 @@ export function buildHiveTools(ctx: HiveToolContext) {
           .describe('Voci iniziali, solo per le checklist'),
         markdown: z.string().max(100_000).optional().describe('Contenuto iniziale, solo per i doc'),
       },
-      async ({ type, title, items, markdown }) => {
-        const content =
-          type === 'checklist'
-            ? { items: (items ?? []).map((text) => ({ id: randomUUID(), text, done: false })) }
-            : { markdown: markdown ?? '' };
-        const inserted = await db
-          .insert(schema.artifacts)
-          .values({
+      async ({ type, title, items, markdown }) =>
+        announce(
+          await createArtifact(db, {
             workspaceId: ctx.workspaceId,
             channelId: ctx.channelId,
+            agentId: ctx.agentId,
             type,
             title,
-            content,
-            pinned: true,
-            createdByType: 'agent',
-            createdById: ctx.agentId,
-            updatedByType: 'agent',
-            updatedById: ctx.agentId,
-          })
-          .returning();
-        await publishArtifact(ctx.workspaceId, inserted[0]!, 'new');
-        return ok(`Creato «${title}» (id ${inserted[0]!.id}).`);
-      },
+            items,
+            markdown,
+          }),
+        ),
     ),
     tool(
       'add_checklist_item',
@@ -516,21 +488,15 @@ export function buildHiveTools(ctx: HiveToolContext) {
         artifact_id: z.string().describe('id della checklist'),
         text: z.string().min(1).max(1000),
       },
-      async ({ artifact_id, text }) => {
-        const row = await loadArtifact(artifact_id);
-        if (!row) return fail('Checklist non trovata in questo canale.');
-        if (row.type !== 'checklist') return fail('Questo artifact non è una checklist.');
-        const content = normalizeContent(row.type, row.content);
-        const items = 'items' in content ? content.items : [];
-        items.push({ id: randomUUID(), text, done: false });
-        const updated = await db
-          .update(schema.artifacts)
-          .set({ content: { items }, updatedAt: new Date(), updatedByType: 'agent', updatedById: ctx.agentId })
-          .where(eq(schema.artifacts.id, artifact_id))
-          .returning();
-        await publishArtifact(ctx.workspaceId, updated[0]!, 'updated');
-        return ok(`Aggiunta la voce «${text}».`);
-      },
+      async ({ artifact_id, text }) =>
+        announce(
+          await addChecklistItem(db, {
+            channelId: ctx.channelId,
+            agentId: ctx.agentId,
+            artifactId: artifact_id,
+            text,
+          }),
+        ),
     ),
     tool(
       'check_item',
@@ -539,31 +505,23 @@ export function buildHiveTools(ctx: HiveToolContext) {
       {
         artifact_id: z.string().describe('id della checklist'),
         item_id: z.string().optional().describe('id della voce (preferito, vedi list_artifacts)'),
-        item_text: z.string().optional().describe('in alternativa, testo (anche parziale) della voce'),
+        item_text: z
+          .string()
+          .optional()
+          .describe('in alternativa, testo (anche parziale) della voce'),
         done: z.boolean().default(true).describe('true = fatta, false = da fare'),
       },
-      async ({ artifact_id, item_id, item_text, done }) => {
-        const row = await loadArtifact(artifact_id);
-        if (!row) return fail('Checklist non trovata in questo canale.');
-        if (row.type !== 'checklist') return fail('Questo artifact non è una checklist.');
-        const content = normalizeContent(row.type, row.content);
-        const items = 'items' in content ? content.items : [];
-        const needle = item_text?.toLowerCase().trim();
-        const target = items.find(
-          (it) =>
-            (item_id && it.id === item_id) ||
-            (needle && it.text.toLowerCase().includes(needle)),
-        );
-        if (!target) return fail('Voce non trovata: controlla id o testo con list_artifacts.');
-        target.done = done;
-        const updated = await db
-          .update(schema.artifacts)
-          .set({ content: { items }, updatedAt: new Date(), updatedByType: 'agent', updatedById: ctx.agentId })
-          .where(eq(schema.artifacts.id, artifact_id))
-          .returning();
-        await publishArtifact(ctx.workspaceId, updated[0]!, 'updated');
-        return ok(`«${target.text}» segnata come ${done ? 'fatta' : 'da fare'}.`);
-      },
+      async ({ artifact_id, item_id, item_text, done }) =>
+        announce(
+          await checkChecklistItem(db, {
+            channelId: ctx.channelId,
+            agentId: ctx.agentId,
+            artifactId: artifact_id,
+            itemId: item_id,
+            itemText: item_text,
+            done,
+          }),
+        ),
     ),
     tool(
       'update_artifact',
@@ -573,27 +531,16 @@ export function buildHiveTools(ctx: HiveToolContext) {
         title: z.string().max(200).optional(),
         markdown: z.string().max(100_000).optional().describe('Nuovo contenuto, solo per i doc'),
       },
-      async ({ artifact_id, title, markdown }) => {
-        const row = await loadArtifact(artifact_id);
-        if (!row) return fail('Artifact non trovato in questo canale.');
-        const set: Record<string, unknown> = {
-          updatedAt: new Date(),
-          updatedByType: 'agent',
-          updatedById: ctx.agentId,
-        };
-        if (title !== undefined) set.title = title;
-        if (markdown !== undefined) {
-          if (row.type !== 'doc') return fail('Solo i documenti hanno un contenuto markdown.');
-          set.content = { markdown };
-        }
-        const updated = await db
-          .update(schema.artifacts)
-          .set(set)
-          .where(eq(schema.artifacts.id, artifact_id))
-          .returning();
-        await publishArtifact(ctx.workspaceId, updated[0]!, 'updated');
-        return ok('Artifact aggiornato.');
-      },
+      async ({ artifact_id, title, markdown }) =>
+        announce(
+          await updateArtifact(db, {
+            channelId: ctx.channelId,
+            agentId: ctx.agentId,
+            artifactId: artifact_id,
+            title,
+            markdown,
+          }),
+        ),
     ),
   );
 

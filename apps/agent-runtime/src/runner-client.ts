@@ -280,6 +280,121 @@ function buildHiveProxyServer(cfg: Config, runId: string, grants: AgentToolGrant
     );
   }
 
+  /*
+   * Checklist e documenti del pannello.
+   *
+   * Fino a ieri non erano proxati affatto: il prompt di ogni agente col
+   * permesso li annunciava, e a un agente `local` non arrivava nessuno dei
+   * cinque. Chiedergli «vedi la to-do del canale?» dava no, e sembrava una
+   * sua distrazione invece di un pezzo mancante.
+   */
+  const artifact = async (op: string, body: Record<string, unknown>): Promise<string> => {
+    try {
+      const res = await fetch(`${cfg.serverUrl}/api/runner/artifacts/${op}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ runId, ...body }),
+      });
+      if (!res.ok) return `Operazione non riuscita (HTTP ${res.status}).`;
+      const r = (await res.json()) as { text?: string };
+      return r.text ?? 'Fatto.';
+    } catch {
+      return 'Errore di rete verso il server.';
+    }
+  };
+
+  if (granted.has('list_artifacts')) {
+    tools.push(
+      tool(
+        'list_artifacts',
+        'Elenca le checklist e i documenti presenti in questo canale, con i loro id ' +
+          '(e gli id delle voci delle checklist): usali per aggiornare quello giusto.',
+        {},
+        async () => ok(await artifact('list', {})),
+      ),
+    );
+  }
+  if (granted.has('create_artifact')) {
+    tools.push(
+      tool(
+        'create_artifact',
+        'Crea una checklist (to-do) o un documento accanto alla chat. La checklist ' +
+          'la spunti man mano con check_item; il documento lo aggiorni con update_artifact.',
+        {
+          type: z.enum(['checklist', 'doc']),
+          title: z.string().max(200).describe('Titolo mostrato in cima'),
+          items: z
+            .array(z.string().max(1000))
+            .optional()
+            .describe('Voci iniziali, solo per le checklist'),
+          markdown: z
+            .string()
+            .max(100_000)
+            .optional()
+            .describe('Contenuto iniziale, solo per i doc'),
+        },
+        async ({ type, title, items, markdown }) =>
+          ok(await artifact('create', { type, title, items, markdown })),
+      ),
+    );
+  }
+  if (granted.has('add_checklist_item')) {
+    tools.push(
+      tool(
+        'add_checklist_item',
+        'Aggiunge una voce a una checklist esistente.',
+        {
+          artifact_id: z.string().describe('id della checklist'),
+          text: z.string().min(1).max(1000),
+        },
+        async ({ artifact_id, text }) =>
+          ok(await artifact('add-item', { artifactId: artifact_id, text })),
+      ),
+    );
+  }
+  if (granted.has('check_item')) {
+    tools.push(
+      tool(
+        'check_item',
+        'Spunta (o de-spunta) una voce di una checklist. Indica la voce per id o per ' +
+          'testo. Usalo mentre lavori, per far vedere i progressi in tempo reale.',
+        {
+          artifact_id: z.string().describe('id della checklist'),
+          item_id: z.string().optional().describe('id della voce (preferito, vedi list_artifacts)'),
+          item_text: z
+            .string()
+            .optional()
+            .describe('in alternativa, testo (anche parziale) della voce'),
+          done: z.boolean().default(true).describe('true = fatta, false = da fare'),
+        },
+        async ({ artifact_id, item_id, item_text, done }) =>
+          ok(
+            await artifact('check-item', {
+              artifactId: artifact_id,
+              itemId: item_id,
+              itemText: item_text,
+              done,
+            }),
+          ),
+      ),
+    );
+  }
+  if (granted.has('update_artifact')) {
+    tools.push(
+      tool(
+        'update_artifact',
+        'Aggiorna un documento (il suo testo markdown) o il titolo di un artifact.',
+        {
+          artifact_id: z.string(),
+          title: z.string().max(200).optional(),
+          markdown: z.string().max(100_000).optional().describe('Nuovo contenuto, solo per i doc'),
+        },
+        async ({ artifact_id, title, markdown }) =>
+          ok(await artifact('update', { artifactId: artifact_id, title, markdown })),
+      ),
+    );
+  }
+
   if (tools.length === 0) return null;
   return createSdkMcpServer({ name: 'hive', version: '0.1.0', tools });
 }

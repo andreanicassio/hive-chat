@@ -18,7 +18,14 @@ import {
   documentTreeText,
   readDocByPath,
   writeDocByPath,
+  listArtifactsText,
+  createArtifact,
+  addChecklistItem,
+  checkChecklistItem,
+  updateArtifact,
+  type ArtifactResult,
 } from '@hive/db';
+import { serializeArtifact } from '../services/artifacts.js';
 import { toDocumentNode } from '../services/documents.js';
 import { redisChannels, runJobSchema, RUNNER_PRESENCE_TTL_SEC, type Approval } from '@hive/shared';
 
@@ -616,6 +623,95 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
 
   /* ------------------------ tool hive proxati: DOCUMENTI (base di conoscenza) */
   // Il runner locale non ha il DB: gli strumenti dei documenti passano di qui.
+  /* ---------------------------------- artifacts: checklist e doc del canale */
+  /*
+   * Le stesse cinque operazioni dei tool del worker, per il runner che il
+   * database non lo vede. La logica non è riscritta: sta in `@hive/db` e la
+   * chiamano entrambi, perché due implementazioni della stessa cosa divergono
+   * — ed è già successo, con l'agente locale che non riusciva nemmeno a
+   * LEGGERE la to-do del canale in cui stava lavorando.
+   */
+  const artifactOp = async (
+    request: FastifyRequest,
+    run: (channelId: string, workspaceId: string, agentId: string) => Promise<ArtifactResult>,
+  ) => {
+    const { userId } = await requireRunner(request);
+    const { runId } = z.object({ runId: z.uuid() }).parse(request.body);
+    const runRow = await resolveRun(userId, runId);
+    const result = await run(runRow.channelId, runRow.workspaceId, runRow.agentId);
+    // L'annuncio in tempo reale: la spunta deve comparire nel pannello di chi
+    // sta guardando, esattamente come quando la mette un agente del server.
+    if (result.row && result.kind) {
+      await hub.publish(runRow.workspaceId, {
+        packet: {
+          t: result.kind === 'new' ? 'artifact.new' : 'artifact.updated',
+          artifact: await serializeArtifact(result.row),
+        },
+        channelId: runRow.channelId,
+      });
+    }
+    return { text: result.text };
+  };
+
+  app.post('/api/runner/artifacts/list', (request) =>
+    artifactOp(request, async (channelId) => ({
+      ok: true,
+      text: await listArtifactsText(db, channelId),
+      row: null,
+      kind: null,
+    })),
+  );
+
+  app.post('/api/runner/artifacts/create', (request) => {
+    const body = z
+      .object({
+        type: z.enum(['checklist', 'doc']),
+        title: z.string().max(200),
+        items: z.array(z.string().max(1000)).optional(),
+        markdown: z.string().max(100_000).optional(),
+      })
+      .parse(request.body);
+    return artifactOp(request, (channelId, workspaceId, agentId) =>
+      createArtifact(db, { channelId, workspaceId, agentId, ...body }),
+    );
+  });
+
+  app.post('/api/runner/artifacts/add-item', (request) => {
+    const body = z
+      .object({ artifactId: z.string(), text: z.string().min(1).max(1000) })
+      .parse(request.body);
+    return artifactOp(request, (channelId, _ws, agentId) =>
+      addChecklistItem(db, { channelId, agentId, ...body }),
+    );
+  });
+
+  app.post('/api/runner/artifacts/check-item', (request) => {
+    const body = z
+      .object({
+        artifactId: z.string(),
+        itemId: z.string().optional(),
+        itemText: z.string().optional(),
+        done: z.boolean().default(true),
+      })
+      .parse(request.body);
+    return artifactOp(request, (channelId, _ws, agentId) =>
+      checkChecklistItem(db, { channelId, agentId, ...body }),
+    );
+  });
+
+  app.post('/api/runner/artifacts/update', (request) => {
+    const body = z
+      .object({
+        artifactId: z.string(),
+        title: z.string().max(200).optional(),
+        markdown: z.string().max(100_000).optional(),
+      })
+      .parse(request.body);
+    return artifactOp(request, (channelId, _ws, agentId) =>
+      updateArtifact(db, { channelId, agentId, ...body }),
+    );
+  });
+
   app.post('/api/runner/documents/list', async (request) => {
     const { userId } = await requireRunner(request);
     const { runId } = z.object({ runId: z.uuid() }).parse(request.body);
