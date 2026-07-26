@@ -320,13 +320,17 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
               <MySecrets />
 
-              <SecretFallbackToggle />
+              <div className="pt-1">
+                <h3 className="text-[13.5px] font-semibold">Le chiavi del progetto</h3>
+                <p className="mt-0.5 text-[12.5px] text-[var(--color-ink-soft)]">
+                  Le mette chi amministra <strong className="font-medium">{workspace?.name}</strong>,
+                  e le vedono impostate tutti i suoi membri — il valore no, quello non torna
+                  indietro per nessuno. Servono a chi non ha una chiave propria, e solo se
+                  l'interruttore qui sotto è acceso.
+                </p>
+              </div>
 
-              <p className="text-[12.5px] text-[var(--color-ink-soft)]">
-                Le chiavi impostate qui valgono solo per questo progetto e hanno la
-                precedenza su quelle del server. Sono cifrate sul database e non tornano
-                mai indietro: puoi sostituirle, non rileggerle.
-              </p>
+              <SecretFallbackToggle />
 
               {KNOWN_KEYS.map((spec) => (
                 <SecretField
@@ -660,11 +664,15 @@ function SecretFallbackToggle() {
       />
       <span>
         <span className="block text-[13.5px] font-medium">
-          Chi non ha una chiave sua usa quella del progetto
+          Chi non ha una chiave sua può usare quella del progetto
         </span>
         <span className="block text-[12.5px] text-[var(--color-ink-soft)]">
           Spenta, ognuno paga i propri turni e chi non ha messo la sua chiave non fa partire
-          agenti. Accesa è più comoda, ma il progetto — cioè tu — paga per tutti.
+          agenti Claude. Accesa è più comoda, ma paga il progetto — cioè chi ha messo qui la
+          chiave, cioè quasi sempre tu.
+        </span>
+        <span className="mt-1 block text-[12px] text-[var(--color-ink-faint)]">
+          Questo interruttore lo vedi e lo cambi solo tu, che possiedi il progetto.
         </span>
       </span>
     </label>
@@ -762,8 +770,10 @@ function MySecrets() {
             </div>
           ))}
           <p className="text-[12px] text-[var(--color-ink-faint)]">
-            Cifrate sul server e mai restituite: puoi sostituirle, non rileggerle. Valgono in
-            tutti i progetti in cui sei, e nessun altro le vede.
+            Sono <strong className="font-medium">tue</strong>: valgono in tutti i progetti in
+            cui sei, e non le vede nessun altro — né gli altri membri né chi possiede il
+            progetto. Cifrate sul server e mai restituite: puoi sostituirle, non rileggerle.
+            Finché ce n'è una qui, i tuoi turni la usano e li paghi tu.
           </p>
         </div>
       )}

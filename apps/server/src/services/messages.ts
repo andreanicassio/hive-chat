@@ -336,6 +336,24 @@ async function triggerAgents(args: TriggerArgs): Promise<string[]> {
 
   const mentionedIds = new Set(args.mentionedAgents.map((a) => a.id));
 
+  /*
+   * Chi ha iniziato questa catena.
+   *
+   * Se il messaggio è di una persona, è lei. Se è di un agente, si eredita da
+   * chi aveva innescato QUEL turno: altrimenti un passaggio di consegne
+   * azzera l'attribuzione, e con essa il controllo sull'accesso alle macchine
+   * altrui — bastava chiedere a un altro agente di taggarlo.
+   */
+  let chainUserId: string | null = isHuman ? args.message.authorId : null;
+  if (!isHuman && args.message.runId) {
+    const src = await db
+      .select({ by: schema.agentRuns.triggeredByUserId })
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, args.message.runId))
+      .limit(1);
+    chainUserId = src[0]?.by ?? null;
+  }
+
   // Rispondere (con la funzione "rispondi") al messaggio DI un agente equivale
   // a rivolgersi a quell'agente, anche senza taggarlo: in chat è il gesto
   // naturale per proseguire un discorso con lui. Vale solo per le risposte
@@ -387,12 +405,42 @@ async function triggerAgents(args: TriggerArgs): Promise<string[]> {
         hop: args.hop,
         fromAgentHandle:
           args.message.authorType === 'agent' ? (args.message.authorId ?? null) : null,
-        // Solo se dietro c'è una persona: fra agenti nessuno paga.
-        triggeredByUserId: isHuman ? args.message.authorId : null,
+        // Chi ha iniziato la catena, anche se il messaggio è di un agente.
+        triggeredByUserId: chainUserId,
       });
       runIds.push(runId);
     } catch (err) {
+      /*
+       * L'agente si è rifiutato di partire.
+       *
+       * Il messaggio di chi ha scritto resta valido — è suo — ma il rifiuto
+       * va detto in chat: «non risponde e non so perché» è la sensazione
+       * peggiore che un'app possa dare, e nei log del server non la legge
+       * nessuno.
+       */
       console.warn(`[trigger] ${agent.handle} non è partito:`, (err as Error).message);
+      const detail =
+        (err as { message?: string }).message ?? 'Questo agente non può partire qui.';
+      const inserted = await db
+        .insert(schema.messages)
+        .values({
+          channelId: args.channelId,
+          threadRootId: args.message.threadRootId,
+          authorType: 'agent',
+          authorId: agent.id,
+          body: `_${detail}_`,
+          mentions: [],
+          replyToId: args.message.id,
+        })
+        .returning();
+      const row = inserted[0];
+      if (row) {
+        const message = await serializeMessage(row, null);
+        await hub.publish(args.workspaceId, {
+          packet: { t: 'message.new', message },
+          channelId: args.channelId,
+        });
+      }
     }
   }
   return runIds;
@@ -757,24 +805,28 @@ export async function enqueueRun(args: EnqueueRunArgs): Promise<string> {
         execution: schema.agents.execution,
         allowOthers: schema.agents.allowOthers,
         name: schema.agents.name,
+        // Il proprietario vero è quello della MACCHINA, non quello della riga
+        // dell'agente: è il computer che stiamo proteggendo.
+        machineOwner: schema.runnerTokens.userId,
       })
       .from(schema.agents)
+      .leftJoin(schema.runnerTokens, eq(schema.runnerTokens.id, schema.agents.runnerTokenId))
       .where(eq(schema.agents.id, args.agentId))
       .limit(1)
   )[0];
 
-  if (
-    owner?.execution === 'local' &&
-    !owner.allowOthers &&
-    args.triggeredByUserId &&
-    owner.createdBy &&
-    args.triggeredByUserId !== owner.createdBy
-  ) {
-    throw badRequest(
-      'agent_not_shared',
-      `${owner.name} gira sul computer di chi l'ha creato, e non è condiviso. ` +
-        `Chiedi al proprietario di attivare «altri possono farlo partire».`,
-    );
+  if (owner?.execution === 'local' && !owner.allowOthers) {
+    const machineOwner = owner.machineOwner ?? owner.createdBy;
+    // Nessun utente dietro = risveglio programmato o catena fra agenti già
+    // autorizzata a monte: passa. Un utente diverso dal proprietario, o un
+    // proprietario che non riusciamo a stabilire, no.
+    if (args.triggeredByUserId && args.triggeredByUserId !== machineOwner) {
+      throw badRequest(
+        'agent_not_shared',
+        `${owner.name} gira sul computer del suo proprietario, che non l'ha condiviso. ` +
+          `Serve che attivi «altri possono farlo partire» nelle impostazioni dell'agente.`,
+      );
+    }
   }
 
   const runId = randomUUID();

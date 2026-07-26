@@ -64,6 +64,10 @@ export async function fireDueTurns(): Promise<number> {
           `che produce un messaggio lungo è peggio del silenzio.`,
         hop: 0,
         fromAgentHandle: null,
+        // Il risveglio eredita chi aveva iniziato: senza, la prenotazione
+        // sarebbe un modo per far girare un agente su una macchina altrui
+        // aggirando il controllo.
+        triggeredByUserId: row.triggeredByUserId,
       });
       fired++;
     } catch (err) {

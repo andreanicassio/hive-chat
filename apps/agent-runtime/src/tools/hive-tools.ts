@@ -27,6 +27,8 @@ export interface HiveToolContext {
   runId: string;
   grants: AgentToolGrant[];
   emitter: EmitterLike;
+  /** Chi ha iniziato la catena: si eredita nei risvegli che l'agente prenota. */
+  triggeredByUserId?: string | null;
   /** Directory di lavoro dell'agente (per i tool git). */
   workDir?: string;
   /** Config del repository, per push e PR. */
@@ -673,6 +675,7 @@ export function buildHiveTools(ctx: HiveToolContext) {
               inMinutes: in_minutes,
               note,
               fromRunId: ctx.runId,
+              triggeredByUserId: ctx.triggeredByUserId ?? null,
             });
             return ok(`Ci risentiamo alle ${runAt.toISOString().slice(11, 16)} UTC.`);
           } catch (err) {

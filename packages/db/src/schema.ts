@@ -747,6 +747,8 @@ export const scheduledTurns = pgTable(
     note: text('note').notNull(),
     depth: integer('depth').notNull().default(0),
     createdByRunId: uuid('created_by_run_id'),
+    /** Chi aveva iniziato la catena: il risveglio non deve azzerarla. */
+    triggeredByUserId: uuid('triggered_by_user_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     firedAt: timestamp('fired_at', { withTimezone: true }),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),

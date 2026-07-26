@@ -35,6 +35,8 @@ export interface ScheduleArgs {
   note: string;
   /** Il turno che sta prenotando: serve a contare la catena di risvegli. */
   fromRunId?: string | null;
+  /** Chi aveva iniziato: il risveglio eredita l'attribuzione, e i controlli. */
+  triggeredByUserId?: string | null;
 }
 
 /**
@@ -99,6 +101,7 @@ export async function scheduleTurn(db: Database, args: ScheduleArgs): Promise<{ 
       note,
       depth,
       createdByRunId: args.fromRunId ?? null,
+      triggeredByUserId: args.triggeredByUserId ?? null,
     })
     .returning({ id: schema.scheduledTurns.id });
 

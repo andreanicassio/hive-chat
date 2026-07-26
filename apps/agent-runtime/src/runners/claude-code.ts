@@ -175,6 +175,7 @@ export class ClaudeCodeRunner implements Runner {
           agentId: agent.id,
           agentHandle: agent.handle,
           runId: input.runId,
+          triggeredByUserId: input.triggeredByUserId,
           grants,
           emitter,
           workDir: input.workDir,

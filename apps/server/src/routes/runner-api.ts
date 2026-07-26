@@ -386,6 +386,7 @@ export async function runnerApiRoutes(app: FastifyInstance): Promise<void> {
       inMinutes,
       note,
       fromRunId: run.id,
+      triggeredByUserId: run.triggeredByUserId,
     });
     return { ok: true, runAt: runAt.toISOString() };
   });
