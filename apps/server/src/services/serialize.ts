@@ -336,6 +336,63 @@ export function serializeChannel(row: ChannelRow, extra?: Partial<Channel>): Cha
 }
 
 /**
+ * L'ultimo messaggio di ogni canale, per l'elenco delle conversazioni.
+ *
+ * `DISTINCT ON` invece di una query per canale: con venti canali sarebbero
+ * venti giri di rete al database per riempire una schermata che si apre in
+ * mezzo secondo. Il testo lo tagliamo qui — mandare messaggi interi per
+ * mostrarne una riga è banda sprecata su una connessione mobile.
+ */
+export async function lastMessages(
+  workspaceId: string,
+): Promise<Map<string, NonNullable<Channel['lastMessage']>>> {
+  const rows = await db.execute<{
+    channel_id: string;
+    body: string;
+    created_at: Date;
+    author_type: string;
+    agent_name: string | null;
+    agent_emoji: string | null;
+    user_name: string | null;
+    user_emoji: string | null;
+  }>(raw`
+    select distinct on (m.channel_id)
+      m.channel_id, left(m.body, 200) as body, m.created_at, m.author_type,
+      a.name as agent_name, a.avatar_emoji as agent_emoji,
+      u.name as user_name, u.avatar_emoji as user_emoji
+    from messages m
+    join channels c on c.id = m.channel_id
+    left join agents a on a.id = m.author_id and m.author_type = 'agent'
+    left join users u on u.id = m.author_id and m.author_type = 'user'
+    -- La bolla di un agente che sta ancora scrivendo ha il corpo vuoto: come
+    -- anteprima sarebbe una riga bianca. Lì l'elenco mostra «sta lavorando…».
+    where c.workspace_id = ${workspaceId} and m.deleted_at is null and m.body <> ''
+    order by m.channel_id, m.created_at desc
+  `);
+
+  const out = new Map<string, NonNullable<Channel['lastMessage']>>();
+  for (const r of rows) {
+    const isAgent = r.author_type === 'agent';
+    out.set(r.channel_id, {
+      authorName: (isAgent ? r.agent_name : r.user_name) ?? 'Qualcuno',
+      authorEmoji: (isAgent ? r.agent_emoji : r.user_emoji) ?? null,
+      isAgent,
+      // Le menzioni tornano leggibili e il markdown sparisce: in una riga di
+      // anteprima `**grassetto**` sono solo asterischi in mezzo alle parole.
+      excerpt: r.body
+        .replace(/<@([a-z0-9._-]+)>/g, '@$1')
+        .replace(/<#([a-z0-9-]+)>/g, '#$1')
+        .replace(/[*_`#>]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 120),
+      createdAt: r.created_at.toISOString(),
+    });
+  }
+  return out;
+}
+
+/**
  * Conteggio dei non letti per l'utente, canale per canale.
  * Una sola query aggregata invece di una per canale.
  */

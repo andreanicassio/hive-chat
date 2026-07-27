@@ -1,213 +1,182 @@
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
-import { ChevronRight, Hash, Plus, Search } from 'lucide-react';
-import { useStore, type RunState } from '../store.js';
-import { Avatar } from '../components/Avatar.js';
-import { useTicker } from '../components/Chat.js';
-import { MobileHeader, STATUS_BAR, WithTabs } from './Shell.js';
+import { Search } from 'lucide-react';
+import { useStore } from '../store.js';
+import { SearchPanel } from '../components/Search.js';
+import { MobileHeader, WithTabs } from './Shell.js';
 
 /* ==========================================================================
-   01 — Canali
+   01 — Conversazioni
 
-   La prima domanda che ci si fa aprendo l'app dal telefono non è «cosa c'è di
-   nuovo», è «cosa sta facendo l'agente». Per questo «Al lavoro» sta sopra
-   l'elenco dei canali, e non dentro un pannello da aprire.
+   Un elenco solo, a tutta larghezza, come in ogni app di messaggi: riga per
+   riga, l'ultima cosa detta e quando. Prima erano tre blocchi in schede
+   arrotondate — «Al lavoro», «Canali», una nota sugli agenti in fondo — e
+   l'occhio doveva scegliere dove guardare per una domanda che è una sola:
+   cosa è successo mentre non c'ero.
+
+   Chi sta lavorando non ha più una sezione sua: appare al posto
+   dell'anteprima, nella riga del suo canale, come «sta scrivendo…» altrove.
    ======================================================================== */
 
-/** Riga di un agente al lavoro: cosa sta facendo e da quanto. */
-function WorkingRow({ messageId, run }: { messageId: string; run: RunState }) {
-  const navigate = useNavigate();
-  const agents = useStore((s) => s.agents);
-  const channels = useStore((s) => s.channels);
-  const agent = agents.find((a) => a.id === run.agentId);
-  const channel = channels.find((c) => c.id === run.channelId);
-  const now = useTicker(true);
-  const seconds = run.startedAt ? Math.floor((now - run.startedAt) / 1000) : 0;
-
-  let current = 'sta ragionando…';
-  for (let i = run.events.length - 1; i >= 0; i--) {
-    const e = run.events[i]!.event;
-    if (e.type === 'tool.start') {
-      current = e.label;
-      break;
-    }
+/** «14:32» se è di oggi, «ieri», poi la data: come si legge un orario in chat. */
+function shortTime(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
-
-  return (
-    <button
-      onClick={() => navigate(run.channelId ? `/c/${run.channelId}#msg-${messageId}` : '/attivita')}
-      className="flex w-full min-h-[62px] items-center gap-3 px-3.5 py-2.5 text-left"
-    >
-      <Avatar name={agent?.name ?? 'Agente'} emoji={agent?.avatarEmoji} color={agent?.avatarColor} size={38} isAgent />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-1.5">
-          <span className="truncate text-[16px] font-semibold">{agent?.name ?? 'Agente'}</span>
-          <span className="shrink-0 text-[12px] text-[var(--color-ink-faint)]">
-            {run.numTurns > 0 ? `passaggio ${run.numTurns}` : channel ? `#${channel.name}` : ''}
-          </span>
-          <span className="flex-1" />
-          <span className="shrink-0 font-mono text-[12px] text-[var(--color-ink-faint)] tabular-nums">
-            {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
-          </span>
-        </div>
-        <p className="mt-0.5 truncate font-mono text-[11.5px] text-[var(--color-ink-soft)]">
-          {current}
-        </p>
-        {/* Avanzamento senza percentuale: non sappiamo quanto manca, e fingerlo
-            sarebbe peggio. La luce che scorre dice «vivo», non «a metà». */}
-        <div className="sweep mt-2 h-[3px] overflow-hidden rounded-full bg-[var(--color-sunken)]" />
-      </div>
-    </button>
-  );
-}
-
-function SectionLabel({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2 px-4 pt-4 pb-1.5">
-      <span className="text-[11.5px] font-semibold tracking-[0.06em] text-[var(--color-ink-faint)] uppercase">
-        {children}
-      </span>
-      <span className="flex-1" />
-      {right}
-    </div>
-  );
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return 'ieri';
+  if (now.getTime() - d.getTime() < 7 * 86_400_000) {
+    return d.toLocaleDateString([], { weekday: 'short' });
+  }
+  return d.toLocaleDateString([], { day: '2-digit', month: '2-digit' });
 }
 
 export function MobileChannels() {
   const navigate = useNavigate();
-  const workspace = useStore((s) => s.workspace);
-  const user = useStore((s) => s.user);
   const channels = useStore((s) => s.channels);
   const agents = useStore((s) => s.agents);
   const runs = useStore((s) => s.runs);
-  const messagesByChannel = useStore((s) => s.messagesByChannel);
   const openChannel = useStore((s) => s.openChannel);
+  const [searching, setSearching] = useState(false);
 
-  const working = [...runs.entries()].filter(
-    ([, r]) => r.status === 'running' || r.status === 'queued',
+  /** Per ogni canale, l'agente che ci sta lavorando adesso (se c'è). */
+  const busyByChannel = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const r of runs.values()) {
+      if (r.status !== 'running' && r.status !== 'queued') continue;
+      const agent = agents.find((a) => a.id === r.agentId);
+      if (r.channelId) out.set(r.channelId, agent?.name ?? 'Un agente');
+    }
+    return out;
+  }, [runs, agents]);
+
+  /*
+   * In cima chi ha parlato per ultimo, non chi è stato creato per primo.
+   * Un elenco di conversazioni ordinato per data di creazione invecchia male:
+   * dopo un mese il canale più vivo sta in fondo.
+   */
+  const ordered = useMemo(
+    () =>
+      [...channels].sort((a, b) => {
+        const at = a.lastMessage?.createdAt ?? '';
+        const bt = b.lastMessage?.createdAt ?? '';
+        if (at && bt) return bt.localeCompare(at);
+        if (at) return -1;
+        if (bt) return 1;
+        return a.position - b.position;
+      }),
+    [channels],
   );
 
   return (
     <WithTabs>
-      <header className={clsx('shrink-0 bg-gradient-to-b from-[var(--color-shell-top)] to-[color-mix(in_oklab,var(--color-shell-top)_55%,var(--color-shell-bottom))] px-4 pb-2.5', STATUS_BAR)}>
-        <div className="flex items-center gap-2">
-          <h1 className="text-[26px] font-bold tracking-[-0.03em]">Hive</h1>
-          {workspace && (
-            <span className="flex h-6 items-center gap-1 rounded-full border border-[var(--color-glass-line)] bg-[var(--color-glass)] px-2 text-[12.5px]">
-              <span>{workspace.iconEmoji || '🐝'}</span>
-              <span className="max-w-[120px] truncate">{workspace.name}</span>
-            </span>
-          )}
-          <span className="flex-1" />
-          {user && (
-            <Avatar name={user.name} emoji={user.avatarEmoji} color={user.avatarColor} size={34} />
-          )}
-        </div>
-
-        <div className="mt-2.5 flex h-[38px] items-center gap-2 rounded-[11px] border border-[var(--color-glass-line)] bg-[var(--color-glass)] px-3">
-          <Search size={16} strokeWidth={2} className="shrink-0 text-[var(--color-ink-faint)]" />
-          <input
-            placeholder="Cerca ovunque"
-            className="min-w-0 flex-1 bg-transparent text-[14.5px] outline-none placeholder:text-[var(--color-ink-faint)]"
-          />
-        </div>
-      </header>
+      <MobileHeader title="Conversazioni" large />
 
       <div data-tabs className="screen-scroll h-full overflow-y-auto">
-        {working.length > 0 && (
-          <>
-            <SectionLabel
-              right={
-                <button
-                  onClick={() => navigate('/attivita')}
-                  className="text-[13px] font-semibold text-[var(--color-honey)]"
-                >
-                  Attività
-                </button>
-              }
-            >
-              <span className="mr-1.5 inline-block h-[7px] w-[7px] animate-pulse rounded-full bg-[var(--color-online)] align-middle" />
-              Al lavoro
-            </SectionLabel>
-            <div className="mx-3 divide-y divide-[var(--color-line)] overflow-hidden rounded-[14px] bg-[var(--color-card)]">
-              {working.map(([messageId, run]) => (
-                <WorkingRow key={run.runId} messageId={messageId} run={run} />
-              ))}
-            </div>
-          </>
-        )}
+        {/* La ricerca sta nell'elenco e scorre con lui: in cima ruba una riga
+            a ogni apertura, e quasi sempre non serve. */}
+        <div className="px-4 pb-1">
+          <button
+            onClick={() => setSearching(true)}
+            className="flex h-[36px] w-full items-center gap-2 rounded-[10px] bg-[var(--color-sunken)] px-3 text-left"
+          >
+            <Search size={15} strokeWidth={2} className="shrink-0 text-[var(--color-ink-faint)]" />
+            <span className="text-[14.5px] text-[var(--color-ink-faint)]">Cerca</span>
+          </button>
+        </div>
 
-        <SectionLabel
-          right={
-            <button className="text-[var(--color-honey)]" aria-label="Nuovo canale">
-              <Plus size={18} strokeWidth={2.2} />
-            </button>
-          }
-        >
-          Canali
-        </SectionLabel>
-        <div className="mx-3 divide-y divide-[var(--color-line)] overflow-hidden rounded-[14px] bg-[var(--color-card)]">
-          {channels.map((c) => {
-            const last = messagesByChannel.get(c.id)?.at(-1);
-            const author = last?.author;
-            const unread = c.unreadCount ?? 0;
-            return (
-              <button
-                key={c.id}
-                onClick={() => {
-                  void openChannel(c.id);
-                  navigate(`/c/${c.id}`);
-                }}
-                className="flex min-h-[60px] w-full items-center gap-2.5 px-3.5 py-2.5 text-left"
+        {ordered.map((c) => {
+          const unread = c.unreadCount ?? 0;
+          const busy = busyByChannel.get(c.id);
+          const last = c.lastMessage;
+          return (
+            <button
+              key={c.id}
+              onClick={() => {
+                void openChannel(c.id);
+                navigate(`/c/${c.id}`);
+              }}
+              className="flex w-full items-center gap-3 py-2 pr-4 pl-4 text-left active:bg-[var(--color-sunken)]"
+            >
+              <span
+                className={clsx(
+                  'flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full text-[17px] font-bold',
+                  busy
+                    ? 'bg-[var(--color-honey-soft)] text-[var(--color-honey)]'
+                    : 'bg-[var(--color-sunken)] text-[var(--color-ink-faint)]',
+                )}
               >
-                <Hash size={16} strokeWidth={2.2} className="shrink-0 text-[var(--color-ink-faint)]" />
-                <div className="min-w-0 flex-1">
-                  <div
+                #
+              </span>
+
+              {/* La riga sotto l'avatar corre fino al bordo, come in ogni
+                  elenco di conversazioni: separa le righe senza disegnare una
+                  griglia. */}
+              <span className="flex min-w-0 flex-1 flex-col border-b border-[var(--color-line)] py-1.5">
+                <span className="flex items-baseline gap-2">
+                  <span
                     className={clsx(
-                      'truncate text-[16px] tracking-[-0.01em]',
-                      unread > 0 ? 'font-bold' : 'font-medium',
+                      'min-w-0 flex-1 truncate text-[16.5px] tracking-[-0.01em]',
+                      unread > 0 ? 'font-bold' : 'font-semibold',
                     )}
                   >
                     {c.name}
-                  </div>
+                  </span>
                   {last && (
-                    <p
-                      className={clsx(
-                        'mt-0.5 truncate text-[13.5px]',
-                        unread > 0
+                    <span className="shrink-0 text-[12px] text-[var(--color-ink-faint)]">
+                      {shortTime(last.createdAt)}
+                    </span>
+                  )}
+                </span>
+
+                <span className="mt-0.5 flex items-center gap-2">
+                  <span
+                    className={clsx(
+                      'min-w-0 flex-1 truncate text-[14px]',
+                      busy
+                        ? 'text-[var(--color-honey)]'
+                        : unread > 0
                           ? 'text-[var(--color-ink-soft)]'
                           : 'text-[var(--color-ink-faint)]',
-                      )}
-                    >
-                      {author?.type === 'agent' && `${author.avatarEmoji ?? '🤖'} `}
-                      {last.body.replace(/<@([a-z0-9._-]+)>/g, '@$1').slice(0, 80) ||
-                        (last.attachments.length > 0 ? 'ha inviato un file' : '')}
-                    </p>
-                  )}
-                </div>
-                {unread > 0 ? (
-                  <span className="flex h-[22px] min-w-[22px] shrink-0 items-center justify-center rounded-full bg-[var(--color-honey)] px-1.5 text-[12px] font-semibold text-[var(--color-on-accent)] tabular-nums">
-                    {unread}
+                    )}
+                  >
+                    {busy ? (
+                      `${busy} sta lavorando…`
+                    ) : last ? (
+                      <>
+                        {last.isAgent && `${last.authorEmoji ?? '🤖'} `}
+                        <span className="text-[var(--color-ink-faint)]">
+                          {last.authorName.split(' ')[0]}:
+                        </span>{' '}
+                        {last.excerpt}
+                      </>
+                    ) : (
+                      c.topic || 'Nessun messaggio'
+                    )}
                   </span>
-                ) : (
-                  <ChevronRight size={18} strokeWidth={2} className="shrink-0 text-[var(--color-line-strong)]" />
-                )}
-              </button>
-            );
-          })}
-          {channels.length === 0 && (
-            <p className="px-3.5 py-5 text-center text-[13.5px] text-[var(--color-ink-faint)]">
-              Nessun canale ancora.
-            </p>
-          )}
-        </div>
+                  {unread > 0 && (
+                    <span className="flex h-[20px] min-w-[20px] shrink-0 items-center justify-center rounded-full bg-[var(--color-honey)] px-1.5 text-[11.5px] font-semibold text-[var(--color-on-accent)] tabular-nums">
+                      {unread}
+                    </span>
+                  )}
+                </span>
+              </span>
+            </button>
+          );
+        })}
 
-        {agents.length > 0 && (
-          <p className="px-4 pt-5 text-[12px] text-[var(--color-ink-faint)]">
-            {agents.length} {agents.length === 1 ? 'agente' : 'agenti'} in questo progetto.
+        {channels.length === 0 && (
+          <p className="px-4 py-10 text-center text-[13.5px] text-[var(--color-ink-faint)]">
+            Nessuna conversazione ancora.
           </p>
         )}
       </div>
+
+      {searching && <SearchPanel onClose={() => setSearching(false)} />}
     </WithTabs>
   );
 }

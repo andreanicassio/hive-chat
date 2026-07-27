@@ -792,22 +792,46 @@ export const useStore = create<State>((set, get) => ({
 
           const isActive = s.activeChannelId === message.channelId;
           const fromMe = message.author.type === 'user' && message.author.id === s.user?.id;
-          const channels =
-            packet.t === 'message.new' && !isActive && !fromMe
-              ? s.channels.map((c) =>
-                  c.id === message.channelId
-                    ? {
-                        ...c,
-                        unreadCount: (c.unreadCount ?? 0) + 1,
-                        hasMention:
-                          c.hasMention ||
-                          message.mentions.some(
-                            (m) => m.type === 'user' && m.id === s.user?.id,
-                          ),
-                      }
-                    : c,
-                )
-              : s.channels;
+
+          /*
+           * L'anteprima nell'elenco delle conversazioni si aggiorna QUI.
+           *
+           * Arriva col bootstrap, quindi senza questo resterebbe ferma a
+           * com'era all'apertura dell'app: la home direbbe che l'ultima cosa
+           * detta è di un'ora fa mentre la conversazione va.
+           */
+          const preview = message.body.trim()
+            ? {
+                authorName: message.author.name,
+                authorEmoji: message.author.avatarEmoji,
+                isAgent: message.author.type === 'agent',
+                excerpt: message.body
+                  .replace(/<@([a-z0-9._-]+)>/g, '@$1')
+                  .replace(/<#([a-z0-9-]+)>/g, '#$1')
+                  .replace(/[*_`#>]/g, '')
+                  .replace(/\s+/g, ' ')
+                  .trim()
+                  .slice(0, 120),
+                createdAt: message.createdAt,
+              }
+            : null;
+
+          const bumpUnread = packet.t === 'message.new' && !isActive && !fromMe;
+          const channels = s.channels.map((c) => {
+            if (c.id !== message.channelId) return c;
+            return {
+              ...c,
+              ...(preview ? { lastMessage: preview } : {}),
+              ...(bumpUnread
+                ? {
+                    unreadCount: (c.unreadCount ?? 0) + 1,
+                    hasMention:
+                      c.hasMention ||
+                      message.mentions.some((m) => m.type === 'user' && m.id === s.user?.id),
+                  }
+                : {}),
+            };
+          });
 
           return { ...absorbed, messagesByChannel: next, channels };
         });

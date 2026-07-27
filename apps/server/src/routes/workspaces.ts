@@ -8,6 +8,7 @@ import { encryptSecret, newInviteCode, secretHint } from '../lib/crypto.js';
 import {
   agentChannelMap,
   serializeAgent,
+  lastMessages,
   serializeChannel,
   serializeMessages,
   unreadCounts,
@@ -110,7 +111,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
       .parse(request.params);
     const { user, role } = await requireMembership(request, workspaceId);
 
-    const [wsRows, groupRows, channelRows, agentRows, memberRows, unread] =
+    const [wsRows, groupRows, channelRows, agentRows, memberRows, unread, lastByChannel] =
       await Promise.all([
         db.select().from(schema.workspaces).where(eq(schema.workspaces.id, workspaceId)).limit(1),
         db
@@ -145,6 +146,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
           .innerJoin(schema.users, eq(schema.users.id, schema.workspaceMembers.userId))
           .where(eq(schema.workspaceMembers.workspaceId, workspaceId)),
         unreadCounts(workspaceId, user.id),
+        lastMessages(workspaceId),
       ]);
 
     const workspace = wsRows[0];
@@ -207,6 +209,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
           serializeChannel(c, {
             unreadCount: unread.get(c.id)?.unread ?? 0,
             hasMention: unread.get(c.id)?.mention ?? false,
+            lastMessage: lastByChannel.get(c.id) ?? null,
             agentIds: agentRows
               .filter((a) => (agentChannels.get(a.id) ?? []).includes(c.id))
               .map((a) => a.id),

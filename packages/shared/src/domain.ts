@@ -132,6 +132,20 @@ export interface Channel {
   hasMention?: boolean;
   /** Agenti agganciati a questo canale. */
   agentIds?: string[];
+  /**
+   * L'ultimo messaggio, per l'elenco delle conversazioni.
+   *
+   * Arriva col bootstrap e non dai messaggi in memoria: quelli esistono solo
+   * per i canali già aperti, quindi un elenco costruito su di loro mostra
+   * l'anteprima a due righe e la lascia vuota a tutte le altre.
+   */
+  lastMessage?: {
+    authorName: string;
+    authorEmoji: string | null;
+    isAgent: boolean;
+    excerpt: string;
+    createdAt: string;
+  } | null;
 }
 
 export const createChannelSchema = z.object({
