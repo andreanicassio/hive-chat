@@ -349,7 +349,7 @@ export async function lastMessages(
   const rows = await db.execute<{
     channel_id: string;
     body: string;
-    created_at: Date;
+    created_at: Date | string;
     author_type: string;
     agent_name: string | null;
     agent_emoji: string | null;
@@ -386,7 +386,9 @@ export async function lastMessages(
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 120),
-      createdAt: r.created_at.toISOString(),
+      // `db.execute` non passa dai tipi di Drizzle: il driver può restituire
+      // il timestamp già come stringa. `new Date` va bene in entrambi i casi.
+      createdAt: new Date(r.created_at).toISOString(),
     });
   }
   return out;
